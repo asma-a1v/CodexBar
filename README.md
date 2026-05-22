@@ -34,7 +34,7 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 ## Quick Start
 
 ```powershell
-# Prerequisites: Node.js — Rust and MinGW are installed automatically
+# Prerequisites: Node.js + pnpm — Rust and MinGW are installed automatically
 git clone https://github.com/Finesssee/Win-CodexBar.git
 cd Win-CodexBar
 .\dev.ps1
@@ -64,6 +64,16 @@ You can also grab the latest build from [GitHub Releases](https://github.com/Fin
 - **Checksums**: each release includes `.sha256` files for manual verification
 
 The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrapper, app icon, Start Menu shortcut, uninstall metadata, and the Visual C++ runtime bootstrap needed on clean Windows machines. The portable exe is the same desktop app without installer integration; release builds statically link the WebView2 loader, so portable users only need the Microsoft Edge WebView2 Runtime installed on the machine.
+
+## Fast Windows Release Builds
+
+For local release builds on a Windows server, use the cached release builder:
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref v0.27.4
+```
+
+The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\source`, stores Rust build output in `C:\code\Win-CodexBar-release\cache\cargo-target`, stores pnpm packages in `C:\code\Win-CodexBar-release\cache\pnpm-store`, and reuses signed WebView2/VC++ bootstrapper downloads. It still builds the real release binary, verifies Microsoft signatures for installer dependencies, packages with Inno Setup, and writes the same four GitHub release assets under `C:\code\Win-CodexBar-release\assets`.
 
 ## First Run
 

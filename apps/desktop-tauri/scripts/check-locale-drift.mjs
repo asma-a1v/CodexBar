@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 // Locale drift check — verifies that the TypeScript ALL_LOCALE_KEYS array
 // matches the Rust LocaleKey::ALL slice in rust/src/locale.rs exactly
-// (same keys, same count). Invoked from `npm run check-locale` and
-// automatically from `npm run prebuild`.
+// (same keys, same count). Invoked from `pnpm run check-locale` and
+// automatically from `pnpm run prebuild`.
 //
 // Exit codes:
 //   0 — lists match

@@ -80,9 +80,9 @@ if grep -qi microsoft /proc/version 2>/dev/null || [ -n "${WSL_DISTRO_NAME:-}" ]
     fi
 fi
 
-if [ "$CLI_MODE" -eq 0 ] && ! command -v npm &>/dev/null; then
-    echo "ERROR: npm (Node.js) not found."
-    echo "Install Node.js to build apps/desktop-tauri before running desktop mode."
+if [ "$CLI_MODE" -eq 0 ] && ! command -v pnpm &>/dev/null; then
+    echo "ERROR: pnpm not found."
+    echo "Install pnpm to build apps/desktop-tauri before running desktop mode."
     exit 1
 fi
 
@@ -129,10 +129,10 @@ if [ "$SKIP_BUILD" -eq 0 ]; then
         cd "$TAURI_APP_DIR"
         if [ "$RELEASE" -eq 1 ]; then
             echo "Building CodexBar Desktop (release, no bundle)..."
-            npm run tauri:build
+            pnpm run tauri:build
         else
             echo "Building CodexBar Desktop (debug, no bundle)..."
-            npm run tauri:build:debug
+            pnpm run tauri:build:debug
         fi
         cd "$REPO_ROOT"
     fi

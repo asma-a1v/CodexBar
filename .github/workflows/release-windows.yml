@@ -14,10 +14,17 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Set up pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10.18.1
+
       - name: Set up Node.js
         uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: pnpm
+          cache-dependency-path: apps/desktop-tauri/pnpm-lock.yaml
 
       - name: Read app version
         shell: bash
@@ -37,15 +44,13 @@ jobs:
 
       - name: Install frontend dependencies
         shell: bash
-        run: npm ci --prefix apps/desktop-tauri
+        run: pnpm --dir apps/desktop-tauri install --frozen-lockfile
 
       - name: Build Windows executable
         shell: bash
         run: |
           set -euo pipefail
-          pushd apps/desktop-tauri
-          npx tauri build --no-bundle
-          popd
+          pnpm --dir apps/desktop-tauri exec tauri build --no-bundle
 
           SOURCE_EXE="target/release/codexbar-desktop-tauri.exe"
           DEST_EXE="target/release/codexbar.exe"

@@ -34,7 +34,7 @@
 ## 快速开始
 
 ```powershell
-# 前置要求：Node.js — Rust 和 MinGW 将自动安装
+# 前置要求：Node.js + pnpm — Rust 和 MinGW 将自动安装
 git clone https://github.com/Finesssee/Win-CodexBar.git
 cd Win-CodexBar
 .\dev.ps1
@@ -64,6 +64,16 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 - **校验和**：每个发布版本都包含 `.sha256` 文件，便于手动校验
 
 安装包会包含桌面应用、Microsoft Evergreen WebView2 引导程序、应用图标、开始菜单快捷方式、卸载信息，以及干净 Windows 机器可能需要的 Visual C++ 运行库引导。便携版 exe 是没有安装器集成的同一个桌面应用；release 构建会静态链接 WebView2 loader，所以便携版用户只需要机器上已安装 Microsoft Edge WebView2 Runtime。
+
+## 快速 Windows 发布构建
+
+在 Windows 构建服务器上做本地发布构建时，使用缓存版构建脚本：
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref v0.27.4
+```
+
+脚本会在 `C:\code\Win-CodexBar-release\source` 维护干净源码签出，在 `C:\code\Win-CodexBar-release\cache\cargo-target` 复用 Rust 构建输出，在 `C:\code\Win-CodexBar-release\cache\pnpm-store` 复用 pnpm 包，并复用已签名的 WebView2/VC++ 引导程序下载。它仍会构建真实 release 二进制、校验 Microsoft 签名、用 Inno Setup 打包，并在 `C:\code\Win-CodexBar-release\assets` 输出 GitHub Release 使用的四个资产。
 
 ## 首次运行
 

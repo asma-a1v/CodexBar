@@ -119,10 +119,10 @@ if (-not $hasCargo -or ($needsDlltool -and -not $hasDlltool)) {
     }
 }
 
-$npmCommand = Get-Command npm.cmd -ErrorAction SilentlyContinue
-if (-not $npmCommand) {
-    Write-Host "ERROR: npm (Node.js) not found." -ForegroundColor Red
-    Write-Host "Install Node.js to build apps/desktop-tauri before running this script." -ForegroundColor Yellow
+$pnpmCommand = Get-Command pnpm.cmd -ErrorAction SilentlyContinue
+if (-not $pnpmCommand) {
+    Write-Host "ERROR: pnpm not found." -ForegroundColor Red
+    Write-Host "Install pnpm to build apps/desktop-tauri before running this script." -ForegroundColor Yellow
     exit 1
 }
 
@@ -133,10 +133,10 @@ if (-not $SkipBuild) {
     try {
         if ($Release) {
             Write-Host "Building CodexBar Desktop (release, no bundle)..." -ForegroundColor Cyan
-            & $npmCommand.Source run tauri:build
+            & $pnpmCommand.Source run tauri:build
         } else {
             Write-Host "Building CodexBar Desktop (debug, no bundle)..." -ForegroundColor Cyan
-            & $npmCommand.Source run tauri:build:debug
+            & $pnpmCommand.Source run tauri:build:debug
         }
         if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
     } finally {

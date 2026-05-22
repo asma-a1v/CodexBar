@@ -32,24 +32,30 @@ cargo clippy -p codexbar-desktop-tauri --all-targets -- -D warnings
 
 # Frontend unit tests + bundle
 cd apps\desktop-tauri
-npm install
-npm run check-locale      # exits non-zero on Rust/TS locale-key drift
-npm run test              # vitest — 27 smoke tests
-npm run build             # prebuild runs check-locale, then tsc + vite
+pnpm install --frozen-lockfile
+pnpm run check-locale      # exits non-zero on Rust/TS locale-key drift
+pnpm run test              # vitest smoke tests
+pnpm run build             # prebuild runs check-locale, then tsc + vite
 
 # Produce the Windows installer (.msi via WiX + .exe via NSIS)
-npm run tauri:build       # add  -- --bundles msi  or  nsis  to narrow
+pnpm run tauri:build       # add  -- --bundles msi  or  nsis  to narrow
 ```
 
 Artefacts land in
 `apps\desktop-tauri\src-tauri\target\release\bundle\msi\*.msi` and
-`\nsis\*.exe`. Invocations that pass `--no-bundle` (our default `npm run
+`\nsis\*.exe`. Invocations that pass `--no-bundle` (our default `pnpm run
 tauri:build`) skip installer packaging; drop `--no-bundle` for the real
 release flow via `cargo tauri build` directly.
 
-For the Inno Setup release artefact produced by
-`.github/workflows/release-windows.yml`, run the smoke installer test on a
-Windows machine before upload or publication:
+For the Inno Setup release artifact, prefer the cached Windows release builder:
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref v0.27.4
+```
+
+It keeps a clean managed checkout while reusing Cargo, pnpm, and signed
+installer dependency caches. Run the smoke installer test on a Windows machine
+before upload or publication:
 
 ```powershell
 powershell -ExecutionPolicy Bypass `
@@ -119,7 +125,7 @@ the list below. Check each item off in §4.
   policy decision, documented here only so operators can unblock
   themselves. This repository must not ship a registry tweak for it.
 - E2E browser automation (Playwright / WebDriver) is intentionally out
-  of scope for Phase 13; the `npm run test` suite covers unit-level
+  of scope for Phase 13; the `pnpm run test` suite covers unit-level
   behaviour only.
 
 ---
@@ -134,11 +140,11 @@ Tick each entry as it is verified on the Windows target.
 [ ] build.cargo-test              cargo test
 [ ] build.tauri-clippy            cargo clippy -p codexbar-desktop-tauri --all-targets -- -D warnings
 [ ] build.tauri-test              cargo test -p codexbar-desktop-tauri
-[ ] build.npm-install             cd apps/desktop-tauri && npm install
-[ ] build.npm-check-locale        npm run check-locale
-[ ] build.npm-test                npm run test
-[ ] build.npm-build               npm run build
-[ ] build.tauri-bundle            npm run tauri:build (msi + nsis)
+[ ] build.pnpm-install            cd apps/desktop-tauri && pnpm install --frozen-lockfile
+[ ] build.pnpm-check-locale       pnpm run check-locale
+[ ] build.pnpm-test               pnpm run test
+[ ] build.pnpm-build              pnpm run build
+[ ] build.tauri-bundle            pnpm run tauri:build (msi + nsis)
 
 [ ] runtime.tray-icon-visible
 [ ] runtime.tray-left-click-popout

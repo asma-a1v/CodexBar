@@ -4,7 +4,7 @@
 
 - **Rust** 1.70+ with `x86_64-pc-windows-gnu` target
 - **MinGW-w64** (for the GNU linker)
-- **Node.js** 18+ and npm
+- **Node.js** 18+ and pnpm
 
 Install prerequisites automatically:
 ```powershell
@@ -15,9 +15,9 @@ Install prerequisites automatically:
 
 ```powershell
 cd apps/desktop-tauri
-npm install
+pnpm install --frozen-lockfile
 cd ../..
-npm --prefix apps/desktop-tauri run tauri:build
+pnpm --dir apps/desktop-tauri run tauri:build
 ```
 
 The release binary lands at `target/release/codexbar-desktop-tauri.exe`.
@@ -25,7 +25,7 @@ The release binary lands at `target/release/codexbar-desktop-tauri.exe`.
 For a debug build (faster compile, no optimisations):
 ```powershell
 cd apps/desktop-tauri
-npm run tauri:build:debug
+pnpm run tauri:build:debug
 ```
 
 ## Build the CLI Only
@@ -46,8 +46,20 @@ cargo build -p codexbar --release
 
 Or directly:
 ```powershell
-cd apps/desktop-tauri && npm run tauri:dev
+cd apps/desktop-tauri && pnpm run tauri:dev
 ```
+
+## Fast Windows Release Build
+
+For repeat release builds on a Windows server, prefer the cached release script:
+
+```powershell
+.\scripts\windows-release-build.ps1 -Ref v0.27.4
+```
+
+It builds from a clean managed checkout but keeps Cargo output, the pnpm store,
+and signed installer bootstrapper downloads in `C:\code\Win-CodexBar-release\cache`.
+Release assets land in `C:\code\Win-CodexBar-release\assets`.
 
 ## Project Structure
 
@@ -82,7 +94,7 @@ cargo test --manifest-path rust/Cargo.toml
 cargo test --manifest-path apps/desktop-tauri/src-tauri/Cargo.toml
 
 # TypeScript type check
-cd apps/desktop-tauri && npx tsc --noEmit
+cd apps/desktop-tauri && pnpm exec tsc --noEmit
 
 # Lint
 cargo clippy --all-targets -- -D warnings
