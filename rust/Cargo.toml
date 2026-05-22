@@ -45,28 +45,8 @@ chrono = { version = "0.4", features = ["serde"] }
 async-trait = "0.1"
 futures = "0.3"
 
-# System tray (Windows)
-tray-icon = "0.19"
-# muda version must match what tray-icon uses
-muda = "0.15"
-# Channel for menu events
-crossbeam-channel = "0.5"
-# Window event loop for proper message pumping
-winit = "0.30"
-
-# Native GUI with egui
-eframe = { version = "0.30", default-features = false, features = ["default_fonts", "wgpu", "persistence"] }
-egui = "0.30"
-egui_extras = { version = "0.30", features = ["svg", "image"] }
 image = { version = "0.25", default-features = false, features = ["png"] }
-rand = "0.9.2"
-egui_plot = "0.34.0"
 global-hotkey = "0.7.0"
-
-# SVG rendering
-resvg = "0.44"
-usvg = "0.44"
-tiny-skia = "0.11"
 
 # SQLite for reading browser cookies
 rusqlite = { version = "0.32", features = ["bundled"] }
@@ -104,9 +84,6 @@ dirs = "6"
 
 # Open URLs in browser
 open = "5"
-
-# Clipboard access
-arboard = "3.2"
 
 # Windows-only
 [target.'cfg(windows)'.dependencies]
