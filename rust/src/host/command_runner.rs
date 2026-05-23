@@ -139,94 +139,18 @@ impl CommandRunner {
         input: Option<&str>,
         options: &CommandOptions,
     ) -> Result<CommandResult, CommandError> {
-        // Find the binary
-        let binary_path = if Self::is_explicit_binary_path(binary) {
-            let path = PathBuf::from(binary);
-            if path.exists() {
-                path
-            } else {
-                return Err(CommandError::BinaryNotFound(binary.to_string()));
-            }
-        } else {
-            Self::which(binary).ok_or_else(|| CommandError::BinaryNotFound(binary.to_string()))?
-        };
-
-        // Build the command
-        let mut cmd = Command::new(&binary_path);
-
-        // Add extra args
-        for arg in &options.extra_args {
-            cmd.arg(arg);
-        }
-
-        // Set working directory
-        if let Some(dir) = &options.working_directory {
-            cmd.current_dir(dir);
-        }
-
-        // Set up environment
-        let mut env = std::env::vars().collect::<HashMap<_, _>>();
-        for (k, v) in &self.env_additions {
-            env.insert(k.clone(), v.clone());
-        }
-
-        // Set terminal environment
-        env.insert("TERM".to_string(), "xterm-256color".to_string());
-        env.insert("COLORTERM".to_string(), "truecolor".to_string());
-
-        for (k, v) in &env {
-            cmd.env(k, v);
-        }
-
-        // Set up stdio
-        cmd.stdin(Stdio::piped());
-        cmd.stdout(Stdio::piped());
-        cmd.stderr(Stdio::piped());
-
-        // Hide console window on Windows
-        #[cfg(windows)]
-        {
-            const CREATE_NO_WINDOW: u32 = 0x08000000;
-            cmd.creation_flags(CREATE_NO_WINDOW);
-        }
-
-        // Spawn the process
-        let mut child = cmd
-            .spawn()
-            .map_err(|e| CommandError::LaunchFailed(e.to_string()))?;
+        let binary_path = Self::resolve_binary(binary)?;
+        let mut child = self.spawn_child(&binary_path, options)?;
 
         let start = Instant::now();
         let deadline = start + options.timeout;
 
-        // Handle input if provided
-        if let Some(input_text) = input
-            && let Some(stdin) = child.stdin.take()
-        {
-            use std::io::Write;
-            let mut stdin = stdin;
-            // Wait for initial delay
-            std::thread::sleep(options.initial_delay);
-            // Send input
-            let _ = stdin.write_all(input_text.as_bytes());
-            let _ = stdin.write_all(b"\n");
-            let _ = stdin.flush();
-        }
+        Self::send_initial_input(&mut child, input, options.initial_delay);
 
         // Capture output
         let output = self.capture_output(&mut child, options, deadline)?;
 
-        // Wait for process to finish (with timeout)
-        let exit_code = match child.try_wait() {
-            Ok(Some(status)) => status.code(),
-            Ok(None) => {
-                // Process still running, kill it
-                let _ = child.kill();
-                let _ = child.wait();
-                None
-            }
-            Err(_) => None,
-        };
-
+        let exit_code = Self::finish_child(&mut child);
         let timed_out = Instant::now() >= deadline && output.is_empty();
 
         Ok(CommandResult {
@@ -234,6 +158,97 @@ impl CommandRunner {
             timed_out,
             exit_code,
         })
+    }
+
+    fn resolve_binary(binary: &str) -> Result<PathBuf, CommandError> {
+        if Self::is_explicit_binary_path(binary) {
+            return Self::resolve_explicit_binary(binary);
+        }
+
+        Self::which(binary).ok_or_else(|| CommandError::BinaryNotFound(binary.to_string()))
+    }
+
+    fn resolve_explicit_binary(binary: &str) -> Result<PathBuf, CommandError> {
+        let path = PathBuf::from(binary);
+        if path.exists() {
+            Ok(path)
+        } else {
+            Err(CommandError::BinaryNotFound(binary.to_string()))
+        }
+    }
+
+    fn spawn_child(
+        &self,
+        binary_path: &PathBuf,
+        options: &CommandOptions,
+    ) -> Result<Child, CommandError> {
+        let mut cmd = Command::new(binary_path);
+        Self::configure_command_args(&mut cmd, options);
+        self.configure_command_environment(&mut cmd);
+        Self::configure_command_stdio(&mut cmd);
+        Self::hide_windows_console(&mut cmd);
+
+        cmd.spawn()
+            .map_err(|e| CommandError::LaunchFailed(e.to_string()))
+    }
+
+    fn configure_command_args(cmd: &mut Command, options: &CommandOptions) {
+        cmd.args(&options.extra_args);
+
+        if let Some(dir) = &options.working_directory {
+            cmd.current_dir(dir);
+        }
+    }
+
+    fn configure_command_environment(&self, cmd: &mut Command) {
+        let mut env = std::env::vars().collect::<HashMap<_, _>>();
+        env.extend(self.env_additions.clone());
+        env.insert("TERM".to_string(), "xterm-256color".to_string());
+        env.insert("COLORTERM".to_string(), "truecolor".to_string());
+
+        cmd.envs(env);
+    }
+
+    fn configure_command_stdio(cmd: &mut Command) {
+        cmd.stdin(Stdio::piped());
+        cmd.stdout(Stdio::piped());
+        cmd.stderr(Stdio::piped());
+    }
+
+    #[cfg(windows)]
+    fn hide_windows_console(cmd: &mut Command) {
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
+
+    #[cfg(not(windows))]
+    fn hide_windows_console(_cmd: &mut Command) {}
+
+    fn send_initial_input(child: &mut Child, input: Option<&str>, initial_delay: Duration) {
+        let Some(input_text) = input else {
+            return;
+        };
+        let Some(mut stdin) = child.stdin.take() else {
+            return;
+        };
+
+        use std::io::Write;
+        std::thread::sleep(initial_delay);
+        let _ = stdin.write_all(input_text.as_bytes());
+        let _ = stdin.write_all(b"\n");
+        let _ = stdin.flush();
+    }
+
+    fn finish_child(child: &mut Child) -> Option<i32> {
+        match child.try_wait() {
+            Ok(Some(status)) => status.code(),
+            Ok(None) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                None
+            }
+            Err(_) => None,
+        }
     }
 
     /// Capture output from a running process
