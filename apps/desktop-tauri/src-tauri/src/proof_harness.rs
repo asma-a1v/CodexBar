@@ -302,53 +302,93 @@ pub fn run_command(app: &AppHandle, command: ProofCommand) -> Result<ProofStateP
     ensure_proof_mode(app)?;
     clear_menu_snapshot();
     clear_proof_state_override();
-    let mut emit_after_command = false;
 
-    match command {
-        ProofCommand::OpenTrayPanel => {
-            let position =
-                shell::tray_panel_position(app).or_else(|| shell::shortcut_panel_position(app));
-            shell::reopen_to_target(
-                app,
-                SurfaceMode::TrayPanel,
-                SurfaceTarget::Summary,
-                position,
-            )?;
-        }
-        ProofCommand::OpenNativeMenu => {
-            let (menu_path, menu_items) = native_menu_snapshot_for_path("tray");
-            set_menu_snapshot(Some(menu_path), menu_items);
-            set_proof_state_override(native_menu_state_override());
-            emit_after_command = true;
-        }
-        ProofCommand::OpenDashboard => {
-            shell::transition_to_target(app, SurfaceMode::PopOut, SurfaceTarget::Dashboard, None)?;
-        }
-        ProofCommand::OpenProvider { provider_id } => {
-            shell::transition_to_target(
-                app,
-                SurfaceMode::PopOut,
-                SurfaceTarget::Provider { provider_id },
-                None,
-            )?;
-        }
-        ProofCommand::OpenSettings { tab } => {
-            shell::settings_window::open_or_focus(app, &tab)?;
-        }
-        ProofCommand::OpenAboutPath => {
-            transition_about_path(app)?;
-            emit_after_command = true;
-        }
-        ProofCommand::HideSurface => {
-            shell::hide_to_tray(app)?;
-        }
-    }
-
+    let outcome = execute_proof_command(app, command)?;
     let payload = capture_state(app)?;
-    if emit_after_command {
+    if outcome.emit_after_command {
         events::emit_proof_state_changed(app, &payload);
     }
     Ok(payload)
+}
+
+struct ProofCommandOutcome {
+    emit_after_command: bool,
+}
+
+impl ProofCommandOutcome {
+    const SILENT: Self = Self {
+        emit_after_command: false,
+    };
+
+    const EMIT_AFTER: Self = Self {
+        emit_after_command: true,
+    };
+}
+
+fn execute_proof_command(
+    app: &AppHandle,
+    command: ProofCommand,
+) -> Result<ProofCommandOutcome, String> {
+    match command {
+        ProofCommand::OpenTrayPanel => open_proof_tray_panel(app),
+        ProofCommand::OpenNativeMenu => open_proof_native_menu(),
+        ProofCommand::OpenDashboard => open_proof_dashboard(app),
+        ProofCommand::OpenProvider { provider_id } => open_proof_provider(app, provider_id),
+        ProofCommand::OpenSettings { tab } => open_proof_settings(app, tab),
+        ProofCommand::OpenAboutPath => open_proof_about_path(app),
+        ProofCommand::HideSurface => hide_proof_surface(app),
+    }
+}
+
+fn open_proof_tray_panel(app: &AppHandle) -> Result<ProofCommandOutcome, String> {
+    let position = shell::tray_panel_position(app).or_else(|| shell::shortcut_panel_position(app));
+    shell::reopen_to_target(
+        app,
+        SurfaceMode::TrayPanel,
+        SurfaceTarget::Summary,
+        position,
+    )?;
+    Ok(ProofCommandOutcome::SILENT)
+}
+
+fn open_proof_native_menu() -> Result<ProofCommandOutcome, String> {
+    let (menu_path, menu_items) = native_menu_snapshot_for_path("tray");
+    set_menu_snapshot(Some(menu_path), menu_items);
+    set_proof_state_override(native_menu_state_override());
+    Ok(ProofCommandOutcome::EMIT_AFTER)
+}
+
+fn open_proof_dashboard(app: &AppHandle) -> Result<ProofCommandOutcome, String> {
+    shell::transition_to_target(app, SurfaceMode::PopOut, SurfaceTarget::Dashboard, None)?;
+    Ok(ProofCommandOutcome::SILENT)
+}
+
+fn open_proof_provider(
+    app: &AppHandle,
+    provider_id: String,
+) -> Result<ProofCommandOutcome, String> {
+    shell::transition_to_target(
+        app,
+        SurfaceMode::PopOut,
+        SurfaceTarget::Provider { provider_id },
+        None,
+    )?;
+    Ok(ProofCommandOutcome::SILENT)
+}
+
+fn open_proof_settings(app: &AppHandle, tab: String) -> Result<ProofCommandOutcome, String> {
+    shell::settings_window::open_or_focus(app, &tab)?;
+    Ok(ProofCommandOutcome::SILENT)
+}
+
+fn open_proof_about_path(app: &AppHandle) -> Result<ProofCommandOutcome, String> {
+    transition_about_path(app)?;
+    Ok(ProofCommandOutcome::EMIT_AFTER)
+}
+
+fn hide_proof_surface(app: &AppHandle) -> Result<ProofCommandOutcome, String> {
+    shell::hide_to_tray(app)?;
+    Ok(ProofCommandOutcome::SILENT)
 }
 
 pub fn ensure_proof_mode(app: &AppHandle) -> Result<(), String> {
