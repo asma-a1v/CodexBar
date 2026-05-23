@@ -185,41 +185,42 @@ impl MiniMaxLocalStorageImporter {
         ];
 
         for pattern in patterns {
-            if let Some(start_idx) = content.find(pattern) {
-                // Find the start of the JSON object
-                if let Some(json_start) = content[start_idx..].find('{') {
-                    let json_start = start_idx + json_start;
-                    // Try to parse JSON from this point
-                    let remaining = &content[json_start..];
-
-                    // Find matching braces
-                    let mut depth = 0;
-                    let mut end_idx = 0;
-
-                    for (i, c) in remaining.char_indices() {
-                        match c {
-                            '{' => depth += 1,
-                            '}' => {
-                                depth -= 1;
-                                if depth == 0 {
-                                    end_idx = i + 1;
-                                    break;
-                                }
-                            }
-                            _ => {}
-                        }
-                    }
-
-                    if end_idx > 0 {
-                        let json_str = &remaining[..end_idx];
-                        if let Ok(parsed) = serde_json::from_str(json_str) {
-                            return Some(parsed);
-                        }
-                    }
-                }
+            if let Some(parsed) = Self::extract_json_after_pattern(&content, pattern) {
+                return Some(parsed);
             }
         }
 
+        None
+    }
+
+    fn extract_json_after_pattern(content: &str, pattern: &str) -> Option<serde_json::Value> {
+        let json_start = Self::json_start_after_pattern(content, pattern)?;
+        let remaining = &content[json_start..];
+        let end_idx = Self::matching_json_object_end(remaining)?;
+        serde_json::from_str(&remaining[..end_idx]).ok()
+    }
+
+    fn json_start_after_pattern(content: &str, pattern: &str) -> Option<usize> {
+        let start_idx = content.find(pattern)?;
+        content[start_idx..]
+            .find('{')
+            .map(|offset| start_idx + offset)
+    }
+
+    fn matching_json_object_end(content: &str) -> Option<usize> {
+        let mut depth = 0;
+        for (i, c) in content.char_indices() {
+            match c {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return Some(i + 1);
+                    }
+                }
+                _ => {}
+            }
+        }
         None
     }
 
