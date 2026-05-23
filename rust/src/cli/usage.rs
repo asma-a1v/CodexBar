@@ -4,7 +4,8 @@ use clap::Args;
 use serde::Serialize;
 
 use crate::core::{
-    FetchContext, ProviderFetchResult, ProviderId, SourceMode, UsagePace, instantiate_provider,
+    CostSnapshot, FetchContext, ProviderFetchResult, ProviderId, RateWindow, SourceMode, UsagePace,
+    UsageSnapshot, instantiate_provider,
 };
 use crate::status::{ProviderStatus as StatusInfo, StatusLevel, fetch_provider_status};
 
@@ -263,25 +264,23 @@ pub fn render_text_with_status(
     let mut lines = Vec::new();
     let metadata = instantiate_provider(provider).metadata().clone();
 
-    // Header with optional status indicator
-    let status_indicator = if let Some(s) = status {
-        let (symbol, color) = match s.level {
-            StatusLevel::Operational => ("●", "\x1b[32m"), // Green
-            StatusLevel::Degraded => ("◐", "\x1b[33m"),    // Yellow
-            StatusLevel::Partial => ("◑", "\x1b[33m"),     // Yellow
-            StatusLevel::Major => ("○", "\x1b[31m"),       // Red
-            StatusLevel::Unknown => ("?", "\x1b[90m"),     // Gray
-        };
-        if use_color {
-            format!(" {}{}\x1b[0m", color, symbol)
-        } else {
-            format!(" {}", symbol)
-        }
-    } else {
-        String::new()
-    };
+    lines.push(render_usage_header(provider, result, status, use_color));
+    append_status_line(&mut lines, status);
+    append_account_lines(&mut lines, &result.usage);
+    append_usage_window_lines(&mut lines, &result.usage, &metadata, use_color);
+    append_cost_line(&mut lines, result.cost.as_ref());
 
-    let header = if use_color {
+    lines.join("\n")
+}
+
+fn render_usage_header(
+    provider: ProviderId,
+    result: &ProviderFetchResult,
+    status: Option<&StatusInfo>,
+    use_color: bool,
+) -> String {
+    let status_indicator = render_status_indicator(status, use_color);
+    if use_color {
         format!(
             "\x1b[1m{}\x1b[0m ({}){}",
             provider.display_name(),
@@ -295,56 +294,86 @@ pub fn render_text_with_status(
             result.source_label,
             status_indicator
         )
-    };
-    lines.push(header);
+    }
+}
 
-    // Status description if available
+fn render_status_indicator(status: Option<&StatusInfo>, use_color: bool) -> String {
+    let Some(status) = status else {
+        return String::new();
+    };
+
+    let (symbol, color) = match status.level {
+        StatusLevel::Operational => ("●", "\x1b[32m"), // Green
+        StatusLevel::Degraded => ("◐", "\x1b[33m"),    // Yellow
+        StatusLevel::Partial => ("◑", "\x1b[33m"),     // Yellow
+        StatusLevel::Major => ("○", "\x1b[31m"),       // Red
+        StatusLevel::Unknown => ("?", "\x1b[90m"),     // Gray
+    };
+
+    if use_color {
+        format!(" {}{}\x1b[0m", color, symbol)
+    } else {
+        format!(" {}", symbol)
+    }
+}
+
+fn append_status_line(lines: &mut Vec<String>, status: Option<&StatusInfo>) {
     if let Some(s) = status
         && s.level != StatusLevel::Operational
         && s.level != StatusLevel::Unknown
     {
         lines.push(format!("  Status: {}", s.description));
     }
+}
 
-    // Account info
-    if let Some(ref email) = result.usage.account_email {
+fn append_account_lines(lines: &mut Vec<String>, usage: &UsageSnapshot) {
+    if let Some(ref email) = usage.account_email {
         lines.push(format!("  Account: {}", email));
     }
-    if let Some(ref method) = result.usage.login_method {
+    if let Some(ref method) = usage.login_method {
         lines.push(format!("  Plan:    {}", method));
     }
+}
 
-    // Primary window
-    let primary = &result.usage.primary;
-    let session_bar = render_progress_bar(primary.used_percent, 20, use_color);
-    let session_reset = primary
+fn append_usage_window_lines(
+    lines: &mut Vec<String>,
+    usage: &UsageSnapshot,
+    metadata: &crate::core::ProviderMetadata,
+    use_color: bool,
+) {
+    append_window_line(lines, &metadata.session_label, &usage.primary, use_color);
+    append_secondary_window_line(
+        lines,
+        usage.secondary.as_ref(),
+        &metadata.weekly_label,
+        use_color,
+    );
+    append_model_specific_line(lines, usage.model_specific.as_ref(), use_color);
+}
+
+fn append_window_line(lines: &mut Vec<String>, label: &str, window: &RateWindow, use_color: bool) {
+    let bar = render_progress_bar(window.used_percent, 20, use_color);
+    let reset = window
         .format_countdown()
         .map(|c| format!(" (resets in {})", c))
         .unwrap_or_default();
     lines.push(format!(
         "  {:<8} {} {:.0}% used{}",
-        format!("{}:", metadata.session_label),
-        session_bar,
-        primary.used_percent,
-        session_reset
+        format!("{}:", label),
+        bar,
+        window.used_percent,
+        reset
     ));
+}
 
-    // Secondary window
-    if let Some(ref secondary) = result.usage.secondary {
-        let weekly_bar = render_progress_bar(secondary.used_percent, 20, use_color);
-        let weekly_reset = secondary
-            .format_countdown()
-            .map(|c| format!(" (resets in {})", c))
-            .unwrap_or_default();
-        lines.push(format!(
-            "  {:<8} {} {:.0}% used{}",
-            format!("{}:", metadata.weekly_label),
-            weekly_bar,
-            secondary.used_percent,
-            weekly_reset
-        ));
-
-        // Weekly pace prediction
+fn append_secondary_window_line(
+    lines: &mut Vec<String>,
+    secondary: Option<&RateWindow>,
+    label: &str,
+    use_color: bool,
+) {
+    if let Some(secondary) = secondary {
+        append_window_line(lines, label, secondary, use_color);
         let window_minutes = secondary.window_minutes.unwrap_or(10080);
         if let Some(pace) = UsagePace::weekly(secondary, None, window_minutes) {
             lines.push(format!(
@@ -354,32 +383,41 @@ pub fn render_text_with_status(
             ));
         }
     }
+}
 
-    // Model-specific window
-    if let Some(ref opus) = result.usage.model_specific {
+fn append_model_specific_line(
+    lines: &mut Vec<String>,
+    model_specific: Option<&RateWindow>,
+    use_color: bool,
+) {
+    if let Some(opus) = model_specific {
         let opus_bar = render_progress_bar(opus.used_percent, 20, use_color);
         lines.push(format!(
             "  Opus:    {} {:.0}% used",
             opus_bar, opus.used_percent
         ));
     }
+}
 
-    // Cost info
-    if let Some(ref cost) = result.cost {
-        let cost_line = if let Some(limit) = cost.format_limit() {
-            format!(
-                "  Cost:    {} / {} ({})",
-                cost.format_used(),
-                limit,
-                cost.period
-            )
-        } else {
-            format!("  Cost:    {} ({})", cost.format_used(), cost.period)
-        };
-        lines.push(cost_line);
+fn append_cost_line(lines: &mut Vec<String>, cost: Option<&CostSnapshot>) {
+    let Some(cost) = cost else {
+        return;
+    };
+
+    if let Some(limit) = cost.format_limit() {
+        lines.push(format!(
+            "  Cost:    {} / {} ({})",
+            cost.format_used(),
+            limit,
+            cost.period
+        ));
+    } else {
+        lines.push(format!(
+            "  Cost:    {} ({})",
+            cost.format_used(),
+            cost.period
+        ));
     }
-
-    lines.join("\n")
 }
 
 /// Render usage as text (backwards compatible version)
