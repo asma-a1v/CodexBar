@@ -82,6 +82,9 @@ jobs:
               $args += "-UploadCloudflare"
             }
             powershell.exe @args
+            if ($LASTEXITCODE -ne 0) {
+              throw "circleci-release.ps1 failed with exit code $LASTEXITCODE"
+            }
 
       - store_artifacts:
           path: C:\code\Win-CodexBar-release\assets
