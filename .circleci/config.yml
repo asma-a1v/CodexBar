@@ -25,92 +25,30 @@ jobs:
 
       - run:
           name: Install and verify release tools
+          shell: cmd.exe
           command: |
-            $ErrorActionPreference = "Stop"
-            trap {
-              Write-Error $_
-              exit 1
-            }
-            choco feature enable -n allowGlobalConfirmation
-
-            choco install git gh innosetup nodejs-lts -y --no-progress
-
-            $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-              [System.Environment]::GetEnvironmentVariable("Path", "User")
-
-            if (-not (Get-Command rustup -ErrorAction SilentlyContinue)) {
-              choco install rustup.install -y --no-progress
-              $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
-                [System.Environment]::GetEnvironmentVariable("Path", "User")
-            }
-
-            rustup default stable-x86_64-pc-windows-msvc
-            rustup target add x86_64-pc-windows-msvc
-            $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
-
-            corepack enable
-            corepack prepare pnpm@10.18.1 --activate
-
-            $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
-            if (Test-Path $vswhere) {
-              $vsInstall = & $vswhere -latest -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
-            } else {
-              $vsInstall = ""
-            }
-
-            if (-not $vsInstall) {
-              throw "Missing Visual Studio C++ build tools. Select a CircleCI Windows image with MSVC installed or add a reviewed installer step."
-            }
-
-            git --version
-            gh --version
-            cargo --version
-            rustc --version
-            pnpm --version
-
-            $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-            if (-not (Test-Path $iscc)) {
-              throw "Inno Setup compiler not found at $iscc"
-            }
-            Write-Host "Inno Setup compiler: $iscc"
+            powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\install-circleci-release-tools.ps1
+            if errorlevel 1 exit /b %errorlevel%
 
       - run:
           name: Build and smoke test Windows release
+          shell: cmd.exe
           no_output_timeout: 30m
           command: |
-            $ErrorActionPreference = "Stop"
-            $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
-            $args = @("-NoLogo", "-ExecutionPolicy", "Bypass", "-File", "scripts\ci\circleci-release.ps1")
-            if ([System.Boolean]::Parse("<< parameters.upload_cloudflare >>")) {
-              $args += "-UploadCloudflare"
-            }
-            & powershell.exe @args
-            if ($LASTEXITCODE -ne 0) {
-              throw "circleci-release.ps1 failed with exit code $LASTEXITCODE"
-            }
+            set CARGO_BUILD_TARGET=x86_64-pc-windows-msvc
+            if "<< parameters.upload_cloudflare >>"=="true" (
+              powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\circleci-release.ps1 -UploadCloudflare
+            ) else (
+              powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\circleci-release.ps1
+            )
+            if errorlevel 1 exit /b %errorlevel%
 
       - run:
           name: Assert release artifacts
+          shell: cmd.exe
           command: |
-            $ErrorActionPreference = "Stop"
-            $versionLine = Get-Content rust\Cargo.toml | Where-Object { $_ -match '^version = "([^"]+)"' } | Select-Object -First 1
-            if ($versionLine -notmatch '^version = "([^"]+)"') {
-              throw "Failed to determine version from rust\Cargo.toml"
-            }
-            $version = $Matches[1]
-            $assetsDir = "C:\code\Win-CodexBar-release\assets"
-            foreach ($name in @(
-              "CodexBar-$version-Setup.exe",
-              "CodexBar-$version-Setup.exe.sha256",
-              "CodexBar-$version-portable.exe",
-              "CodexBar-$version-portable.exe.sha256"
-            )) {
-              $path = Join-Path $assetsDir $name
-              if (-not (Test-Path -LiteralPath $path)) {
-                throw "Missing release artifact: $path"
-              }
-              Write-Host "Found $path"
-            }
+            powershell.exe -NoLogo -ExecutionPolicy Bypass -File scripts\ci\assert-release-assets.ps1
+            if errorlevel 1 exit /b %errorlevel%
 
       - store_artifacts:
           path: C:/code/Win-CodexBar-release/assets
