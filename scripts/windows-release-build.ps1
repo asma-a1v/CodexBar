@@ -213,9 +213,12 @@ try {
         "--store-dir", $PnpmStoreDir
     )
 
-    Write-Host "Running Tauri build"
+    $tauriBuildLog = Join-Path $AssetsDir "tauri-build.log"
+    $tauriBuildErrLog = Join-Path $AssetsDir "tauri-build.err.log"
+    Write-Host "Running Tauri build. Logs: $tauriBuildLog and $tauriBuildErrLog"
     $tauriBuildArgs = @(
-        "--dir", "apps\desktop-tauri",
+        "--dir",
+        "apps\desktop-tauri",
         "exec",
         "tauri",
         "build",
@@ -226,7 +229,37 @@ try {
         $tauriBuildArgs += @("--target", $env:CARGO_BUILD_TARGET)
     }
     $tauriBuildArgs += @("--", "--quiet")
-    Invoke-Native $pnpm.Source $tauriBuildArgs
+    $quotedArgs = $tauriBuildArgs | ForEach-Object {
+        if ($_ -match '[\s"]') {
+            '"' + ($_ -replace '"', '\"') + '"'
+        } else {
+            $_
+        }
+    }
+    $commandLine = "pnpm " + ($quotedArgs -join " ")
+    $process = Start-Process -FilePath "cmd.exe" `
+        -ArgumentList @("/d", "/s", "/c", $commandLine) `
+        -NoNewWindow `
+        -PassThru `
+        -RedirectStandardOutput $tauriBuildLog `
+        -RedirectStandardError $tauriBuildErrLog
+    while (-not $process.HasExited) {
+        Start-Sleep -Seconds 30
+        Write-Host "Tauri build still running..."
+        $process.Refresh()
+    }
+    $process.WaitForExit()
+    if ($process.ExitCode -ne 0) {
+        Write-Host "Tauri build failed with exit code $($process.ExitCode). Last 200 stdout lines:"
+        if (Test-Path $tauriBuildLog) {
+            Get-Content $tauriBuildLog -Tail 200
+        }
+        Write-Host "Last 200 stderr lines:"
+        if (Test-Path $tauriBuildErrLog) {
+            Get-Content $tauriBuildErrLog -Tail 200
+        }
+        throw "pnpm tauri build exited with code $($process.ExitCode)"
+    }
 
     $releaseBinDir = if ($env:CARGO_BUILD_TARGET) {
         Join-Path $DesktopCargoTargetDir "$($env:CARGO_BUILD_TARGET)\release"
