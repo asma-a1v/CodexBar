@@ -61,6 +61,10 @@ param(
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = "Stop"
+trap {
+    Write-Error $_
+    [Environment]::Exit(1)
+}
 
 $SourceDir = Join-Path $WorkRoot "source"
 $CacheDir = Join-Path $WorkRoot "cache"
