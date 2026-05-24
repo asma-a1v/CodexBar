@@ -96,6 +96,11 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // Detail: only the selected provider's card (macOS shows single provider)
   const visibleProviders = useMemo(() => {
     if (selectedProviderId === null) {
+      if (DEMO_ENABLED) {
+        return ["codex", "claude"]
+          .map((id) => providers.find((p) => p.providerId === id))
+          .filter((p): p is ProviderUsageSnapshot => p !== undefined);
+      }
       // Overview: show all providers (they have data, email, or error), non-error first
       const normal = sorted.filter((p) => !p.error);
       const errors = sorted.filter((p) => !!p.error);
@@ -240,13 +245,11 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     { icon: "⧉", title: t("TooltipPopOut"), onClick: openPopOut },
   ];
 
-  // Icon parity with macOS MenuDescriptor: only Refresh has an SF Symbol.
-  // Settings / About / Quit render as plain text rows (no icon column).
   const footerRows: MenuFooterRow[] = [
     { icon: "↻", label: "Refresh", shortcut: "Ctrl+R", onClick: refresh },
-    { icon: "", label: "Settings\u2026", shortcut: "Ctrl+,", onClick: openSettings },
-    { icon: "", label: "About CodexBar", onClick: openAbout },
-    { icon: "", label: "Quit", shortcut: "Ctrl+Q", onClick: quitApp },
+    { icon: "⚙", label: "Settings\u2026", shortcut: "Ctrl+,", onClick: openSettings },
+    { icon: "ⓘ", label: "About CodexBar", onClick: openAbout },
+    { icon: "⌧", label: "Quit", shortcut: "Ctrl+Q", onClick: quitApp },
   ];
 
   // Keyboard shortcuts

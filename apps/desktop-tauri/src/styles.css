@@ -3069,9 +3069,11 @@ html:has(.menu-surface--tray) {
   background: transparent;
   border: none;
   border-radius: 0;
-  padding: 2px 8px 1px;
-  /* macOS shows 7 icons per row at 310px width */
-  grid-template-columns: repeat(auto-fill, minmax(40px, 1fr));
+  padding: 8px 10px 6px;
+  /* Upstream packs the provider switcher densely: icon-first, about
+     twelve columns at the menu width instead of readable sidebar labels. */
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 9px 4px;
 }
 /* Divider between provider grid and card stack */
 .menu-surface--tray .provider-grid__divider {
@@ -3779,10 +3781,10 @@ html:has(.menu-surface--tray) {
    button width — we approximate with a 6-column grid. */
 .provider-grid {
   display: grid;
-  grid-template-columns: repeat(6, 1fr);
-  gap: 2px 1px;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 9px 4px;
   margin: 0 0 2px;
-  padding: 2px 4px;
+  padding: 8px 10px 6px;
   flex-shrink: 0;
   background: none;
   border: none;
@@ -3799,10 +3801,9 @@ html:has(.menu-surface--tray) {
   flex-direction: column;
   align-items: center;
   justify-content: flex-start;
-  gap: 1px;
-  /* macOS rowHeight 36 (stackedIcons, <3 rows): 16 icon + 11 label + 4 weekly + ~5 padding */
-  min-height: 32px;
-  padding: 2px 3px 2px;
+  gap: 2px;
+  min-height: 44px;
+  padding: 2px 1px 3px;
   border: none;
   border-radius: 5px;
   background: transparent;
@@ -3826,15 +3827,13 @@ html:has(.menu-surface--tray) {
 }
 
 .provider-grid__label {
-  /* macOS smallSystemFontSize (~11pt) when comfortable, ~8pt when crammed.
-     Our rigid 6-col 310px layout falls in the crammed regime, so use ~10px. */
   font-size: 10px;
   font-weight: 400;
   color: var(--text-secondary);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  max-width: 100%;
+  max-width: 22px;
   line-height: 1.15;
   text-align: center;
 }
@@ -3845,8 +3844,8 @@ html:has(.menu-surface--tray) {
 
 /* Provider icon inside grid — template-style like macOS (white silhouettes) */
 .provider-grid__icon-overview {
-  font-size: 14px;
-  line-height: 16px;
+  font-size: 16px;
+  line-height: 17px;
   opacity: 0.7;
 }
 .provider-grid__item--active .provider-grid__icon-overview {
@@ -3854,8 +3853,8 @@ html:has(.menu-surface--tray) {
 }
 
 .provider-grid__item .provider-icon {
-  width: 16px !important;
-  height: 16px !important;
+  width: 17px !important;
+  height: 17px !important;
   background: none;
   box-shadow: none;
   border-radius: 0;
@@ -3873,8 +3872,8 @@ html:has(.menu-surface--tray) {
    4px track at bottom of each grid button, fill = remainingPercent */
 .provider-grid__weekly-track {
   display: block;
-  width: calc(100% - 12px);
-  height: 4px;
+  width: 18px;
+  height: 3px;
   border-radius: 2px;
   background: rgba(255, 255, 255, 0.12);
   overflow: hidden;
