@@ -32,16 +32,16 @@ jobs:
           shell: powershell.exe
           command: $(git clone --no-checkout https://github.com/Finesssee/Win-CodexBar.git . | Out-Host; $?) -and $(git checkout $env:CIRCLE_SHA1 | Out-Host; $?)
 
+      - restore_cache:
+          keys:
+            - win-release-v2-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-{{ checksum "Cargo.lock" }}
+            - win-release-v2-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-
+            - win-release-v2-
+
       - run:
           name: Install and verify release tools
           shell: cmd.exe
           command: set "FULL_WINDOWS_RELEASE=<< parameters.full_release >>" && call scripts\ci\install-circleci-release-tools.cmd & if errorlevel 1 exit /b 1
-
-      - restore_cache:
-          keys:
-            - win-release-v1-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-{{ checksum "rust/Cargo.lock" }}
-            - win-release-v1-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-
-            - win-release-v1-
 
       - run:
           name: Build Windows release
@@ -55,9 +55,11 @@ jobs:
           command: if "<< parameters.full_release >>"=="true" (call scripts\ci\assert-release-assets.cmd) else (call scripts\ci\assert-warm-build.cmd) & if errorlevel 1 exit /b 1
 
       - save_cache:
-          key: win-release-v1-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-{{ checksum "rust/Cargo.lock" }}-{{ epoch }}
+          key: win-release-v2-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-{{ checksum "Cargo.lock" }}-{{ epoch }}
           paths:
             - C:/code/Win-CodexBar-release/cache
+            - C:/Users/circleci/.cargo
+            - C:/Users/circleci/.rustup
 
       - store_artifacts:
           path: C:/code/Win-CodexBar-release/assets

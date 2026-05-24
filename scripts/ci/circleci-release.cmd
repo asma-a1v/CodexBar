@@ -19,6 +19,6 @@ if /i "%FULL_WINDOWS_RELEASE%"=="true" (
 ) else (
   call scripts\ci\assert-warm-build.cmd
 )
-if errorlevel 1 exit /b %ERRORLEVEL%
+if errorlevel 1 exit /b 1
 
 exit /b 0

@@ -14,6 +14,14 @@ $RepoRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $WorkRoot = "C:\code\Win-CodexBar-release"
 $AssetsDir = Join-Path $WorkRoot "assets"
 
+function Get-ReleaseVersion {
+    $line = Get-Content "rust\Cargo.toml" | Where-Object { $_ -match '^version = "([^"]+)"' } | Select-Object -First 1
+    if (-not $line -or $line -notmatch '^version = "([^"]+)"') {
+        throw "Failed to determine release version from rust\Cargo.toml"
+    }
+    return $Matches[1]
+}
+
 if (-not $Ref) {
     if ($env:CIRCLE_TAG) {
         $Ref = $env:CIRCLE_TAG
@@ -55,12 +63,8 @@ try {
         Copy-Item $smokeLog (Join-Path $AssetsDir "smoke-test-log.txt") -Force
     }
 
-    $version = (& powershell.exe -NoLogo -Command @'
-$line = Get-Content rust\Cargo.toml | Where-Object { $_ -match '^version = "([^"]+)"' } | Select-Object -First 1
-if ($line -match '^version = "([^"]+)"') { $Matches[1] }
-'@).Trim()
-
     if ($UploadCloudflare -and -not $WarmCacheOnly) {
+        $version = Get-ReleaseVersion
         & powershell.exe -NoLogo -ExecutionPolicy Bypass -File "scripts\ci\upload-cloudflare-r2.ps1" -Version $version -AssetsDir $AssetsDir
         if ($LASTEXITCODE -ne 0) {
             Write-Host "upload-cloudflare-r2.ps1 failed with exit code $LASTEXITCODE"
