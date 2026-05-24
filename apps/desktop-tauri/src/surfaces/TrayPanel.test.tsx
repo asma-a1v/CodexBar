@@ -174,35 +174,38 @@ describe("TrayPanel provider grid", () => {
     eventMocks.listen.mockResolvedValue(() => {});
   });
 
-  it("uses sparse spacing for a small provider set", async () => {
-    const { container } = renderTrayPanel([
-      provider("codex", "Codex"),
-      provider("claude", "Claude"),
-    ]);
+  it.each([
+    [1, true],
+    [2, true],
+    [5, true],
+    [6, false],
+    [12, false],
+  ])("uses expected density for %i providers plus overview", async (providerCount, shouldBeSparse) => {
+      const providers = [
+        provider("codex", "Codex"),
+        provider("claude", "Claude"),
+        provider("copilot", "GitHub Copilot"),
+        provider("cursor", "Cursor"),
+        provider("gemini", "Gemini"),
+        provider("kiro", "Kiro"),
+        provider("zai", "z.ai"),
+        provider("minimax", "MiniMax"),
+        provider("vertexai", "Vertex AI"),
+        provider("augment", "Augment"),
+        provider("opencode", "OpenCode"),
+        provider("kimi", "Kimi"),
+      ].slice(0, providerCount);
 
-    await waitFor(() => {
-      expect(container.querySelector(".provider-grid")).not.toBeNull();
-    });
+      const { container } = renderTrayPanel(providers);
 
-    const grid = container.querySelector(".provider-grid");
-    expect(grid?.classList.contains("provider-grid--sparse")).toBe(true);
-  });
+      await waitFor(() => {
+        expect(container.querySelector(".provider-grid")).not.toBeNull();
+      });
 
-  it("uses dense spacing once the provider set no longer fits sparse mode", async () => {
-    const { container } = renderTrayPanel([
-      provider("codex", "Codex"),
-      provider("claude", "Claude"),
-      provider("copilot", "GitHub Copilot"),
-      provider("cursor", "Cursor"),
-      provider("gemini", "Gemini"),
-      provider("kiro", "Kiro"),
-    ]);
-
-    await waitFor(() => {
-      expect(container.querySelector(".provider-grid")).not.toBeNull();
-    });
-
-    const grid = container.querySelector(".provider-grid");
-    expect(grid?.classList.contains("provider-grid--sparse")).toBe(false);
-  });
+      const grid = container.querySelector(".provider-grid");
+      expect(grid?.classList.contains("provider-grid--sparse")).toBe(
+        shouldBeSparse,
+      );
+    },
+  );
 });

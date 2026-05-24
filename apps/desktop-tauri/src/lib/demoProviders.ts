@@ -11,6 +11,14 @@ export const DEMO_ENABLED = import.meta.env.VITE_DEMO_PROVIDERS === "1";
 
 const now = new Date().toISOString();
 
+function demoProviderLimit(): number | null {
+  const raw = import.meta.env.VITE_DEMO_PROVIDER_LIMIT;
+  if (raw == null || raw === "") return null;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return null;
+  return Math.floor(parsed);
+}
+
 function makeGridProvider(id: string, name: string, usedPct: number): ProviderUsageSnapshot {
   return {
     providerId: id,
@@ -42,7 +50,7 @@ function makeGridProvider(id: string, name: string, usedPct: number): ProviderUs
   };
 }
 
-export const DEMO_PROVIDERS: ProviderUsageSnapshot[] = [
+const ALL_DEMO_PROVIDERS: ProviderUsageSnapshot[] = [
   // ── Featured providers (full card data) ──
   {
     providerId: "codex",
@@ -223,3 +231,7 @@ export const DEMO_PROVIDERS: ProviderUsageSnapshot[] = [
   makeGridProvider("groq", "Groq", 74),
   makeGridProvider("llmproxy", "LLM Proxy", 37),
 ];
+
+const limit = demoProviderLimit();
+export const DEMO_PROVIDERS: ProviderUsageSnapshot[] =
+  limit == null ? ALL_DEMO_PROVIDERS : ALL_DEMO_PROVIDERS.slice(0, limit);

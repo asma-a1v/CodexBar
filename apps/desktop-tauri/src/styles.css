@@ -3077,17 +3077,17 @@ html:has(.menu-surface--tray) {
 }
 
 .menu-surface--tray .provider-grid--sparse {
-  grid-template-columns: repeat(auto-fit, 44px);
+  grid-template-columns: repeat(auto-fit, 40px);
   justify-content: start;
-  gap: 8px 8px;
+  gap: 8px 6px;
 }
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__item {
-  width: 44px;
+  width: 40px;
 }
 
 .menu-surface--tray .provider-grid--sparse .provider-grid__label {
-  max-width: 42px;
+  max-width: 40px;
 }
 /* Divider between provider grid and card stack */
 .menu-surface--tray .provider-grid__divider {
