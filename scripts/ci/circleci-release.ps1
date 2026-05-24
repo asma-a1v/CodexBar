@@ -26,11 +26,15 @@ if (-not $Ref) {
 
 Push-Location $RepoRoot
 try {
-    $preBuildAssetsDir = Join-Path $env:TEMP ("win-codexbar-no-prebuild-assets-" + [guid]::NewGuid().ToString("n"))
-    & powershell.exe -NoLogo -ExecutionPolicy Bypass -File "scripts\release-doctor.ps1" -SkipGitHub -AssetsDir $preBuildAssetsDir
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host "release-doctor.ps1 failed with exit code $LASTEXITCODE"
-        [Environment]::Exit($LASTEXITCODE)
+    if ($WarmCacheOnly) {
+        Write-Host "Skipping release-doctor for warm-cache-only build."
+    } else {
+        $preBuildAssetsDir = Join-Path $env:TEMP ("win-codexbar-no-prebuild-assets-" + [guid]::NewGuid().ToString("n"))
+        & powershell.exe -NoLogo -ExecutionPolicy Bypass -File "scripts\release-doctor.ps1" -SkipGitHub -AssetsDir $preBuildAssetsDir
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "release-doctor.ps1 failed with exit code $LASTEXITCODE"
+            [Environment]::Exit($LASTEXITCODE)
+        }
     }
 
     $releaseBuildArgs = @("-NoLogo", "-ExecutionPolicy", "Bypass", "-File", "scripts\windows-release-build.ps1", "-Ref", $Ref, "-WorkRoot", $WorkRoot)

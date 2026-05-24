@@ -35,7 +35,7 @@ jobs:
       - run:
           name: Install and verify release tools
           shell: cmd.exe
-          command: scripts\ci\install-circleci-release-tools.cmd
+          command: set "FULL_WINDOWS_RELEASE=<< parameters.full_release >>" && call scripts\ci\install-circleci-release-tools.cmd & if errorlevel 1 exit /b 1
 
       - restore_cache:
           keys:
@@ -47,12 +47,12 @@ jobs:
           name: Build Windows release
           shell: cmd.exe
           no_output_timeout: 30m
-          command: set "FULL_WINDOWS_RELEASE=<< parameters.full_release >>" && set "UPLOAD_CLOUDFLARE=<< parameters.upload_cloudflare >>" && scripts\ci\circleci-release.cmd
+          command: set "FULL_WINDOWS_RELEASE=<< parameters.full_release >>" && set "UPLOAD_CLOUDFLARE=<< parameters.upload_cloudflare >>" && call scripts\ci\circleci-release.cmd & if errorlevel 1 exit /b 1
 
       - run:
           name: Assert Windows build output
           shell: cmd.exe
-          command: if "<< parameters.full_release >>"=="true" (scripts\ci\assert-release-assets.cmd) else (scripts\ci\assert-warm-build.cmd)
+          command: if "<< parameters.full_release >>"=="true" (call scripts\ci\assert-release-assets.cmd) else (call scripts\ci\assert-warm-build.cmd) & if errorlevel 1 exit /b 1
 
       - save_cache:
           key: win-release-v1-{{ checksum "apps/desktop-tauri/pnpm-lock.yaml" }}-{{ checksum "rust/Cargo.lock" }}-{{ epoch }}

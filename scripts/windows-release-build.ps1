@@ -177,15 +177,15 @@ if (-not (Test-Path (Join-Path $SourceDir ".git"))) {
     if (Test-Path $SourceDir) {
         throw "$SourceDir exists but is not a Git checkout. Move it aside or choose another WorkRoot."
     }
-    Invoke-Native $git.Source @("clone", $RepoUrl, $SourceDir)
+    Invoke-Native $git.Source @("clone", "--quiet", $RepoUrl, $SourceDir)
 }
 
 Push-Location $SourceDir
 try {
-    Invoke-Native $git.Source @("fetch", "--tags", "--prune", "origin")
-    Invoke-Native $git.Source @("checkout", "--force", $Ref)
-    Invoke-Native $git.Source @("reset", "--hard", "HEAD")
-    Invoke-Native $git.Source @("clean", "-ffd", "-e", "apps/desktop-tauri/node_modules/")
+    Invoke-Native $git.Source @("fetch", "--quiet", "--tags", "--prune", "origin")
+    Invoke-Native $git.Source @("-c", "advice.detachedHead=false", "checkout", "--quiet", "--force", $Ref)
+    Invoke-Native $git.Source @("reset", "--quiet", "--hard", "HEAD")
+    Invoke-Native $git.Source @("clean", "-ffdq", "-e", "apps/desktop-tauri/node_modules/")
 
     $commit = (& $git.Source rev-parse HEAD).Trim()
     $version = Get-AppVersion -CargoTomlPath (Join-Path $SourceDir "rust\Cargo.toml")
@@ -199,13 +199,9 @@ try {
     }
     if ($env:CARGO_BUILD_TARGET -and $rustup) {
         $toolchain = "stable-x86_64-pc-windows-msvc"
-        & $rustup.Source toolchain install $toolchain --profile minimal
-        if ($LASTEXITCODE -ne 0) {
-            throw "$($rustup.Source) toolchain install exited with code $LASTEXITCODE"
-        }
-        & $rustup.Source target add $env:CARGO_BUILD_TARGET --toolchain $toolchain
-        if ($LASTEXITCODE -ne 0) {
-            throw "$($rustup.Source) target add exited with code $LASTEXITCODE"
+        Invoke-Native $rustup.Source @("toolchain", "install", $toolchain, "--profile", "minimal")
+        if ($env:CARGO_BUILD_TARGET -ne "x86_64-pc-windows-msvc") {
+            Invoke-Native $rustup.Source @("target", "add", $env:CARGO_BUILD_TARGET, "--toolchain", $toolchain)
         }
         $env:RUSTUP_TOOLCHAIN = $toolchain
     }

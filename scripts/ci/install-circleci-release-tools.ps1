@@ -10,8 +10,39 @@ trap {
     [Environment]::Exit(1)
 }
 
-choco feature enable -n allowGlobalConfirmation
-choco install git gh innosetup nodejs-lts powershell-core -y --no-progress
+function Test-Command {
+    param([string]$Name)
+
+    return [bool](Get-Command $Name -ErrorAction SilentlyContinue)
+}
+
+function Install-ChocoPackages {
+    param([string[]]$Packages)
+
+    if ($Packages.Count -eq 0) {
+        return
+    }
+
+    choco feature enable -n allowGlobalConfirmation
+    choco install @Packages -y --no-progress
+}
+
+$fullRelease = $env:FULL_WINDOWS_RELEASE -eq "true"
+$packages = @()
+if (-not (Test-Command "git")) {
+    $packages += "git"
+}
+if (-not (Test-Command "node")) {
+    $packages += "nodejs-lts"
+}
+if ($fullRelease -and -not (Test-Command "gh")) {
+    $packages += "gh"
+}
+if ($fullRelease -and -not (Test-Path (Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"))) {
+    $packages += "innosetup"
+}
+
+Install-ChocoPackages $packages
 
 $env:Path = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" +
     [System.Environment]::GetEnvironmentVariable("Path", "User")
@@ -30,11 +61,6 @@ if (Test-Path $cargoBin) {
 rustup default stable-x86_64-pc-windows-msvc
 if ($LASTEXITCODE -ne 0) {
     throw "rustup default failed with exit code $LASTEXITCODE"
-}
-
-rustup target add x86_64-pc-windows-msvc --toolchain stable-x86_64-pc-windows-msvc
-if ($LASTEXITCODE -ne 0) {
-    throw "rustup target add failed with exit code $LASTEXITCODE"
 }
 
 $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
@@ -61,14 +87,17 @@ if (-not $vsInstall) {
 }
 
 git --version
-gh --version
 cargo --version
 rustc --version
 pnpm --version
-pwsh --version
 
-$iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
-if (-not (Test-Path $iscc)) {
-    throw "Inno Setup compiler not found at $iscc"
+if ($fullRelease) {
+    gh --version
+    $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\ISCC.exe"
+    if (-not (Test-Path $iscc)) {
+        throw "Inno Setup compiler not found at $iscc"
+    }
+    Write-Host "Inno Setup compiler: $iscc"
+} else {
+    Write-Host "Skipping full-release tools for warm Windows build."
 }
-Write-Host "Inno Setup compiler: $iscc"
