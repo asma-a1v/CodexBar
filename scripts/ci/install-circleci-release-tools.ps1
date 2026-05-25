@@ -40,10 +40,18 @@ function Add-CargoPath {
 }
 
 function Install-MinimalRustupToolchain {
+    Write-Host "Ensuring minimal Rust MSVC toolchain..."
+
     if (-not (Test-Command "rustup")) {
         $rustupInit = Join-Path $env:TEMP "rustup-init.exe"
         $rustupUrl = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
-        Invoke-WebRequest -Uri $rustupUrl -OutFile $rustupInit
+        Write-Host "Downloading rustup-init from $rustupUrl"
+        curl.exe -fsSL $rustupUrl -o $rustupInit
+        if ($LASTEXITCODE -ne 0) {
+            throw "rustup-init download failed with exit code $LASTEXITCODE"
+        }
+
+        Write-Host "Installing stable-x86_64-pc-windows-msvc with minimal profile..."
         & $rustupInit -y --no-modify-path --profile minimal --default-toolchain stable-x86_64-pc-windows-msvc
         if ($LASTEXITCODE -ne 0) {
             throw "rustup-init failed with exit code $LASTEXITCODE"
@@ -51,6 +59,7 @@ function Install-MinimalRustupToolchain {
 
         Add-CargoPath
     } else {
+        Write-Host "rustup found; installing/updating minimal stable MSVC toolchain..."
         rustup set profile minimal
         if ($LASTEXITCODE -ne 0) {
             throw "rustup set profile failed with exit code $LASTEXITCODE"
