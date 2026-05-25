@@ -253,6 +253,45 @@ fn fetch_context_defaults_to_manual_cookies_without_browser_import() {
 }
 
 #[test]
+fn fetch_context_claude_uses_oauth_without_manual_cookie() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Claude,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
+fn fetch_context_claude_explicit_cli_source_still_uses_cli() {
+    let mut settings = Settings::default();
+    settings.set_usage_source(ProviderId::Claude, "cli");
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Claude,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Cli);
+    assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
 fn fetch_context_manual_cookie_uses_web_without_browser_import() {
     let settings = Settings::default();
     let mut cookies = ManualCookies::default();

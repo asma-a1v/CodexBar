@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Fixed
+- Reopen the tray panel from Windows shortcut/tray activation when the app is hidden, keep Claude usage on the current OAuth API path when no manual cookie is configured, and avoid flashing console windows during Windows CLI path probes.
+
 ---
 
 ## [Windows] 0.29.0 - 2026-05-24

@@ -36,11 +36,16 @@ pub(crate) fn build_fetch_context(
     } else {
         match cookie_source {
             _ if active_token_env.is_some() => (SourceMode::OAuth, None),
+            "off" if id == ProviderId::Claude && usage_source != SourceMode::Cli => {
+                (SourceMode::OAuth, None)
+            }
             "off" => (SourceMode::Cli, None),
             "manual" => {
                 let cookie_header = active_token_cookie.or(stored_cookie);
                 let source_mode = if cookie_header.is_some() {
                     SourceMode::Web
+                } else if id == ProviderId::Claude && usage_source != SourceMode::Cli {
+                    SourceMode::OAuth
                 } else {
                     SourceMode::Cli
                 };
