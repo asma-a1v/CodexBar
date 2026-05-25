@@ -14,6 +14,7 @@ import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
 import { DEMO_ENABLED } from "../lib/demoProviders";
+import { providerSupportsChartData } from "../lib/providerCharts";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -306,7 +307,10 @@ export default function MenuCard({ provider, hideEmail, resetTimeRelative }: Men
   );
 
   useEffect(() => {
-    if (DEMO_ENABLED) return; // skip chart fetch in demo mode
+    if (DEMO_ENABLED || !providerSupportsChartData(provider.providerId)) {
+      setChartData(null);
+      return;
+    }
     let cancelled = false;
     setChartData(null);
     getProviderChartData(
@@ -322,7 +326,7 @@ export default function MenuCard({ provider, hideEmail, resetTimeRelative }: Men
     return () => {
       cancelled = true;
     };
-  }, [provider.providerId]);
+  }, [provider.providerId, provider.accountEmail]);
 
   const email = provider.accountEmail
     ? hideEmail

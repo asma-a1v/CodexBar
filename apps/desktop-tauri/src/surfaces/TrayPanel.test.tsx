@@ -208,4 +208,21 @@ describe("TrayPanel provider grid", () => {
       );
     },
   );
+
+  it("only requests chart data for providers that can render charts", async () => {
+    renderTrayPanel([
+      provider("codex", "Codex"),
+      provider("claude", "Claude"),
+      provider("copilot", "GitHub Copilot"),
+      provider("cursor", "Cursor"),
+      provider("deepseek", "DeepSeek"),
+    ]);
+
+    await waitFor(() => {
+      expect(tauriMocks.getProviderChartData).toHaveBeenCalledTimes(2);
+    });
+
+    expect(tauriMocks.getProviderChartData).toHaveBeenCalledWith("codex", undefined);
+    expect(tauriMocks.getProviderChartData).toHaveBeenCalledWith("claude", undefined);
+  });
 });

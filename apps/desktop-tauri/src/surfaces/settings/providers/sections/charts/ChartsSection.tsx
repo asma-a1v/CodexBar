@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getProviderChartData, getSettingsSnapshot } from "../../../../../lib/tauri";
+import { providerSupportsChartData } from "../../../../../lib/providerCharts";
 import type { ProviderChartData, SettingsSnapshot } from "../../../../../types/bridge";
 import type { useLocale } from "../../../../../hooks/useLocale";
 import { CostHistoryChart } from "./CostHistoryChart";
@@ -37,6 +38,11 @@ export function ChartsSection({ providerId, accountEmail, t }: Props) {
     let cancelled = false;
     setData(null);
     setActive(null);
+    if (!providerSupportsChartData(providerId)) {
+      return () => {
+        cancelled = true;
+      };
+    }
     getProviderChartData(providerId, accountEmail ?? undefined)
       .then((d) => {
         if (!cancelled) setData(d);
