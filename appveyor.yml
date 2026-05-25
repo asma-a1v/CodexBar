@@ -13,6 +13,7 @@ environment:
 
 cache:
   - C:\Users\appveyor\.cargo\bin -> appveyor.yml
+  - C:\Users\appveyor\.rust-ms -> appveyor.yml
   - C:\Users\appveyor\.rustup -> appveyor.yml
   - C:\code\Win-CodexBar-release\cache\cargo-target -> Cargo.lock
   - C:\code\Win-CodexBar-release\cache\pnpm-store -> apps\desktop-tauri\pnpm-lock.yaml

@@ -11,7 +11,11 @@ trap {
 }
 
 $cargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
-$rustMsBin = Join-Path $env:ChocolateyInstall "lib\rust-ms\tools\bin"
+$rustVersion = "1.95.0"
+$rustDistDate = "2026-04-16"
+$rustHost = "x86_64-pc-windows-msvc"
+$rustRoot = Join-Path $env:USERPROFILE ".rust-ms\$rustVersion"
+$rustBin = Join-Path $rustRoot "bin"
 
 function Test-Command {
     param([string]$Name)
@@ -34,12 +38,85 @@ function Add-RustPath {
     if (Test-Path $cargoBin) {
         $env:Path = "$cargoBin;$env:Path"
     }
-    if (Test-Path $rustMsBin) {
-        $env:Path = "$rustMsBin;$env:Path"
+    if (Test-Path $rustBin) {
+        $env:Path = "$rustBin;$env:Path"
     }
 }
 
 Add-RustPath
+
+function Get-FileSha256 {
+    param([string]$Path)
+
+    return (Get-FileHash -Algorithm SHA256 -Path $Path).Hash.ToLowerInvariant()
+}
+
+function Install-RustPackage {
+    param([string]$Directory)
+
+    $componentList = Join-Path $Directory "components"
+    foreach ($component in Get-Content $componentList) {
+        $manifest = Join-Path (Join-Path $Directory $component) "manifest.in"
+        foreach ($entry in Get-Content $manifest) {
+            if ($entry.StartsWith("file:") -or $entry.StartsWith("dir:")) {
+                if ($entry.StartsWith("file:")) {
+                    $relativePath = $entry.Substring(5)
+                } else {
+                    $relativePath = $entry.Substring(4)
+                }
+                $source = Join-Path (Join-Path $Directory $component) $relativePath
+                $target = Join-Path $rustRoot $relativePath
+                $targetParent = Split-Path -Parent $target
+                if ($targetParent -and -not (Test-Path $targetParent)) {
+                    New-Item -ItemType Directory -Force $targetParent | Out-Null
+                }
+                Move-Item -Force $source $target
+            }
+        }
+    }
+}
+
+function Install-RustArchive {
+    param(
+        [string]$Name,
+        [string]$Url,
+        [string]$Checksum
+    )
+
+    $downloadDir = Join-Path $env:TEMP "win-codexbar-rust"
+    New-Item -ItemType Directory -Force $downloadDir | Out-Null
+    $archive = Join-Path $downloadDir "$Name.tar.gz"
+    $extractDir = Join-Path $downloadDir "$Name-extracted"
+
+    if (Test-Path $extractDir) {
+        Remove-Item -Recurse -Force $extractDir
+    }
+    New-Item -ItemType Directory -Force $extractDir | Out-Null
+
+    Write-Host "Downloading $Name..."
+    & curl.exe -fsSL --retry 3 --connect-timeout 30 --max-time 300 -o $archive $Url
+    if ($LASTEXITCODE -ne 0) {
+        throw "curl failed downloading $Name with exit code $LASTEXITCODE"
+    }
+
+    $actual = Get-FileSha256 $archive
+    if ($actual -ne $Checksum.ToLowerInvariant()) {
+        throw "$Name SHA-256 mismatch. Expected $Checksum, got $actual"
+    }
+
+    Write-Host "Installing $Name..."
+    & tar.exe -xzf $archive -C $extractDir
+    if ($LASTEXITCODE -ne 0) {
+        throw "tar failed extracting $Name with exit code $LASTEXITCODE"
+    }
+
+    $packageDir = Get-ChildItem -Directory $extractDir | Select-Object -First 1
+    if (-not $packageDir) {
+        throw "Unable to find extracted package directory for $Name"
+    }
+
+    Install-RustPackage $packageDir.FullName
+}
 
 function Install-RustToolchain {
     Write-Host "Ensuring Rust MSVC toolchain..."
@@ -48,15 +125,29 @@ function Install-RustToolchain {
         return
     }
 
-    Write-Host "Installing rust-ms through Chocolatey..."
-    choco install rust-ms --version=1.95.0 -y --no-progress
-    if ($LASTEXITCODE -ne 0) {
-        throw "rust-ms failed with exit code $LASTEXITCODE"
+    if (Test-Path $rustRoot) {
+        Write-Host "Removing incomplete cached Rust toolchain at $rustRoot..."
+        Remove-Item -Recurse -Force $rustRoot
     }
+    New-Item -ItemType Directory -Force $rustRoot | Out-Null
+
+    $baseUrl = "https://static.rust-lang.org/dist/$rustDistDate"
+    Install-RustArchive `
+        -Name "rustc-$rustVersion-$rustHost" `
+        -Url "$baseUrl/rustc-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "b1101cba184fda0da47658772d04423fdb86cc9ed888cac3b29d0e9f55faec53"
+    Install-RustArchive `
+        -Name "cargo-$rustVersion-$rustHost" `
+        -Url "$baseUrl/cargo-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "2d68113a00b98f0dec6d0e8473f82e08cec00c392115933a57dbfe9d3c8b2d8c"
+    Install-RustArchive `
+        -Name "rust-std-$rustVersion-$rustHost" `
+        -Url "$baseUrl/rust-std-$rustVersion-$rustHost.tar.gz" `
+        -Checksum "aa56f95b4817f562c0ada0abee3511a802a948303404e8fc872d0371ae0693fc"
 
     Add-RustPath
     if (-not ((Test-Command "cargo") -and (Test-Command "rustc"))) {
-        throw "Missing cargo/rustc after rust-ms install."
+        throw "Missing cargo/rustc after Rust toolchain install."
     }
 }
 
