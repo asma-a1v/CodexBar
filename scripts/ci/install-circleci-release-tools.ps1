@@ -39,76 +39,23 @@ function Add-CargoPath {
     }
 }
 
-function Invoke-ProcessWithTimeout {
-    param(
-        [string]$FilePath,
-        [string[]]$Arguments,
-        [int]$TimeoutSeconds,
-        [string]$Description
-    )
-
-    $stdout = Join-Path $env:TEMP "$Description.stdout.log"
-    $stderr = Join-Path $env:TEMP "$Description.stderr.log"
-    Remove-Item $stdout, $stderr -ErrorAction SilentlyContinue
-
-    $process = Start-Process `
-        -FilePath $FilePath `
-        -ArgumentList $Arguments `
-        -RedirectStandardOutput $stdout `
-        -RedirectStandardError $stderr `
-        -NoNewWindow `
-        -PassThru
-
-    if (-not $process.WaitForExit($TimeoutSeconds * 1000)) {
-        Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
-        if (Test-Path $stdout) { Get-Content $stdout | Write-Host }
-        if (Test-Path $stderr) { Get-Content $stderr | Write-Host }
-        throw "$Description timed out after $TimeoutSeconds seconds"
-    }
-
-    if (Test-Path $stdout) { Get-Content $stdout | Write-Host }
-    if (Test-Path $stderr) { Get-Content $stderr | Write-Host }
-
-    if ($process.ExitCode -ne 0) {
-        throw "$Description failed with exit code $($process.ExitCode)"
-    }
-}
-
 function Install-MinimalRustupToolchain {
     Write-Host "Ensuring minimal Rust MSVC toolchain..."
 
     if (-not (Test-Command "rustup")) {
-        $rustupInit = Join-Path $env:TEMP "rustup-init.exe"
-        $rustupUrl = "https://static.rust-lang.org/rustup/archive/1.27.1/x86_64-pc-windows-msvc/rustup-init.exe"
-        $rustupChecksum = "193d6c727e18734edbf7303180657e96e9d5a08432002b4e6c5bbe77c60cb3e8"
-        Write-Host "Downloading rustup-init through BITS..."
-        Start-BitsTransfer -Source $rustupUrl -Destination $rustupInit
-
-        if (-not (Test-Path $rustupInit)) {
-            throw "rustup-init download did not create $rustupInit"
+        Write-Host "Installing rustup through Chocolatey..."
+        choco install rustup.install --version=1.27.1 -y --no-progress
+        if ($LASTEXITCODE -ne 0) {
+            throw "rustup.install failed with exit code $LASTEXITCODE"
         }
-
-        $actualChecksum = (Get-FileHash -Path $rustupInit -Algorithm SHA256).Hash.ToLowerInvariant()
-        if ($actualChecksum -ne $rustupChecksum) {
-            throw "rustup-init SHA-256 mismatch: expected $rustupChecksum, got $actualChecksum"
-        }
-        Write-Host "rustup-init SHA-256 verified."
-
-        Write-Host "Installing minimal stable MSVC toolchain through rustup-init..."
-        Invoke-ProcessWithTimeout `
-            -FilePath $rustupInit `
-            -Arguments @(
-                "-v",
-                "-y",
-                "--no-modify-path",
-                "--profile", "minimal",
-                "--default-host", "x86_64-pc-windows-msvc",
-                "--default-toolchain", "stable-x86_64-pc-windows-msvc"
-            ) `
-            -TimeoutSeconds 300 `
-            -Description "rustup-init"
 
         Add-CargoPath
+    }
+
+    Write-Host "Removing default Rust toolchain before minimal reinstall..."
+    rustup toolchain uninstall stable-x86_64-pc-windows-msvc
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host "Warning: default stable MSVC uninstall failed with exit code $LASTEXITCODE"
     }
 
     Write-Host "Installing/updating minimal stable MSVC toolchain..."
