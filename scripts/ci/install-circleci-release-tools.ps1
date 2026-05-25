@@ -46,9 +46,17 @@ function Install-MinimalRustupToolchain {
         $rustupInit = Join-Path $env:TEMP "rustup-init.exe"
         $rustupUrl = "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe"
         Write-Host "Downloading rustup-init from $rustupUrl"
-        curl.exe -fsSL $rustupUrl -o $rustupInit
-        if ($LASTEXITCODE -ne 0) {
-            throw "rustup-init download failed with exit code $LASTEXITCODE"
+        if (Test-Command "Start-FileDownload") {
+            Start-FileDownload $rustupUrl -FileName $rustupInit
+        } else {
+            curl.exe --connect-timeout 30 --max-time 120 -fsSL $rustupUrl -o $rustupInit
+            if ($LASTEXITCODE -ne 0) {
+                throw "rustup-init download failed with exit code $LASTEXITCODE"
+            }
+        }
+
+        if (-not (Test-Path $rustupInit)) {
+            throw "rustup-init download did not create $rustupInit"
         }
 
         Write-Host "Installing stable-x86_64-pc-windows-msvc with minimal profile..."
