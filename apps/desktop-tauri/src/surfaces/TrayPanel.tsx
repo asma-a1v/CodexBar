@@ -95,6 +95,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // Hide panel during the initial resize+reposition dance so the user
   // doesn't see the window jump around.  Revealed after first layout pass.
   const [layoutReady, setLayoutReady] = useState(false);
+  const [layoutRevision, setLayoutRevision] = useState(0);
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
 
@@ -125,6 +126,26 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     }
     return [match];
   }, [sorted, selectedProviderId, gridExpanded]);
+
+  useEffect(() => {
+    let timer: number | undefined;
+    const scheduleResize = () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+      timer = window.setTimeout(() => {
+        setLayoutRevision((current) => current + 1);
+      }, 50);
+    };
+
+    window.addEventListener("codexbar:menu-card-layout-change", scheduleResize);
+    return () => {
+      if (timer !== undefined) {
+        window.clearTimeout(timer);
+      }
+      window.removeEventListener("codexbar:menu-card-layout-change", scheduleResize);
+    };
+  }, []);
 
   // Dynamically size the Tauri window to fit content, capped at 800px.
   // The first pass can grow the hidden window for a complete measurement.
@@ -249,7 +270,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
       clearTimeout(t0);
       resizeRunRef.current += 1;
     };
-  }, [visibleProviders, providers]);
+  }, [visibleProviders, providers, layoutRevision]);
 
   const openSettings = useCallback(() => {
     void openSettingsWindow("general").finally(() => {

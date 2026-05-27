@@ -93,6 +93,14 @@ const DEMO_LOCAL_USAGE: Record<string, ProviderLocalUsageSummary> = {
   },
 };
 
+const MENU_CARD_LAYOUT_CHANGE_EVENT = "codexbar:menu-card-layout-change";
+
+function notifyMenuCardLayoutChange() {
+  requestAnimationFrame(() => {
+    window.dispatchEvent(new Event(MENU_CARD_LAYOUT_CHANGE_EVENT));
+  });
+}
+
 function formatCompactCount(value: number | null): string {
   if (value == null || value <= 0) return "—";
   return new Intl.NumberFormat("en-US", {
@@ -337,7 +345,10 @@ export default function MenuCard({
       provider.accountEmail ?? undefined,
     )
       .then((data) => {
-        if (!cancelled) setChartData(data);
+        if (!cancelled) {
+          setChartData(data);
+          notifyMenuCardLayoutChange();
+        }
       })
       .catch(() => {
         /* chart data is best-effort */

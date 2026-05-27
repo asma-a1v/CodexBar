@@ -3124,6 +3124,7 @@ html:has(.menu-surface--tray) {
 }
 .menu-surface--tray .menu-stack {
   gap: 2px;
+  flex: 0 0 auto;
   max-height: none;
   overflow: visible;
   min-width: 0;
@@ -3291,6 +3292,8 @@ html:has(.menu-surface--tray) {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  flex: 0 0 auto;
+  margin-top: 4px;
   padding: 0 10px;
 }
 .context-actions__divider {
@@ -3373,10 +3376,14 @@ html:has(.menu-surface--tray) {
   display: none;
 }
 .menu-surface--tray .menu-card__local-grid {
-  gap: 8px 18px;
+  gap: 9px 20px;
+}
+.menu-surface--tray .menu-card__local-usage {
+  padding-top: 2px;
 }
 .menu-surface--tray .menu-card__local-note {
   font-size: 10px;
+  line-height: 1.25;
 }
 /* Hide cost section in tray — macOS compact popover only shows usage metrics */
 .menu-surface--tray .menu-card__cost,

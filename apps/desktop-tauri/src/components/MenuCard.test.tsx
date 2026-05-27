@@ -123,11 +123,27 @@ describe("MenuCard", () => {
     expect(fill?.style.width).toBe("35%");
   });
 
+  it("notifies the tray panel after async local usage data loads", async () => {
+    const listener = vi.fn();
+    window.addEventListener("codexbar:menu-card-layout-change", listener);
+
+    renderCard(provider(null));
+
+    await waitFor(() => {
+      expect(listener).toHaveBeenCalled();
+    });
+
+    window.removeEventListener("codexbar:menu-card-layout-change", listener);
+  });
+
   it("keeps local token and cost totals visible in the tray panel", () => {
     const styles = readFileSync("src/styles.css", "utf8");
 
     expect(styles).not.toMatch(
       /\.menu-surface--tray\s+\.menu-card__local-usage\s*\{[^}]*display:\s*none/s,
+    );
+    expect(styles).toMatch(
+      /\.menu-surface--tray\s+\.menu-stack\s*\{[^}]*flex:\s*0\s+0\s+auto/s,
     );
     expect(styles).toMatch(
       /\.menu-surface--tray\s+\.menu-card__local-chart\s*\{[^}]*display:\s*none/s,
