@@ -24,12 +24,21 @@
 - **CLI** — `codexbar usage`、`codexbar cost`、`codexbar config` 和本机回环 `codexbar serve`，便于脚本化、本地集成和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
-## v0.27.1 更新内容
+## v0.30.1 更新内容
 
-- 补完整上游 CodexBar 0.27 的 Windows/Tauri 移植，不再只是 API Key 配额服务商子集。
-- 新增 Grok 支持，可通过浏览器 Cookie 或 `~/.grok/auth.json` 读取账单信息，并补齐设置页、图标和图表颜色。
-- 新增 Claude Admin API 用量、OpenAI Admin API 用量与余额回退、MiniMax 账单汇总、OpenCode Go Zen 余额，以及 Kiro 超额用量/费用解析。
-- 新增 `codexbar serve`，可在本机回环地址提供 `/health`、`/usage`、`/cost` JSON，并补齐上游兼容的 `--all-accounts` CLI 参数。
+- 修复当前 Codex session 日志格式下的本地 token 用量解析。
+- 修复本地 token 总数中 cached input tokens 被重复计入的问题。
+- Codex 本地成本扫描改为复用共享 JSONL 扫描器，保持托盘、图表和 CLI 路径一致。
+- 异步本地用量数据加载后会正确刷新托盘布局。
+- 包含 v0.30.0 的服务商更新。
+
+## v0.30.0 更新内容
+
+- DeepSeek 新增用量摘要：token 总量、请求数、Top model、分类明细，以及平台 API 暴露时的当月成本。
+- OpenAI Admin API 用量支持在服务商详情面板按可选 project ID 限定范围，默认仍为组织级用量。
+- Alibaba Token Plan 更新到当前 Bailian 订阅摘要 API，并扩展新的额度/重置字段解析。
+- StepFun Oasis 在存在 access/refresh 组合 token 时可刷新过期 token。
+- 托盘和设置 UI 显示更丰富的 Ollama pace windows 与 Antigravity per-model quota windows。
 
 ## 快速开始
 
@@ -70,7 +79,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 在 Windows 构建服务器上做本地发布构建时，使用缓存版构建脚本：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.4
+.\scripts\windows-release-build.ps1 -Ref v0.30.1
 ```
 
 脚本会在 `C:\code\Win-CodexBar-release\source` 维护干净源码签出，在 `C:\code\Win-CodexBar-release\cache\cargo-target` 复用 Rust 构建输出，在 `C:\code\Win-CodexBar-release\cache\pnpm-store` 复用 pnpm 包，并复用已签名的 WebView2/VC++ 引导程序下载。它仍会构建真实 release 二进制、校验 Microsoft 签名、用 Inno Setup 打包，并在 `C:\code\Win-CodexBar-release\assets` 输出 GitHub Release 使用的四个资产。
@@ -78,11 +87,11 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 常用发布参数：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.27.5 -UploadRelease v0.27.5
-.\scripts\release-doctor.ps1 -Version 0.27.5
+.\scripts\windows-release-build.ps1 -Ref v0.30.1 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.30.1 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.30.1 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.30.1 -UploadRelease v0.30.1
+.\scripts\release-doctor.ps1 -Version 0.30.1
 ```
 
 GitHub Actions 只作为辅助检查；安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。
