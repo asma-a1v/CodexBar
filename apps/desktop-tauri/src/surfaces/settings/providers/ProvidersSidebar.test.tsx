@@ -37,7 +37,10 @@ function rows(): ProviderSidebarRow[] {
 describe("ProvidersSidebar", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle());
+    tauriMocks.getLocaleStrings.mockResolvedValue(buildBundle({
+      ProviderSidebarSearch: "Search providers",
+      ProviderSidebarNoMatches: "No matching providers",
+    }));
     eventMocks.listen.mockResolvedValue(() => {});
   });
 

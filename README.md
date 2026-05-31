@@ -24,6 +24,13 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage`, `codexbar cost`, `codexbar config`, and loopback `codexbar serve` for scripting and local integrations
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
+## What's New in v0.32.1
+
+- Ported upstream CodexBar v0.32.1 stability fixes into Win-CodexBar.
+- Defers the tray panel's automatic provider refresh briefly after opening so the UI can paint and accept clicks before provider work starts.
+- Reuses short-lived Codex credentials reads and avoids retaining unused Codex refresh tokens in process memory.
+- Keeps Claude OAuth usage read-only against Claude Code-owned credentials so Win-CodexBar does not interfere with Claude Code's token lifecycle.
+
 ## What's New in v0.32.0
 
 - Ported upstream CodexBar v0.32.0 provider fixes into Win-CodexBar.
@@ -114,21 +121,21 @@ The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrap
 For local release builds on a Windows machine, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.0
+.\scripts\windows-release-build.ps1 -Ref v0.32.1
 ```
 
-Automated Windows release builds now run through CircleCI hosted Windows instead of GitHub Actions or AWS EC2. Cloudflare R2 can mirror verified artifacts after the Windows smoke install passes. See [docs/release/ci-cd.md](docs/release/ci-cd.md).
+Automated Windows release builds can run through CircleCI hosted Windows instead of GitHub Actions or always-on self-hosted machines. Cloudflare R2 can mirror verified artifacts after the Windows smoke install passes. See [docs/release/ci-cd.md](docs/release/ci-cd.md).
 
 The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\source`, stores Rust build output in `C:\code\Win-CodexBar-release\cache\cargo-target`, stores pnpm packages in `C:\code\Win-CodexBar-release\cache\pnpm-store`, and reuses signed WebView2/VC++ bootstrapper downloads. It still builds the real release binary, verifies Microsoft signatures for installer dependencies, packages with Inno Setup, and writes the same four GitHub release assets under `C:\code\Win-CodexBar-release\assets`.
 
 Useful release flags:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.32.0 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.32.0 -UploadRelease v0.32.0
-.\scripts\release-doctor.ps1 -Version 0.32.0
+.\scripts\windows-release-build.ps1 -Ref v0.32.1 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.32.1 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.32.1 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.1 -UploadRelease v0.32.1
+.\scripts\release-doctor.ps1 -Version 0.32.1
 ```
 
 GitHub Actions are manual best-effort only for this project. CircleCI hosted Windows is the primary automated release path for installer and portable artifacts.

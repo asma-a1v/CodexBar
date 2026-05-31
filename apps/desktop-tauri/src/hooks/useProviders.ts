@@ -10,6 +10,15 @@ import {
   refreshProvidersIfStale,
 } from "../lib/tauri";
 
+export interface UseProvidersOptions {
+  /**
+   * Delay the automatic stale-aware refresh on mount. Tray/menu surfaces use
+   * this so opening the UI can paint and accept input before provider work
+   * starts.
+   */
+  initialRefreshDelayMs?: number;
+}
+
 export interface UseProvidersResult {
   /** Current provider snapshots (updated live as each provider completes). */
   providers: ProviderUsageSnapshot[];
@@ -33,7 +42,7 @@ export interface UseProvidersResult {
  *     into the local array (upsert by providerId).
  *  4. Listens for `refresh-started` / `refresh-complete` to track loading.
  */
-export function useProviders(): UseProvidersResult {
+export function useProviders(options: UseProvidersOptions = {}): UseProvidersResult {
   const [providers, setProviders] = useState<ProviderUsageSnapshot[]>([]);
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [lastRefresh, setLastRefresh] = useState<RefreshCompletePayload | null>(
@@ -102,21 +111,35 @@ export function useProviders(): UseProvidersResult {
       },
     );
 
+    let initialRefreshTimer: number | undefined;
+
+    const runInitialRefresh = () => {
+      refreshProvidersIfStale().catch(() => {
+        if (!cancelled) {
+          refreshingRef.current = false;
+          setIsRefreshing(false);
+        }
+      });
+    };
+
     // Kick off the initial refresh, but let the backend reuse fresh cache.
-    refreshProvidersIfStale().catch(() => {
-      if (!cancelled) {
-        refreshingRef.current = false;
-        setIsRefreshing(false);
-      }
-    });
+    const delay = Math.max(0, options.initialRefreshDelayMs ?? 0);
+    if (delay > 0) {
+      initialRefreshTimer = window.setTimeout(runInitialRefresh, delay);
+    } else {
+      runInitialRefresh();
+    }
 
     return () => {
       cancelled = true;
+      if (initialRefreshTimer !== undefined) {
+        window.clearTimeout(initialRefreshTimer);
+      }
       unlistenUpdated.then((fn) => fn());
       unlistenStarted.then((fn) => fn());
       unlistenComplete.then((fn) => fn());
     };
-  }, [refresh, upsert]);
+  }, [options.initialRefreshDelayMs, refresh, upsert]);
 
   return {
     providers,

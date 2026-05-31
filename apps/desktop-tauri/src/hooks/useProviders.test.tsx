@@ -35,6 +35,27 @@ describe("useProviders", () => {
     expect(tauriMocks.refreshProviders).not.toHaveBeenCalled();
   });
 
+  it("can defer the stale-aware refresh on mount", async () => {
+    vi.useFakeTimers();
+    try {
+      renderHook(() => useProviders({ initialRefreshDelayMs: 250 }));
+
+      expect(tauriMocks.refreshProvidersIfStale).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(249);
+      });
+      expect(tauriMocks.refreshProvidersIfStale).not.toHaveBeenCalled();
+
+      await act(async () => {
+        vi.advanceTimersByTime(1);
+      });
+      expect(tauriMocks.refreshProvidersIfStale).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("manual refresh uses forced refresh", async () => {
     const { result } = renderHook(() => useProviders());
 

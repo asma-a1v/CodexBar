@@ -6,9 +6,14 @@ use crate::core::{CostSnapshot, NamedRateWindow, ProviderError, RateWindow, Usag
 use chrono::{DateTime, TimeZone, Utc};
 use serde::Deserialize;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
+use std::time::{Duration, Instant, SystemTime};
 
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_PATH: &str = "/wham/usage";
+const CREDENTIAL_CACHE_TTL: Duration = Duration::from_secs(5);
+
+static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceLock::new();
 
 /// Codex API client
 pub struct CodexApi {
@@ -90,10 +95,23 @@ impl CodexApi {
             ));
         }
 
+        let modified = std::fs::metadata(&auth_path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        if let Some(cached) = Self::cached_credentials(&auth_path, modified) {
+            return Ok(cached);
+        }
+
         let content = std::fs::read_to_string(&auth_path).map_err(|e| {
             ProviderError::Other(format!("Failed to read Codex credentials: {}", e))
         })?;
 
+        let credentials = Self::parse_credentials_json(&content)?;
+        Self::store_cached_credentials(auth_path, modified, credentials.clone());
+        Ok(credentials)
+    }
+
+    fn parse_credentials_json(content: &str) -> Result<CodexCredentials, ProviderError> {
         let json: serde_json::Value = serde_json::from_str(&content)
             .map_err(|e| ProviderError::Parse(format!("Invalid Codex credentials JSON: {}", e)))?;
 
@@ -103,7 +121,6 @@ impl CodexApi {
             if !trimmed.is_empty() {
                 return Ok(CodexCredentials {
                     access_token: trimmed.to_string(),
-                    refresh_token: None,
                     account_id: None,
                 });
             }
@@ -123,12 +140,6 @@ impl CodexApi {
             })?
             .to_string();
 
-        let refresh_token = tokens
-            .get("refresh_token")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
-
         let account_id = tokens
             .get("account_id")
             .and_then(|v| v.as_str())
@@ -137,9 +148,42 @@ impl CodexApi {
 
         Ok(CodexCredentials {
             access_token,
-            refresh_token,
             account_id,
         })
+    }
+
+    fn credential_cache() -> &'static Mutex<Option<CachedCodexCredentials>> {
+        CREDENTIAL_CACHE.get_or_init(|| Mutex::new(None))
+    }
+
+    fn cached_credentials(
+        path: &std::path::Path,
+        modified: Option<SystemTime>,
+    ) -> Option<CodexCredentials> {
+        let guard = Self::credential_cache().lock().ok()?;
+        let cached = guard.as_ref()?;
+        if cached.path == path
+            && cached.modified == modified
+            && cached.loaded_at.elapsed() <= CREDENTIAL_CACHE_TTL
+        {
+            return Some(cached.credentials.clone());
+        }
+        None
+    }
+
+    fn store_cached_credentials(
+        path: PathBuf,
+        modified: Option<SystemTime>,
+        credentials: CodexCredentials,
+    ) {
+        if let Ok(mut guard) = Self::credential_cache().lock() {
+            *guard = Some(CachedCodexCredentials {
+                path,
+                modified,
+                loaded_at: Instant::now(),
+                credentials,
+            });
+        }
     }
 
     fn get_auth_path(&self) -> PathBuf {
@@ -509,10 +553,17 @@ impl Default for CodexApi {
 
 // --- Data structures ---
 
+#[derive(Clone)]
 struct CodexCredentials {
     access_token: String,
-    refresh_token: Option<String>,
     account_id: Option<String>,
+}
+
+struct CachedCodexCredentials {
+    path: PathBuf,
+    modified: Option<SystemTime>,
+    loaded_at: Instant,
+    credentials: CodexCredentials,
 }
 
 #[derive(Debug, Deserialize)]
@@ -709,6 +760,23 @@ fn capitalize(s: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn parses_codex_credentials_without_retaining_refresh_token() {
+        let credentials = CodexApi::parse_credentials_json(
+            r#"{
+                "tokens": {
+                    "access_token": "access",
+                    "refresh_token": "refresh",
+                    "account_id": "acct_123"
+                }
+            }"#,
+        )
+        .expect("credentials");
+
+        assert_eq!(credentials.access_token, "access");
+        assert_eq!(credentials.account_id.as_deref(), Some("acct_123"));
+    }
 
     #[test]
     fn maps_codex_spark_additional_rate_limits() {

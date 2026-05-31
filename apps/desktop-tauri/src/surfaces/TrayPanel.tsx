@@ -38,6 +38,8 @@ const HAS_STATUS_PAGE = new Set([
   "openrouter", "vertexai", "windsurf",
 ]);
 
+const TRAY_INITIAL_REFRESH_DELAY_MS = 250;
+
 function getProviderStatus(
   p: ProviderUsageSnapshot,
 ): "ok" | "warning" | "exhausted" | "error" {
@@ -70,7 +72,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     isRefreshing,
     refresh,
     hasCachedData,
-  } = useProviders();
+  } = useProviders({ initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS });
   const providers = DEMO_ENABLED ? DEMO_PROVIDERS : realProviders;
   const { settings } = useSettings(state.settings);
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
