@@ -24,6 +24,15 @@
 - **CLI** — `codexbar usage`、`codexbar cost`、`codexbar config` 和本机回环 `codexbar serve`，便于脚本化、本地集成和 CI
 - **WSL 支持** — CLI 开箱即用，桌面壳层通过 WSLg 运行
 
+## v0.32.0 更新内容
+
+- 将上游 CodexBar v0.32.0 的 provider 修复移植到 Win-CodexBar。
+- Providers 设置页新增搜索，可按服务商名称或 id 过滤大型 provider 列表，同时不破坏拖拽排序的完整顺序。
+- 更新 Augment CLI 解析，支持新版 `auggie account status` 输出，并保留旧格式兼容。
+- 加固 Ollama Web Cookie 获取：导入的 Cookie 只会附加到 HTTPS `ollama.com` 请求，不会在不安全重定向中继续携带。
+- 改进 Antigravity model quota 选择：image/lite/autocomplete/internal 行不会驱动主摘要条，但仍保留在详细 model 窗口中。
+- Claude 首次临时 auth/unauthorized 刷新失败时会保留上一次成功用量快照；连续失败仍会显示真实错误。
+
 ## v0.31.1 更新内容
 
 - 修复 Antigravity 在 Windows 上无法获取用量的问题：当本地 language server 的 API 绑定到随机监听端口，而不是 `--extension_server_port` 附近端口时，现在也能正确发现。
@@ -40,13 +49,13 @@
 ## v0.30.3 更新内容
 
 - 修复 DeepSeek 余额显示：仅有 CNY/RMB 余额的账号不再因为 USD 为 0 而显示 Exhausted。
-- 已在 Windows EC2 上通过原生 Rust provider 测试验证 DeepSeek CNY fallback 回归用例。
+- 已在 Windows 上通过原生 Rust provider 测试验证 DeepSeek CNY fallback 回归用例。
 - 包含 v0.30.2 的 About 链接修复。
 
 ## v0.30.2 更新内容
 
 - 修复 About 选项卡外部链接按钮，GitHub、Website、Original Project 和页脚项目链接现在会通过 Windows Tauri 壳层正确打开。
-- 已在真实 Windows EC2 桌面中使用 Cua Driver CLI 验证 About 选项卡链接流程。
+- 已在真实 Windows 桌面中验证 About 选项卡链接流程。
 - 包含 v0.30.1 的 Codex 本地用量修复。
 
 ## v0.30.1 更新内容
@@ -104,7 +113,7 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 在 Windows 构建服务器上做本地发布构建时，使用缓存版构建脚本：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.1
+.\scripts\windows-release-build.ps1 -Ref v0.32.0
 ```
 
 脚本会在 `C:\code\Win-CodexBar-release\source` 维护干净源码签出，在 `C:\code\Win-CodexBar-release\cache\cargo-target` 复用 Rust 构建输出，在 `C:\code\Win-CodexBar-release\cache\pnpm-store` 复用 pnpm 包，并复用已签名的 WebView2/VC++ 引导程序下载。它仍会构建真实 release 二进制、校验 Microsoft 签名、用 Inno Setup 打包，并在 `C:\code\Win-CodexBar-release\assets` 输出 GitHub Release 使用的四个资产。
@@ -112,11 +121,11 @@ Winget 分发已通过 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 常用发布参数：
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -UploadRelease v0.31.1
-.\scripts\release-doctor.ps1 -Version 0.31.1
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -UploadRelease v0.32.0
+.\scripts\release-doctor.ps1 -Version 0.32.0
 ```
 
 GitHub Actions 只作为辅助检查；安装包和便携版资产以 Windows 构建服务器脚本为主发布路径。

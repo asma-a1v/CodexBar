@@ -24,7 +24,16 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage`, `codexbar cost`, `codexbar config`, and loopback `codexbar serve` for scripting and local integrations
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
-## What's New in v0.31.1
+## What's New in v0.32.0
+
+- Ported upstream CodexBar v0.32.0 provider fixes into Win-CodexBar.
+- Added search to the Providers settings pane so the large provider list can be filtered by provider name or id without breaking drag-reorder order.
+- Updated Augment CLI parsing for the current `auggie account status` output while preserving the legacy output format.
+- Hardened Ollama web-cookie fetching so imported cookies are only attached to HTTPS `ollama.com` requests and are not reattached across unsafe redirects.
+- Improved Antigravity model quota selection so image/lite/autocomplete/internal rows stay out of the headline summary bars while remaining visible in detailed model windows.
+- Preserves the last good Claude usage snapshot across a first transient auth/unauthorized refresh failure, while repeated failures still surface the real error.
+
+## v0.31.1
 
 - Fixed Antigravity usage on Windows when the local language server binds its API to a random listening port instead of a port near `--extension_server_port`.
 - The app now checks the Antigravity language-server process's actual listening ports first, while keeping the older heuristic port probes as a fallback.
@@ -40,13 +49,13 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 ## v0.30.3
 
 - Fixed DeepSeek balance display for accounts that only have CNY/RMB credit. A zero USD balance no longer hides a positive CNY balance or marks the provider exhausted.
-- Verified the DeepSeek CNY fallback regression on Windows EC2 with the native Rust provider tests.
+- Verified the DeepSeek CNY fallback regression with native Rust provider tests on Windows.
 - Includes the v0.30.2 About tab link fix below.
 
 ## v0.30.2
 
 - Fixed About tab external buttons so GitHub, Website, Original Project, and inline project links open through the Tauri shell on Windows.
-- Verified the About tab link flow on a real Windows EC2 desktop with Cua Driver CLI against the native Tauri window.
+- Verified the About tab link flow on a real Windows desktop against the native Tauri window.
 - Includes the v0.30.1 Codex local usage fixes below.
 
 ## v0.30.1
@@ -105,7 +114,7 @@ The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrap
 For local release builds on a Windows machine, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.1
+.\scripts\windows-release-build.ps1 -Ref v0.32.0
 ```
 
 Automated Windows release builds now run through CircleCI hosted Windows instead of GitHub Actions or AWS EC2. Cloudflare R2 can mirror verified artifacts after the Windows smoke install passes. See [docs/release/ci-cd.md](docs/release/ci-cd.md).
@@ -115,11 +124,11 @@ The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\so
 Useful release flags:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.31.1 -UploadRelease v0.31.1
-.\scripts\release-doctor.ps1 -Version 0.31.1
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.0 -UploadRelease v0.32.0
+.\scripts\release-doctor.ps1 -Version 0.32.0
 ```
 
 GitHub Actions are manual best-effort only for this project. CircleCI hosted Windows is the primary automated release path for installer and portable artifacts.

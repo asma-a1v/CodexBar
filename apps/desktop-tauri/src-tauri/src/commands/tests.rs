@@ -674,6 +674,65 @@ fn provider_cache_upsert_replaces_existing_provider() {
 }
 
 #[test]
+fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let error = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Unauthorized".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good.clone());
+
+    let preserved = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        error,
+    );
+
+    assert_eq!(preserved.error, None);
+    assert_eq!(preserved.primary.used_percent, 42.0);
+}
+
+#[test]
+fn claude_repeated_auth_failure_surfaces_error() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(42.0)),
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let first_error = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Unauthorized".to_string(),
+    );
+    let second_error = first_error.clone();
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good);
+
+    let _ = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        first_error,
+    );
+    let surfaced = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        second_error,
+    );
+
+    assert!(surfaced.error.is_some());
+}
+
+#[test]
 fn claude_error_message_removes_upstream_swift_cancellation() {
     let message = super::friendly_provider_error(
         ProviderId::Claude,

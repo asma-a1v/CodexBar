@@ -33,6 +33,8 @@ export interface ProviderSidebarRow {
 interface Props {
   providers: ProviderSidebarRow[];
   selectedId: string | null;
+  searchText: string;
+  onSearchTextChange: (value: string) => void;
   onSelect: (id: string) => void;
   onReorder: (orderedIds: string[]) => void;
   onToggleEnabled: (id: string, enabled: boolean) => void;
@@ -60,6 +62,8 @@ const STATUS_TO_KEY: Record<ProviderSidebarStatus, LocaleKey> = {
 export function ProvidersSidebar({
   providers,
   selectedId,
+  searchText,
+  onSearchTextChange,
   onSelect,
   onReorder,
   onToggleEnabled,
@@ -182,15 +186,43 @@ export function ProvidersSidebar({
   };
 
   return (
-    <ul
-      ref={sidebarRef}
-      className="providers-sidebar"
-      role="listbox"
-      aria-label="Providers"
-      aria-orientation="vertical"
-      onWheel={handleWheel}
-    >
-      {ordered.map((p) => {
+    <div className="providers-sidebar-shell">
+      <div className="providers-sidebar-search">
+        <input
+          className="providers-sidebar-search__input"
+          type="search"
+          value={searchText}
+          onChange={(e) => onSearchTextChange(e.target.value)}
+          placeholder={t("ProviderSidebarSearch")}
+          aria-label={t("ProviderSidebarSearch")}
+          spellCheck={false}
+        />
+        {searchText.trim() && (
+          <button
+            type="button"
+            className="providers-sidebar-search__clear"
+            onClick={() => onSearchTextChange("")}
+            aria-label={t("ProviderSidebarClearSearch")}
+            title={t("ProviderSidebarClearSearch")}
+          >
+            ×
+          </button>
+        )}
+      </div>
+      <ul
+        ref={sidebarRef}
+        className="providers-sidebar"
+        role="listbox"
+        aria-label="Providers"
+        aria-orientation="vertical"
+        onWheel={handleWheel}
+      >
+        {ordered.length === 0 && (
+          <li className="providers-sidebar__empty">
+            {t("ProviderSidebarNoMatches")}
+          </li>
+        )}
+        {ordered.map((p) => {
           const isSelected = p.id === selectedId;
           const isDrop = dropTargetId === p.id;
           const isDragging = dragId === p.id;
@@ -264,7 +296,8 @@ export function ProvidersSidebar({
               />
             </li>
           );
-        })}
-    </ul>
+          })}
+      </ul>
+    </div>
   );
 }

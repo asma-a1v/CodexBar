@@ -591,6 +591,9 @@ impl LocaleKey {
             LocaleKey::BannerRetry => "Retry",
 
             // Tauri desktop shell — providers sidebar (Phase 6a)
+            LocaleKey::ProviderSidebarSearch => "Search providers",
+            LocaleKey::ProviderSidebarClearSearch => "Clear provider search",
+            LocaleKey::ProviderSidebarNoMatches => "No matching providers",
             LocaleKey::ProviderSidebarReorderHint => "Drag to reorder",
             LocaleKey::ProviderStatusOk => "Up to date",
             LocaleKey::ProviderStatusStale => "Stale",

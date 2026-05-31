@@ -614,6 +614,9 @@ pub enum LocaleKey {
     BannerRetry,
 
     // Tauri desktop shell — providers sidebar (Phase 6a)
+    ProviderSidebarSearch,
+    ProviderSidebarClearSearch,
+    ProviderSidebarNoMatches,
     ProviderSidebarReorderHint,
     ProviderStatusOk,
     ProviderStatusStale,

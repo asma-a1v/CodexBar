@@ -10,7 +10,12 @@ mod keepalive;
 pub use keepalive::{AugmentSessionKeepalive, KeepaliveConfig};
 
 use async_trait::async_trait;
+use regex_lite::Regex;
 use std::path::PathBuf;
+use std::sync::OnceLock;
+use std::time::Duration;
+use tokio::process::Command;
+use tokio::time::timeout;
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
@@ -56,8 +61,13 @@ impl AugmentProvider {
     fn which_augment() -> Option<PathBuf> {
         let possible_paths = [
             which::which("augment").ok(),
+            which::which("auggie").ok(),
             #[cfg(target_os = "windows")]
             dirs::data_local_dir().map(|p| p.join("Programs").join("Augment").join("augment.exe")),
+            #[cfg(target_os = "windows")]
+            dirs::data_local_dir().map(|p| p.join("Programs").join("Augment").join("auggie.exe")),
+            #[cfg(not(target_os = "windows"))]
+            None,
             #[cfg(not(target_os = "windows"))]
             None,
         ];
@@ -193,23 +203,69 @@ impl AugmentProvider {
         Ok(usage)
     }
 
+    async fn fetch_via_cli(&self) -> Result<UsageSnapshot, ProviderError> {
+        let cli_path = Self::which_augment().ok_or_else(|| {
+            ProviderError::NotInstalled(
+                "Augment CLI not found. Install from https://www.augmentcode.com".to_string(),
+            )
+        })?;
+
+        #[cfg(windows)]
+        const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+        let mut cmd = Command::new(cli_path);
+        cmd.args(["account", "status"]);
+        #[cfg(windows)]
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        let output = timeout(Duration::from_secs(15), cmd.output())
+            .await
+            .map_err(|_| ProviderError::Timeout)?
+            .map_err(|e| ProviderError::Other(format!("Failed to run Augment CLI: {e}")))?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if !output.status.success() {
+            let message = if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            };
+            if message.contains("Authentication failed") || message.contains("auggie login") {
+                return Err(ProviderError::AuthRequired);
+            }
+            return Err(ProviderError::Other(format!(
+                "Augment CLI failed: {}",
+                message
+            )));
+        }
+        if stdout.trim().is_empty() {
+            return Err(ProviderError::Parse(
+                "Augment CLI returned no account status output".to_string(),
+            ));
+        }
+        parse_auggie_account_status(&stdout)
+    }
+
+    #[allow(dead_code)]
     /// Probe CLI for detection
     async fn probe_cli(&self) -> Result<UsageSnapshot, ProviderError> {
-        // Check if Augment is installed (VS Code extension or CLI)
-        let augment_path = Self::which_augment();
-        let config_path = Self::get_augment_config_path();
+        self.fetch_via_cli().await.or_else(|_| {
+            let augment_path = Self::which_augment();
+            let config_path = Self::get_augment_config_path();
 
-        if augment_path.map(|p| p.exists()).unwrap_or(false)
-            || config_path.map(|p| p.exists()).unwrap_or(false)
-        {
-            let usage =
-                UsageSnapshot::new(RateWindow::new(0.0)).with_login_method("Augment (installed)");
-            Ok(usage)
-        } else {
-            Err(ProviderError::NotInstalled(
-                "Augment not found. Install from https://www.augmentcode.com".to_string(),
-            ))
-        }
+            if augment_path.map(|p| p.exists()).unwrap_or(false)
+                || config_path.map(|p| p.exists()).unwrap_or(false)
+            {
+                let usage = UsageSnapshot::new(RateWindow::new(0.0))
+                    .with_login_method("Augment (installed)");
+                Ok(usage)
+            } else {
+                Err(ProviderError::NotInstalled(
+                    "Augment not found. Install from https://www.augmentcode.com".to_string(),
+                ))
+            }
+        })
     }
 }
 
@@ -234,18 +290,18 @@ impl Provider for AugmentProvider {
 
         match ctx.source_mode {
             SourceMode::Auto => {
-                if let Ok(usage) = self.fetch_via_web().await {
-                    return Ok(ProviderFetchResult::new(usage, "web"));
+                if let Ok(usage) = self.fetch_via_cli().await {
+                    return Ok(ProviderFetchResult::new(usage, "cli"));
                 }
-                let usage = self.probe_cli().await?;
-                Ok(ProviderFetchResult::new(usage, "cli"))
+                let usage = self.fetch_via_web().await?;
+                Ok(ProviderFetchResult::new(usage, "web"))
             }
             SourceMode::Web => {
                 let usage = self.fetch_via_web().await?;
                 Ok(ProviderFetchResult::new(usage, "web"))
             }
             SourceMode::Cli => {
-                let usage = self.probe_cli().await?;
+                let usage = self.fetch_via_cli().await?;
                 Ok(ProviderFetchResult::new(usage, "cli"))
             }
             SourceMode::OAuth => Err(ProviderError::UnsupportedSource(SourceMode::OAuth)),
@@ -262,5 +318,135 @@ impl Provider for AugmentProvider {
 
     fn supports_cli(&self) -> bool {
         true
+    }
+}
+
+fn parse_auggie_account_status(output: &str) -> Result<UsageSnapshot, ProviderError> {
+    static MONTHLY_RE: OnceLock<Regex> = OnceLock::new();
+    static REMAINING_RE: OnceLock<Regex> = OnceLock::new();
+    static LEGACY_RE: OnceLock<Regex> = OnceLock::new();
+    static LEGACY_REMAINING_RE: OnceLock<Regex> = OnceLock::new();
+    static BILLING_RE: OnceLock<Regex> = OnceLock::new();
+
+    let monthly_re = MONTHLY_RE
+        .get_or_init(|| Regex::new(r"(?i)([\d,]+)\s+credits\s*/\s*month").expect("valid regex"));
+    let remaining_re = REMAINING_RE
+        .get_or_init(|| Regex::new(r"(?i)([\d,]+)\s+credits\s+remaining").expect("valid regex"));
+    let legacy_re = LEGACY_RE.get_or_init(|| {
+        Regex::new(r"(?i)([\d,]+)\s*/\s*([\d,]+)\s+credits used").expect("valid regex")
+    });
+    let legacy_remaining_re = LEGACY_REMAINING_RE
+        .get_or_init(|| Regex::new(r"(?i)([\d,]+)\s+remaining").expect("valid regex"));
+    let billing_re = BILLING_RE
+        .get_or_init(|| Regex::new(r"(?i)billing cycle.*ends\s+([\d/]+)").expect("valid regex"));
+
+    let mut max_credits: Option<f64> = None;
+    let mut remaining: Option<f64> = None;
+    let mut used: Option<f64> = None;
+    let mut total: Option<f64> = None;
+    let mut reset_description: Option<String> = None;
+
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+    {
+        if let Some(caps) = monthly_re.captures(line) {
+            let value = parse_credit_number(&caps[1]);
+            max_credits = value;
+            total = total.or(value);
+        }
+
+        if let Some(caps) = remaining_re.captures(line) {
+            remaining = parse_credit_number(&caps[1]);
+        } else if line.to_ascii_lowercase().contains("credits used")
+            && let Some(caps) = legacy_remaining_re.captures(line)
+        {
+            remaining = parse_credit_number(&caps[1]);
+        }
+
+        if let Some(caps) = legacy_re.captures(line) {
+            used = parse_credit_number(&caps[1]);
+            total = parse_credit_number(&caps[2]);
+        }
+
+        if let Some(caps) = billing_re.captures(line) {
+            reset_description = Some(format!("ends {}", &caps[1]));
+        }
+    }
+
+    let remaining = remaining.ok_or_else(|| {
+        ProviderError::Parse("Could not extract Augment remaining credits".to_string())
+    })?;
+    let total = total.or(max_credits).ok_or_else(|| {
+        ProviderError::Parse("Could not extract Augment credit limit".to_string())
+    })?;
+    let used = used.unwrap_or_else(|| (total - remaining).max(0.0));
+    let used_percent = if total > 0.0 {
+        (used / total) * 100.0
+    } else {
+        0.0
+    };
+
+    let mut window = RateWindow::new(used_percent);
+    window.reset_description = reset_description;
+    let plan = max_credits
+        .map(|credits| format!("{} credits/month", format_integer_credits(credits)))
+        .unwrap_or_else(|| "Augment".to_string());
+    Ok(UsageSnapshot::new(window).with_login_method(plan))
+}
+
+fn parse_credit_number(value: &str) -> Option<f64> {
+    value.replace(',', "").trim().parse::<f64>().ok()
+}
+
+fn format_integer_credits(value: f64) -> String {
+    let mut digits = format!("{:.0}", value).chars().rev().collect::<Vec<_>>();
+    let mut out = String::new();
+    for (idx, ch) in digits.drain(..).enumerate() {
+        if idx > 0 && idx % 3 == 0 {
+            out.push(',');
+        }
+        out.push(ch);
+    }
+    out.chars().rev().collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_current_auggie_account_status() {
+        let usage = parse_auggie_account_status(
+            r#"
+            319,054 credits remaining                     Max Plan
+            450,000 credits / month
+            9 days remaining in this billing cycle (ends 6/9/2026)
+            "#,
+        )
+        .unwrap();
+
+        assert!((usage.primary.used_percent - 29.098).abs() < 0.01);
+        assert_eq!(usage.login_method.as_deref(), Some("450,000 credits/month"));
+        assert_eq!(
+            usage.primary.reset_description.as_deref(),
+            Some("ends 6/9/2026")
+        );
+    }
+
+    #[test]
+    fn parses_legacy_auggie_account_status() {
+        let usage = parse_auggie_account_status(
+            r#"
+            Max Plan 450,000 credits / month
+            11,657 remaining · 953,170 / 964,827 credits used
+            2 days remaining in this billing cycle (ends 1/8/2026)
+            "#,
+        )
+        .unwrap();
+
+        assert!((usage.primary.used_percent - 98.79).abs() < 0.01);
+        assert_eq!(usage.login_method.as_deref(), Some("450,000 credits/month"));
     }
 }

@@ -324,38 +324,42 @@ impl AntigravityProvider {
             .and_then(|d| d.client_model_configs)
             .unwrap_or_default();
 
-        let mut primary: Option<RateWindow> = None;
-        let mut secondary: Option<RateWindow> = None;
-        let mut tertiary: Option<RateWindow> = None;
+        let mut quota_configs = model_configs
+            .iter()
+            .filter(|config| config.quota_info.is_some())
+            .filter(|config| !model_label(config).is_empty())
+            .collect::<Vec<_>>();
+        quota_configs.sort_by(|a, b| compare_model_configs(a, b));
 
-        for config in &model_configs {
-            let family = classify_model(&config.label);
-            match family {
-                ModelFamily::Claude if primary.is_none() => {
-                    if let Some(quota) = &config.quota_info {
-                        primary = Some(rate_window_from_quota(quota));
-                    }
-                }
-                ModelFamily::GeminiProLow if secondary.is_none() => {
-                    if let Some(quota) = &config.quota_info {
-                        secondary = Some(rate_window_from_quota(quota));
-                    }
-                }
-                ModelFamily::GeminiFlash if tertiary.is_none() => {
-                    if let Some(quota) = &config.quota_info {
-                        tertiary = Some(rate_window_from_quota(quota));
-                    }
-                }
-                _ => {}
-            }
-        }
+        let summary_candidates = quota_configs
+            .iter()
+            .copied()
+            .filter(|config| !is_noisy_summary_model(model_label(config)))
+            .collect::<Vec<_>>();
 
-        if primary.is_none()
-            && let Some(first) = model_configs.first()
-            && let Some(quota) = &first.quota_info
-        {
-            primary = Some(rate_window_from_quota(quota));
-        }
+        let primary = best_summary_model(&summary_candidates, ModelFamily::Claude)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota)
+            .or_else(|| {
+                summary_candidates
+                    .first()
+                    .and_then(|config| config.quota_info.as_ref())
+                    .map(rate_window_from_quota)
+            })
+            .or_else(|| {
+                quota_configs
+                    .first()
+                    .and_then(|config| config.quota_info.as_ref())
+                    .map(rate_window_from_quota)
+            });
+
+        let secondary = best_summary_model(&summary_candidates, ModelFamily::GeminiPro)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota);
+
+        let tertiary = best_summary_model(&summary_candidates, ModelFamily::GeminiFlash)
+            .and_then(|config| config.quota_info.as_ref())
+            .map(rate_window_from_quota);
 
         let primary = primary.unwrap_or_else(|| RateWindow::new(0.0));
         let mut snapshot = UsageSnapshot::new(primary);
@@ -367,16 +371,16 @@ impl AntigravityProvider {
             snapshot = snapshot.with_model_specific(ter);
         }
 
-        for (idx, config) in model_configs.iter().enumerate() {
+        for config in quota_configs {
             let Some(quota) = &config.quota_info else {
                 continue;
             };
-            let title = clean_model_label(&config.label);
+            let title = clean_model_label(model_label(config));
             if title.is_empty() {
                 continue;
             }
             snapshot = snapshot.with_extra_rate_window(
-                format!("model-{idx}"),
+                model_window_id(config),
                 title,
                 rate_window_from_quota(quota),
             );
@@ -479,7 +483,12 @@ struct ModelConfigData {
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 struct ModelConfig {
+    #[serde(default)]
     label: String,
+    #[serde(default)]
+    model_id: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
     quota_info: Option<QuotaInfo>,
 }
 
@@ -496,7 +505,7 @@ struct QuotaInfo {
 enum ModelFamily {
     Claude,
     ClaudeThinking,
-    GeminiProLow,
+    GeminiPro,
     GeminiFlash,
     Other,
 }
@@ -509,17 +518,138 @@ fn classify_model(label: &str) -> ModelFamily {
         } else {
             ModelFamily::Claude
         }
-    } else if lower.contains("gemini") && lower.contains("pro") && lower.contains("low") {
-        ModelFamily::GeminiProLow
+    } else if lower.contains("gemini") && lower.contains("pro") {
+        ModelFamily::GeminiPro
     } else if lower.contains("gemini") && lower.contains("flash") {
         ModelFamily::GeminiFlash
-    } else if lower.contains("pro") && lower.contains("low") {
-        ModelFamily::GeminiProLow
+    } else if lower.contains("pro") && !is_noisy_summary_model(&lower) {
+        ModelFamily::GeminiPro
     } else if lower.contains("flash") {
         ModelFamily::GeminiFlash
     } else {
         ModelFamily::Other
     }
+}
+
+fn best_summary_model<'a>(
+    candidates: &[&'a ModelConfig],
+    family: ModelFamily,
+) -> Option<&'a ModelConfig> {
+    candidates
+        .iter()
+        .copied()
+        .filter(|config| classify_model(model_label(config)) == family)
+        .min_by(|a, b| {
+            let a_label = model_label(a);
+            let b_label = model_label(b);
+            let a_priority = selection_priority(a_label, family);
+            let b_priority = selection_priority(b_label, family);
+            a_priority
+                .cmp(&b_priority)
+                .then_with(|| compare_model_configs(a, b))
+        })
+}
+
+fn selection_priority(label: &str, family: ModelFamily) -> u8 {
+    let lower = label.to_lowercase();
+    match family {
+        ModelFamily::GeminiPro if lower.contains("low") => 0,
+        ModelFamily::GeminiPro => 1,
+        _ => 0,
+    }
+}
+
+fn compare_model_configs(a: &ModelConfig, b: &ModelConfig) -> std::cmp::Ordering {
+    let a_label = model_label(a);
+    let b_label = model_label(b);
+    family_rank(classify_model(a_label))
+        .cmp(&family_rank(classify_model(b_label)))
+        .then_with(|| parse_model_version(b_label).cmp(&parse_model_version(a_label)))
+        .then_with(|| tier_rank(a_label).cmp(&tier_rank(b_label)))
+        .then_with(|| clean_model_label(a_label).cmp(&clean_model_label(b_label)))
+}
+
+fn family_rank(family: ModelFamily) -> u8 {
+    match family {
+        ModelFamily::Claude => 0,
+        ModelFamily::GeminiPro => 1,
+        ModelFamily::GeminiFlash => 2,
+        ModelFamily::ClaudeThinking => 3,
+        ModelFamily::Other => 4,
+    }
+}
+
+fn tier_rank(label: &str) -> u8 {
+    let lower = label.to_lowercase();
+    if lower.contains("high") {
+        0
+    } else if lower.contains("medium") {
+        1
+    } else if lower.contains("low") {
+        2
+    } else {
+        3
+    }
+}
+
+fn parse_model_version(label: &str) -> (u16, u16) {
+    static VERSION_RE: OnceLock<Regex> = OnceLock::new();
+    let regex =
+        VERSION_RE.get_or_init(|| Regex::new(r"(?i)(\d+)(?:[.-](\d+))?").expect("valid regex"));
+    let Some(caps) = regex.captures(label) else {
+        return (0, 0);
+    };
+    let major = caps
+        .get(1)
+        .and_then(|m| m.as_str().parse::<u16>().ok())
+        .unwrap_or(0);
+    let minor = caps
+        .get(2)
+        .and_then(|m| m.as_str().parse::<u16>().ok())
+        .unwrap_or(0);
+    (major, minor)
+}
+
+fn is_noisy_summary_model(label: &str) -> bool {
+    let lower = label.to_lowercase();
+    lower.contains("image")
+        || lower.contains("lite")
+        || lower.contains("autocomplete")
+        || lower.contains("completion")
+        || lower.contains("internal")
+}
+
+fn model_label(config: &ModelConfig) -> &str {
+    if !config.label.trim().is_empty() {
+        &config.label
+    } else if let Some(model_id) = config.model_id.as_deref() {
+        model_id
+    } else if let Some(id) = config.id.as_deref() {
+        id
+    } else {
+        ""
+    }
+}
+
+fn model_window_id(config: &ModelConfig) -> String {
+    let raw = config
+        .model_id
+        .as_deref()
+        .or(config.id.as_deref())
+        .unwrap_or_else(|| model_label(config));
+    let slug = raw
+        .chars()
+        .map(|ch| {
+            if ch.is_ascii_alphanumeric() {
+                ch.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect::<String>()
+        .trim_matches('-')
+        .to_string();
+    format!("model-{}", if slug.is_empty() { "unknown" } else { &slug })
 }
 
 fn rate_window_from_quota(quota: &QuotaInfo) -> RateWindow {
@@ -552,12 +682,9 @@ mod tests {
             classify_model("claude-3.5-sonnet-thinking"),
             ModelFamily::ClaudeThinking
         );
-        assert_eq!(
-            classify_model("Gemini 2.5 Pro Low"),
-            ModelFamily::GeminiProLow
-        );
-        assert_eq!(classify_model("gemini-pro-low"), ModelFamily::GeminiProLow);
-        assert_eq!(classify_model("Pro Low Latency"), ModelFamily::GeminiProLow);
+        assert_eq!(classify_model("Gemini 2.5 Pro Low"), ModelFamily::GeminiPro);
+        assert_eq!(classify_model("gemini-pro-low"), ModelFamily::GeminiPro);
+        assert_eq!(classify_model("Pro Low Latency"), ModelFamily::GeminiPro);
         assert_eq!(classify_model("Gemini 2.5 Flash"), ModelFamily::GeminiFlash);
         assert_eq!(classify_model("gemini-flash"), ModelFamily::GeminiFlash);
         assert_eq!(classify_model("Flash Model"), ModelFamily::GeminiFlash);
@@ -628,5 +755,28 @@ mod tests {
         assert!((snap.primary.used_percent - 60.0).abs() < 0.1);
         assert!(snap.secondary.is_none());
         assert!(snap.model_specific.is_none());
+    }
+
+    #[test]
+    fn test_noisy_models_do_not_drive_summary_windows() {
+        let resp = make_response(vec![
+            ("Gemini 2.5 Flash Image", 0.01),
+            ("Gemini 2.5 Pro Lite", 0.02),
+            ("Gemini autocomplete internal", 0.03),
+            ("Claude 4 Sonnet", 0.8),
+            ("Gemini 2.5 Pro Low", 0.6),
+            ("Gemini 2.5 Flash", 0.7),
+        ]);
+        let provider = AntigravityProvider::new();
+        let snap = provider.parse_user_status(resp).unwrap();
+
+        assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
+        assert!((snap.secondary.unwrap().used_percent - 40.0).abs() < 0.1);
+        assert!((snap.model_specific.unwrap().used_percent - 30.0).abs() < 0.1);
+        assert!(
+            snap.extra_rate_windows
+                .iter()
+                .any(|window| window.title == "Gemini 2.5 Flash Image")
+        );
     }
 }

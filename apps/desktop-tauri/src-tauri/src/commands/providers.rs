@@ -234,12 +234,67 @@ fn spawn_provider_refreshes(
 
 async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchContext) {
     let snapshot = fetch_provider_snapshot(id, ctx).await;
-    events::emit_provider_updated(&app, &snapshot);
 
     let state = app.state::<Mutex<AppState>>();
     if let Ok(mut guard) = state.lock() {
+        let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
+        events::emit_provider_updated(&app, &snapshot);
         upsert_provider_cache(&mut guard.provider_cache, snapshot);
+    } else {
+        events::emit_provider_updated(&app, &snapshot);
     }
+}
+
+pub(super) fn preserve_last_good_transient_failure(
+    guard: &mut AppState,
+    id: ProviderId,
+    snapshot: ProviderUsageSnapshot,
+) -> ProviderUsageSnapshot {
+    if snapshot.error.is_none() {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    if id != ProviderId::Claude || !is_transient_claude_auth_error(snapshot.error.as_deref()) {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let Some(previous) = guard
+        .provider_cache
+        .iter()
+        .find(|cached| cached.provider_id == id.cli_name() && cached.error.is_none())
+        .cloned()
+    else {
+        return snapshot;
+    };
+
+    let count = guard
+        .transient_provider_failure_counts
+        .entry(id)
+        .or_insert(0);
+    if *count == 0 {
+        *count = 1;
+        tracing::warn!(
+            provider = id.cli_name(),
+            "preserving last good provider snapshot after transient auth failure"
+        );
+        previous
+    } else {
+        *count = count.saturating_add(1);
+        snapshot
+    }
+}
+
+fn is_transient_claude_auth_error(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("unauthorized")
+        || lower.contains("authentication required")
+        || lower.contains("auth required")
+        || lower.contains("oauth")
 }
 
 async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderUsageSnapshot {

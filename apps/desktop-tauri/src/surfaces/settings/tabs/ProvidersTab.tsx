@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type {
   ProviderCatalogEntry,
   ProviderUsageSnapshot,
@@ -38,6 +38,7 @@ export default function ProvidersTab({
   // backend `reorder_providers` round-trip settles.
   const [orderedProviders, setOrderedProviders] =
     useState<ProviderCatalogEntry[]>(providers);
+  const [searchText, setSearchText] = useState("");
 
   useEffect(() => {
     setOrderedProviders(providers);
@@ -52,28 +53,59 @@ export default function ProvidersTab({
     set({ enabledProviders: [...next].sort() });
   };
 
-  const snapshotMap = new Map(snapshots.map((s) => [s.providerId, s]));
+  const rows: ProviderSidebarRow[] = useMemo(() => {
+    const snapshotMap = new Map(snapshots.map((s) => [s.providerId, s]));
+    return orderedProviders.map((p) => {
+      const isOn = enabled.has(p.id);
+      const snap = snapshotMap.get(p.id) ?? null;
+      return {
+        id: p.id,
+        displayName: p.displayName,
+        enabled: isOn,
+        status: deriveProviderStatus(isOn, snap),
+        subtitlePrimary: providerSidebarSubtitle(p.id, isOn, snap, t),
+        subtitleSecondary: providerSidebarMetric(snap),
+      };
+    });
+  }, [enabled, orderedProviders, snapshots, t]);
 
-  const rows: ProviderSidebarRow[] = orderedProviders.map((p) => {
-    const isOn = enabled.has(p.id);
-    const snap = snapshotMap.get(p.id) ?? null;
-    return {
-      id: p.id,
-      displayName: p.displayName,
-      enabled: isOn,
-      status: deriveProviderStatus(isOn, snap),
-      subtitlePrimary: providerSidebarSubtitle(p.id, isOn, snap, t),
-      subtitleSecondary: providerSidebarMetric(snap),
-    };
-  });
+  const normalizedSearch = searchText.trim().toLowerCase();
+  const visibleRows = useMemo(
+    () =>
+      normalizedSearch
+        ? rows.filter((row) => {
+            const name = row.displayName.toLowerCase();
+            const id = row.id.toLowerCase();
+            return name.includes(normalizedSearch) || id.includes(normalizedSearch);
+          })
+        : rows,
+    [normalizedSearch, rows],
+  );
+
+  useEffect(() => {
+    if (visibleRows.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (!selectedId || !visibleRows.some((row) => row.id === selectedId)) {
+      setSelectedId(visibleRows[0].id);
+    }
+  }, [selectedId, visibleRows]);
 
   const handleReorder = (ids: string[]) => {
     const byId = new Map(orderedProviders.map((p) => [p.id, p]));
-    const next = ids
+    const nextIds = normalizedSearch
+      ? mergeFilteredOrder(
+          orderedProviders.map((p) => p.id),
+          new Set(visibleRows.map((row) => row.id)),
+          ids,
+        )
+      : ids;
+    const next = nextIds
       .map((id) => byId.get(id))
       .filter((p): p is ProviderCatalogEntry => Boolean(p));
     setOrderedProviders(next);
-    void reorderProviders(ids).catch(() => {
+    void reorderProviders(nextIds).catch(() => {
       setOrderedProviders(providers);
     });
   };
@@ -84,8 +116,10 @@ export default function ProvidersTab({
   return (
     <div className="provider-split">
       <ProvidersSidebar
-        providers={rows}
+        providers={visibleRows}
         selectedId={selectedId}
+        searchText={searchText}
+        onSearchTextChange={setSearchText}
         onSelect={setSelectedId}
         onReorder={handleReorder}
         onToggleEnabled={toggle}
@@ -100,6 +134,17 @@ export default function ProvidersTab({
         onSettingsChange={set}
       />
     </div>
+  );
+}
+
+function mergeFilteredOrder(
+  fullOrder: string[],
+  visibleIds: Set<string>,
+  reorderedVisibleIds: string[],
+): string[] {
+  const nextVisible = [...reorderedVisibleIds];
+  return fullOrder.map((id) =>
+    visibleIds.has(id) ? (nextVisible.shift() ?? id) : id,
   );
 }
 

@@ -6,6 +6,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use regex_lite::Regex;
+use reqwest::Url;
 use serde::Deserialize;
 
 use crate::core::{
@@ -57,23 +58,61 @@ impl OllamaProvider {
 
         let client = reqwest::Client::builder()
             .timeout(std::time::Duration::from_secs(ctx.web_timeout))
-            .redirect(reqwest::redirect::Policy::limited(5))
+            .redirect(reqwest::redirect::Policy::none())
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        let resp = client
-            .get(OLLAMA_SETTINGS_URL)
-            .header("Cookie", &cookie_header)
-            .header(
-                "Accept",
-                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            )
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
-            )
-            .send()
-            .await?;
+        let mut current_url =
+            Url::parse(OLLAMA_SETTINGS_URL).map_err(|e| ProviderError::Other(e.to_string()))?;
+        let mut resp = None;
+
+        for _ in 0..5 {
+            let mut request = client
+                .get(current_url.clone())
+                .header(
+                    "Accept",
+                    "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                )
+                .header(
+                    "User-Agent",
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/143.0.0.0 Safari/537.36",
+                );
+
+            if should_attach_ollama_cookie(&current_url) {
+                request = request.header("Cookie", &cookie_header);
+            }
+
+            let response = request.send().await?;
+            if response.status().is_redirection() {
+                let Some(location) = response.headers().get(reqwest::header::LOCATION) else {
+                    return Err(ProviderError::Other(
+                        "Ollama redirect missing Location header".to_string(),
+                    ));
+                };
+                let location = location
+                    .to_str()
+                    .map_err(|e| ProviderError::Other(e.to_string()))?;
+                let next_url = current_url
+                    .join(location)
+                    .map_err(|e| ProviderError::Other(e.to_string()))?;
+                if is_ollama_login_url(&next_url) {
+                    return Err(ProviderError::AuthRequired);
+                }
+                if !should_attach_ollama_cookie(&next_url) {
+                    return Err(ProviderError::AuthRequired);
+                }
+                current_url = next_url;
+                continue;
+            }
+            resp = Some(response);
+            break;
+        }
+
+        let Some(resp) = resp else {
+            return Err(ProviderError::Other(
+                "Ollama returned too many redirects".to_string(),
+            ));
+        };
 
         if resp.status() == reqwest::StatusCode::UNAUTHORIZED
             || resp.status() == reqwest::StatusCode::FORBIDDEN
@@ -82,8 +121,7 @@ impl OllamaProvider {
         }
 
         // Check for redirect to login page
-        let final_url = resp.url().to_string();
-        if final_url.contains("/login") || final_url.contains("/signin") {
+        if is_ollama_login_url(resp.url()) {
             return Err(ProviderError::AuthRequired);
         }
 
@@ -445,6 +483,18 @@ fn strip_html_entities(value: &str) -> String {
         .replace("&#x2F;", "/")
 }
 
+fn should_attach_ollama_cookie(url: &Url) -> bool {
+    url.scheme() == "https"
+        && url
+            .host_str()
+            .is_some_and(|host| host.eq_ignore_ascii_case(OLLAMA_COOKIE_DOMAIN))
+}
+
+fn is_ollama_login_url(url: &Url) -> bool {
+    let path = url.path().to_ascii_lowercase();
+    path.contains("/login") || path.contains("/signin")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -477,6 +527,19 @@ mod tests {
     fn ignores_empty_cookie_input() {
         assert_eq!(OllamaProvider::normalize_cookie_header("   "), None);
         assert_eq!(OllamaProvider::normalize_cookie_header("Cookie:   "), None);
+    }
+
+    #[test]
+    fn only_attaches_web_cookie_to_https_ollama_urls() {
+        assert!(should_attach_ollama_cookie(
+            &Url::parse("https://ollama.com/settings").unwrap()
+        ));
+        assert!(!should_attach_ollama_cookie(
+            &Url::parse("http://ollama.com/settings").unwrap()
+        ));
+        assert!(!should_attach_ollama_cookie(
+            &Url::parse("https://example.com/settings").unwrap()
+        ));
     }
 
     #[test]
