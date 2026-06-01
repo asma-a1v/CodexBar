@@ -4,6 +4,14 @@
 
 ---
 
+## [Windows] 0.32.4 - 2026-06-02
+
+### Fixed
+- Fix OpenRouter credits fetching by routing requests to the canonical `/api/v1/credits` endpoint instead of the broken `/api/v1/auth/credits` path.
+- Align OpenRouter key introspection with the upstream `/api/v1/key` endpoint and add regression coverage for both endpoint URLs.
+
+---
+
 ## [Windows] 0.32.3 - 2026-06-01
 
 ### Fixed
