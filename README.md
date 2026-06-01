@@ -24,6 +24,11 @@ The Windows port of [CodexBar](https://github.com/steipete/CodexBar) — a syste
 - **CLI** — `codexbar usage`, `codexbar cost`, `codexbar config`, and loopback `codexbar serve` for scripting and local integrations
 - **WSL support** — CLI works out of the box; desktop shell via WSLg
 
+## What's New in v0.32.3
+
+- Fixes Codex/ChatGPT browser-cookie import diagnostics for modern Chrome and Edge profiles using `v20` App-Bound encrypted cookies.
+- Shows a clear manual-cookie or Firefox fallback when Windows browser encryption blocks direct import instead of incorrectly saying no cookies were found.
+
 ## What's New in v0.32.2
 
 - Ported upstream CodexBar v0.32.2 performance and tray polish into Win-CodexBar.
@@ -128,7 +133,7 @@ The installer includes the desktop app, Microsoft's Evergreen WebView2 bootstrap
 For local release builds on a Windows machine, use the cached release builder:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.2
+.\scripts\windows-release-build.ps1 -Ref v0.32.3
 ```
 
 Automated Windows release builds can run through CircleCI hosted Windows instead of GitHub Actions or always-on self-hosted machines. Cloudflare R2 can mirror verified artifacts after the Windows smoke install passes. See [docs/release/ci-cd.md](docs/release/ci-cd.md).
@@ -138,11 +143,11 @@ The script keeps a clean managed checkout under `C:\code\Win-CodexBar-release\so
 Useful release flags:
 
 ```powershell
-.\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCliCache
-.\scripts\windows-release-build.ps1 -Ref v0.32.2 -SmokeInstall
-.\scripts\windows-release-build.ps1 -Ref v0.32.2 -UploadRelease v0.32.2
-.\scripts\release-doctor.ps1 -Version 0.32.2
+.\scripts\windows-release-build.ps1 -Ref v0.32.3 -WarmCacheOnly
+.\scripts\windows-release-build.ps1 -Ref v0.32.3 -WarmCliCache
+.\scripts\windows-release-build.ps1 -Ref v0.32.3 -SmokeInstall
+.\scripts\windows-release-build.ps1 -Ref v0.32.3 -UploadRelease v0.32.3
+.\scripts\release-doctor.ps1 -Version 0.32.3
 ```
 
 GitHub Actions are manual best-effort only for this project. CircleCI hosted Windows is the primary automated release path for installer and portable artifacts.

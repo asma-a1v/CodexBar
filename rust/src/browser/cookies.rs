@@ -41,15 +41,14 @@ pub enum CookieError {
     #[error("DPAPI error: {0}")]
     Dpapi(String),
 
-    /// Chrome 127+ App-Bound Encryption (ABE) is protecting the cookie encryption key.
+    /// Chromium App-Bound Encryption (ABE) is protecting cookie values.
     /// The user-level DPAPI key in Local State can no longer decrypt cookies encrypted
-    /// after the ABE migration.  Decryption of the key itself succeeds, but AES-GCM
-    /// authentication fails on every cookie.  Resolution: use Microsoft Edge, Firefox,
-    /// or manual cookie import.
+    /// after the ABE migration.  Modern Chrome and Edge write these cookies with a
+    /// `v20` prefix; older migrated profiles can also fail every AES-GCM decrypt while
+    /// exposing `app_bound_encrypted_key` in Local State.
     #[error(
-        "Chrome App-Bound Encryption (Chrome 127+) is blocking automatic import. \
-             Try Microsoft Edge or Firefox instead, or paste cookies manually \
-             (Settings → Cookies)."
+        "Chrome/Edge App-Bound Encryption is blocking automatic browser import. \
+             Paste the Cookie header manually, or use Firefox if that browser has the same login."
     )]
     AppBoundEncryption,
 }
@@ -199,6 +198,7 @@ impl CookieExtractor {
 
         let mut cookies = Vec::new();
         let mut decrypt_failures: u32 = 0;
+        let mut abe_decrypt_failures: u32 = 0;
         {
             // Keep SQLite handles scoped so Windows can delete the temp DB afterward.
             let conn = Connection::open(&temp_db)?;
@@ -228,6 +228,12 @@ impl CookieExtractor {
                 // Decrypt the cookie value
                 let value = match Self::decrypt_chromium_cookie(&encrypted_value, &encryption_key) {
                     Ok(v) => v,
+                    Err(CookieError::AppBoundEncryption) => {
+                        tracing::debug!("Candidate cookie uses Chromium App-Bound Encryption");
+                        decrypt_failures += 1;
+                        abe_decrypt_failures += 1;
+                        continue;
+                    }
                     Err(e) => {
                         tracing::debug!("Failed to decrypt a candidate cookie: {}", e);
                         decrypt_failures += 1;
@@ -266,13 +272,14 @@ impl CookieExtractor {
         // ABE replaces the user-level DPAPI cookie key with a system-level key that
         // cannot be read by third-party tools, causing systematic AES-GCM auth failures.
         if cookies.is_empty()
-            && decrypt_failures > 0
-            && Self::detect_app_bound_encryption(&local_state_path)
+            && (abe_decrypt_failures > 0
+                || (decrypt_failures > 0 && Self::detect_app_bound_encryption(&local_state_path)))
         {
             tracing::warn!(
                 browser = %browser.browser_type.display_name(),
                 decrypt_failures,
-                "Chrome App-Bound Encryption (ABE) detected: all {} cookies failed to decrypt",
+                abe_decrypt_failures,
+                "Chromium App-Bound Encryption (ABE) detected: all {} cookies failed to decrypt",
                 decrypt_failures
             );
             return Err(CookieError::AppBoundEncryption);
@@ -379,6 +386,14 @@ impl CookieExtractor {
         // Need at least: 3 (prefix) + 12 (nonce) + 16 (tag) = 31 bytes minimum
         let has_v10_prefix = encrypted_value.len() >= 31 && &encrypted_value[0..3] == b"v10";
         let has_v11_prefix = encrypted_value.len() >= 31 && &encrypted_value[0..3] == b"v11";
+        let has_v20_prefix = encrypted_value.len() >= 3 && &encrypted_value[0..3] == b"v20";
+
+        if has_v20_prefix {
+            // Chrome/Edge 127+ on Windows use App-Bound Encryption for these
+            // cookies. Treating the blob as old DPAPI data produces a misleading
+            // DPAPI or "no cookies found" error even though the user is signed in.
+            return Err(CookieError::AppBoundEncryption);
+        }
 
         if has_v10_prefix || has_v11_prefix {
             let prefix = &encrypted_value[0..3];
@@ -698,12 +713,29 @@ mod tests {
             "ABE error should mention App-Bound Encryption"
         );
         assert!(
-            msg.contains("Edge") || msg.contains("Firefox"),
-            "ABE error should suggest alternative browsers"
+            msg.contains("Chrome/Edge"),
+            "ABE error should identify Chromium browsers"
         );
         assert!(
-            msg.contains("Settings") || msg.contains("manually"),
+            msg.contains("Paste") || msg.contains("manual"),
             "ABE error should mention manual import fallback"
+        );
+    }
+
+    /// Verify that modern Chromium `v20` cookies are recognized as App-Bound
+    /// Encryption instead of being misrouted through legacy DPAPI decryption.
+    #[test]
+    fn test_v20_cookie_reports_app_bound_encryption() {
+        let mut encrypted_value = b"v20".to_vec();
+        encrypted_value.extend_from_slice(&[0x42; 48]);
+        let key = [0_u8; 32];
+
+        let err = CookieExtractor::decrypt_chromium_cookie(&encrypted_value, &key)
+            .expect_err("v20 cookies should report App-Bound Encryption");
+
+        assert!(
+            matches!(err, CookieError::AppBoundEncryption),
+            "expected AppBoundEncryption, got {err:?}"
         );
     }
 

@@ -4,6 +4,14 @@
 
 ---
 
+## [Windows] 0.32.3 - 2026-06-01
+
+### Fixed
+- Detect modern Chrome/Edge `v20` App-Bound encrypted cookies during browser import so Codex/ChatGPT imports no longer misreport protected signed-in sessions as missing cookies.
+- Replace the outdated Chromium cookie-import guidance with a clearer manual-cookie or Firefox fallback when Windows browser encryption blocks direct import.
+
+---
+
 ## [Windows] 0.31.1 - 2026-05-30
 
 ### Fixed
