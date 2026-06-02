@@ -108,12 +108,12 @@ impl OpenAIWebErrorKind {
         // Check if it looks logged out
         let looks_logged_out = LOGGED_OUT_INDICATORS.iter().any(|ind| lower.contains(ind));
 
-        if looks_like_landing {
-            return Some(OpenAIWebErrorKind::PublicLanding);
-        }
-
         if looks_logged_out {
             return Some(OpenAIWebErrorKind::NotLoggedIn);
+        }
+
+        if looks_like_landing {
+            return Some(OpenAIWebErrorKind::PublicLanding);
         }
 
         None
@@ -328,6 +328,22 @@ mod tests {
         assert_eq!(
             OpenAIWebErrorKind::detect(html),
             Some(OpenAIWebErrorKind::NotLoggedIn)
+        );
+    }
+
+    #[test]
+    fn test_blocking_states_win_over_public_route_detection() {
+        let logged_out_landing =
+            "Skip to content About OpenAI Learn about ChatGPT Sign in Continue with Google";
+        assert_eq!(
+            OpenAIWebErrorKind::detect(logged_out_landing),
+            Some(OpenAIWebErrorKind::NotLoggedIn)
+        );
+
+        let cloudflare_landing = "Skip to content About OpenAI Just a moment... Ray ID";
+        assert_eq!(
+            OpenAIWebErrorKind::detect(cloudflare_landing),
+            Some(OpenAIWebErrorKind::CloudflareChallenge)
         );
     }
 

@@ -246,6 +246,8 @@ struct CopilotUsageResponse {
     #[serde(default = "unknown_plan")]
     copilot_plan: String,
     #[serde(default)]
+    token_based_billing: bool,
+    #[serde(default)]
     quota_reset_date: Option<String>,
 }
 
@@ -286,7 +288,17 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
         .and_then(parse_iso_date);
     let quotas = response.usable_quotas();
 
-    let primary_quota = quotas.premium.or_else(|| quotas.first.clone());
+    let primary_quota = quotas.premium.clone().or_else(|| quotas.first.clone());
+    if primary_quota.is_none()
+        && quotas.chat.is_none()
+        && quotas.completions.is_none()
+        && response.token_based_billing
+    {
+        return Err(ProviderError::Other(
+            "Copilot Business token-based billing usage is unavailable from GitHub's current endpoint.".to_string(),
+        ));
+    }
+
     let primary = primary_quota
         .as_ref()
         .map(|quota| quota.to_rate_window(reset))
@@ -468,11 +480,18 @@ impl CopilotUsageResponse {
 
 impl QuotaSnapshot {
     fn is_placeholder(&self) -> bool {
-        self.placeholder
-            || self.entitlement.unwrap_or_default() == 0.0
-                && self.remaining.unwrap_or_default() == 0.0
-                && self.percent_remaining.unwrap_or_default() == 0.0
-                && self.quota_id.as_deref().unwrap_or_default().is_empty()
+        if self.placeholder {
+            return true;
+        }
+
+        if self.entitlement == Some(0.0) && self.remaining == Some(0.0) {
+            return true;
+        }
+
+        self.entitlement.unwrap_or_default() == 0.0
+            && self.remaining.unwrap_or_default() == 0.0
+            && self.percent_remaining.unwrap_or_default() == 0.0
+            && self.quota_id.as_deref().unwrap_or_default().is_empty()
     }
 }
 
@@ -613,6 +632,11 @@ mod tests {
         snapshot_from_response(response).unwrap()
     }
 
+    fn parse_snapshot_result(json: &str) -> Result<UsageSnapshot, ProviderError> {
+        let response: CopilotUsageResponse = serde_json::from_str(json).unwrap();
+        snapshot_from_response(response)
+    }
+
     #[test]
     fn paid_plan_parses_premium_and_chat_quotas() {
         let usage = parse_snapshot(
@@ -700,6 +724,79 @@ mod tests {
 
         assert!((usage.primary.used_percent - 25.0).abs() < 0.001);
         assert!(usage.secondary.is_none());
+    }
+
+    #[test]
+    fn drops_business_token_billing_zero_entitlement_quotas() {
+        let err = parse_snapshot_result(
+            r#"{
+                "copilot_plan": "business",
+                "token_based_billing": true,
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "entitlement": 0,
+                        "remaining": 0,
+                        "percent_remaining": 100,
+                        "quota_id": "premium_interactions"
+                    },
+                    "chat": {
+                        "entitlement": 0,
+                        "remaining": 0,
+                        "percent_remaining": 100,
+                        "quota_id": "chat"
+                    },
+                    "completions": {
+                        "entitlement": 0,
+                        "remaining": 0,
+                        "percent_remaining": 100,
+                        "quota_id": "completions"
+                    }
+                }
+            }"#,
+        )
+        .unwrap_err();
+
+        assert!(
+            err.to_string()
+                .contains("token-based billing usage is unavailable")
+        );
+    }
+
+    #[test]
+    fn keeps_percent_only_quota_snapshots_available() {
+        let usage = parse_snapshot(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "chat": {
+                        "percent_remaining": 40,
+                        "quota_id": "chat"
+                    }
+                }
+            }"#,
+        );
+
+        assert_eq!(usage.login_method.as_deref(), Some("Copilot Business"));
+        assert!((usage.primary.used_percent - 60.0).abs() < 0.001);
+        assert!(usage.secondary.is_none());
+    }
+
+    #[test]
+    fn keeps_fully_consumed_positive_entitlement_quota() {
+        let usage = parse_snapshot(
+            r#"{
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "entitlement": 500,
+                        "remaining": 0,
+                        "percent_remaining": 0,
+                        "quota_id": "premium_interactions"
+                    }
+                }
+            }"#,
+        );
+
+        assert!((usage.primary.used_percent - 100.0).abs() < 0.001);
     }
 
     #[test]
