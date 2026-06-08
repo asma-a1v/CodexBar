@@ -1,20 +1,31 @@
-//! Alibaba (Tongyi Qianwen) provider implementation
+//! Alibaba Cloud Model Studio – Coding Plan provider.
 //!
-//! Fetches usage data from Tongyi Qianwen using browser cookies
+//! Flow:
+//! 1. Resolve cookies for the selected Alibaba region.
+//! 2. Fetch a dashboard `SEC_TOKEN`, cached by region and cookie identity.
+//! 3. POST to the console data gateway and parse the Coding Plan quota payload.
+
+mod parser;
+mod region;
+mod sec_token;
 
 use async_trait::async_trait;
 
 use crate::browser::cookies::get_cookie_header;
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    SourceMode, UsageSnapshot,
 };
 
-const ALIBABA_INTL_COOKIE_DOMAIN: &str = "modelstudio.console.alibabacloud.com";
-const ALIBABA_CN_COOKIE_DOMAIN: &str = "bailian.console.aliyun.com";
-const ALIBABA_INTL_GATEWAY: &str = "https://modelstudio.console.alibabacloud.com";
-const ALIBABA_CN_GATEWAY: &str = "https://bailian.console.aliyun.com";
-const ALIBABA_LEGACY_DOMAIN: &str = "tongyi.aliyun.com";
+use self::parser::parse_response;
+pub use self::region::AlibabaRegion;
+use self::sec_token::{
+    cached_sec_token, extract_cookie_value, extract_sec_token, invalidate_sec_token,
+    sec_token_cache_key, store_sec_token,
+};
+
+const USER_AGENT: &str = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) \
+    AppleWebKit/537.36 (KHTML, like Gecko) Chrome/149.0.0.0 Safari/537.36";
 
 pub struct AlibabaProvider {
     metadata: ProviderMetadata,
@@ -26,147 +37,223 @@ impl AlibabaProvider {
             metadata: ProviderMetadata {
                 id: ProviderId::Alibaba,
                 display_name: "Alibaba",
-                session_label: "Daily",
-                weekly_label: "Monthly",
+                session_label: "5-Hour",
+                weekly_label: "Weekly",
                 supports_opus: false,
                 supports_credits: false,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://bailian.console.aliyun.com"),
+                dashboard_url: Some("https://modelstudio.console.alibabacloud.com"),
                 status_page_url: None,
             },
         }
     }
 
-    fn get_auth_cookies(
-        &self,
-        ctx: &FetchContext,
-    ) -> Result<(String, &'static str), ProviderError> {
-        if let Some(ref cookie_header) = ctx.manual_cookie_header
-            && !cookie_header.trim().is_empty()
-        {
-            // Guess region from cookie contents
-            let gateway = if cookie_header.contains("alibabacloud") {
-                ALIBABA_INTL_GATEWAY
-            } else {
-                ALIBABA_CN_GATEWAY
-            };
-            return Ok((cookie_header.clone(), gateway));
-        }
+    /// Resolve the [`AlibabaRegion`] from a settings value.
+    pub fn region_from_settings(value: Option<&str>) -> AlibabaRegion {
+        AlibabaRegion::from_settings_value(value)
+    }
 
-        // Try international domain first, then China mainland, then legacy
-        for (domain, gateway) in [
-            (ALIBABA_INTL_COOKIE_DOMAIN, ALIBABA_INTL_GATEWAY),
-            (ALIBABA_CN_COOKIE_DOMAIN, ALIBABA_CN_GATEWAY),
-            (ALIBABA_LEGACY_DOMAIN, ALIBABA_CN_GATEWAY),
-        ] {
-            if let Ok(cookies) = get_cookie_header(domain)
-                && !cookies.is_empty()
-            {
-                return Ok((cookies, gateway));
+    /// Cookie domain for the browser import UI, driven by the selected region.
+    pub fn cookie_domain_for_region(value: Option<&str>) -> &'static str {
+        Self::region_from_settings(value).primary_cookie_domain()
+    }
+
+    /// Dashboard URL for the selected region.
+    pub fn dashboard_url_for_region(value: Option<&str>) -> String {
+        Self::region_from_settings(value).dashboard_url()
+    }
+
+    fn resolve_cookies(&self, ctx: &FetchContext) -> Result<String, ProviderError> {
+        if let Some(ref manual) = ctx.manual_cookie_header {
+            let trimmed = manual.trim();
+            if !trimmed.is_empty() {
+                return Ok(trimmed.to_string());
             }
         }
 
+        let region = AlibabaRegion::from_settings_value(ctx.api_region.as_deref());
+        for domain in region.cookie_domains() {
+            match get_cookie_header(domain) {
+                Ok(cookies) if !cookies.is_empty() => return Ok(cookies),
+                _ => {}
+            }
+        }
         Err(ProviderError::AuthRequired)
     }
 
+    async fn resolve_sec_token(
+        &self,
+        client: &reqwest::Client,
+        cookies: &str,
+        region: AlibabaRegion,
+        cache_key: &str,
+        force_fresh: bool,
+    ) -> Option<String> {
+        let cached = if force_fresh {
+            None
+        } else {
+            cached_sec_token(cache_key)
+        };
+        if let Some(token) = cached {
+            return Some(token);
+        }
+
+        let token = self.fetch_sec_token(client, cookies, region).await?;
+        store_sec_token(cache_key, &token);
+        Some(token)
+    }
+
+    async fn fetch_sec_token(
+        &self,
+        client: &reqwest::Client,
+        cookies: &str,
+        region: AlibabaRegion,
+    ) -> Option<String> {
+        let dashboard_url = format!("{}?tab=plan", region.dashboard_url());
+        let resp = client
+            .get(&dashboard_url)
+            .header("Cookie", cookies)
+            .header("User-Agent", USER_AGENT)
+            .header(
+                "Accept",
+                "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            )
+            .send()
+            .await
+            .ok()?;
+        if !resp.status().is_success() {
+            tracing::debug!(
+                status = %resp.status(),
+                region = ?region,
+                "Alibaba dashboard fetch returned non-success; not falling back to cookie sec_token",
+            );
+            return None;
+        }
+
+        let html = resp.text().await.ok()?;
+        extract_sec_token(&html).or_else(|| extract_cookie_value("sec_token", cookies))
+    }
+
     async fn fetch_via_web(&self, ctx: &FetchContext) -> Result<UsageSnapshot, ProviderError> {
-        let (cookies, gateway) = self.get_auth_cookies(ctx)?;
+        let region = AlibabaRegion::from_settings_value(ctx.api_region.as_deref());
+        let cookies = self.resolve_cookies(ctx)?;
+        let cache_key = sec_token_cache_key(region.region_code(), &cookies);
 
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(30))
+            .timeout(std::time::Duration::from_secs(ctx.web_timeout.max(15)))
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
+        let mut force_fresh = false;
+        let mut last_err = ProviderError::AuthRequired;
+        for _attempt in 0..2 {
+            let sec_token = self
+                .resolve_sec_token(&client, &cookies, region, &cache_key, force_fresh)
+                .await;
+            match self
+                .request_quota(&client, &cookies, region, sec_token)
+                .await
+            {
+                Ok(usage) => return Ok(usage),
+                Err(ProviderError::AuthRequired) => {
+                    invalidate_sec_token(&cache_key);
+                    force_fresh = true;
+                    last_err = ProviderError::AuthRequired;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+        Err(last_err)
+    }
+
+    async fn request_quota(
+        &self,
+        client: &reqwest::Client,
+        cookies: &str,
+        region: AlibabaRegion,
+        sec_token: Option<String>,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let profile = region.request_profile();
+        let cna = extract_cookie_value("cna", cookies).unwrap_or_default();
+        let referer = format!("{}?tab=plan", region.dashboard_url());
+        let fe_url = format!("{referer}#/efm/subscription/coding-plan");
+
+        let params = serde_json::json!({
+            "Api": profile.api_method,
+            "V": "1.0",
+            "Data": {
+                "queryCodingPlanInstanceInfoRequest": {
+                    "commodityCode": profile.commodity_code,
+                    "onlyLatestOne": true
+                },
+                "cornerstoneParam": {
+                    "feTraceId": uuid::Uuid::new_v4().to_string(),
+                    "feURL": fe_url,
+                    "protocol": "V2",
+                    "console": "ONE_CONSOLE",
+                    "productCode": "p_efm",
+                    "switchAgent": profile.switch_agent,
+                    "switchUserType": profile.switch_user_type,
+                    "domain": profile.console_domain,
+                    "consoleSite": profile.console_site,
+                    "userNickName": "",
+                    "userPrincipalName": "",
+                    "xsp_lang": "en-US",
+                    "X-Anonymous-Id": cna
+                }
+            }
+        });
+
+        let url = format!(
+            "{}/data/api.json?action={}&product={}&_tag=",
+            profile.gateway, profile.api_action, profile.api_product
+        );
+
+        let mut form = vec![
+            ("action", profile.api_action.to_string()),
+            ("product", profile.api_product.to_string()),
+            ("api", profile.api_method.to_string()),
+            ("_v", "undefined".to_string()),
+            ("params", params.to_string()),
+            ("region", region.region_code().to_string()),
+        ];
+        if let Some(token) = sec_token.filter(|t| !t.is_empty()) {
+            form.push(("sec_token", token));
+        }
+
         let resp = client
-            .get(format!("{}/api/user/info", gateway))
-            .header("Cookie", &cookies)
-            .header("Accept", "application/json")
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
+            .post(&url)
+            .header("Cookie", cookies)
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .header("Accept", "*/*")
+            .header("Origin", profile.gateway)
+            .header("Referer", &referer)
+            .header("User-Agent", USER_AGENT)
+            .header("sec-fetch-site", "same-origin")
+            .header("sec-fetch-mode", "cors")
+            .header("sec-fetch-dest", "empty")
+            .form(&form)
             .send()
             .await?;
 
-        if !resp.status().is_success() {
-            let status = resp.status();
-            if status.as_u16() == 401 || status.as_u16() == 403 {
-                return Err(ProviderError::AuthRequired);
-            }
-            return Err(ProviderError::Other(format!("API error: {}", status)));
+        let status = resp.status();
+        if status.as_u16() == 401 || status.as_u16() == 403 {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Other(format!("HTTP {status}")));
         }
 
-        let json: serde_json::Value = resp
-            .json()
-            .await
-            .map_err(|e| ProviderError::Parse(e.to_string()))?;
-
-        self.parse_usage_response(&json)
-    }
-
-    fn parse_usage_response(
-        &self,
-        json: &serde_json::Value,
-    ) -> Result<UsageSnapshot, ProviderError> {
-        let data = json.get("data").unwrap_or(json);
-
-        let daily_used = data
-            .get("dailyUsed")
-            .or_else(|| data.get("daily_used"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let daily_limit = data
-            .get("dailyLimit")
-            .or_else(|| data.get("daily_limit"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(500.0);
-        let daily_percent = if daily_limit > 0.0 {
-            (daily_used / daily_limit) * 100.0
-        } else {
-            0.0
-        };
-
-        let monthly_used = data
-            .get("monthlyUsed")
-            .or_else(|| data.get("monthly_used"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(0.0);
-        let monthly_limit = data
-            .get("monthlyLimit")
-            .or_else(|| data.get("monthly_limit"))
-            .and_then(|v| v.as_f64())
-            .unwrap_or(10000.0);
-        let monthly_percent = if monthly_limit > 0.0 {
-            (monthly_used / monthly_limit) * 100.0
-        } else {
-            0.0
-        };
-
-        let primary = RateWindow::new(daily_percent);
-        let secondary = RateWindow::new(monthly_percent);
-
-        let plan = data
-            .get("planName")
-            .or_else(|| data.get("plan_name"))
-            .or_else(|| data.get("vipType"))
-            .and_then(|v| v.as_str())
-            .unwrap_or("Free");
-
-        let nickname = data
-            .get("nickname")
-            .or_else(|| data.get("userName"))
-            .and_then(|v| v.as_str());
-
-        let mut usage = UsageSnapshot::new(primary)
-            .with_secondary(secondary)
-            .with_login_method(plan);
-
-        if let Some(name) = nickname {
-            usage = usage.with_email(name.to_string());
+        let body = resp.bytes().await?;
+        let first_nonws = body.iter().find(|&&b| !b.is_ascii_whitespace()).copied();
+        if first_nonws == Some(b'<') {
+            return Err(ProviderError::AuthRequired);
         }
 
-        Ok(usage)
+        let json: serde_json::Value =
+            serde_json::from_slice(&body).map_err(|e| ProviderError::Parse(e.to_string()))?;
+        parse_response(&json)
     }
 }
 
@@ -187,8 +274,7 @@ impl Provider for AlibabaProvider {
     }
 
     async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        tracing::debug!("Fetching Alibaba usage");
-
+        tracing::debug!(region = ?ctx.api_region, "Fetching Alibaba Coding Plan usage");
         match ctx.source_mode {
             SourceMode::Auto | SourceMode::Web => {
                 let usage = self.fetch_via_web(ctx).await?;
@@ -217,49 +303,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn test_parse_usage_response_standard() {
-        let provider = AlibabaProvider::new();
-        let json = serde_json::json!({
-            "data": {
-                "dailyUsed": 50.0,
-                "dailyLimit": 500.0,
-                "monthlyUsed": 2000.0,
-                "monthlyLimit": 10000.0,
-                "planName": "Pro",
-                "nickname": "test_user"
-            }
-        });
-        let usage = provider.parse_usage_response(&json).unwrap();
-        assert!((usage.primary.used_percent - 10.0).abs() < 0.01);
-        assert!(usage.secondary.is_some());
-        let sec = usage.secondary.unwrap();
-        assert!((sec.used_percent - 20.0).abs() < 0.01);
-        assert_eq!(usage.login_method.as_deref(), Some("Pro"));
-        assert_eq!(usage.account_email.as_deref(), Some("test_user"));
-    }
-
-    #[test]
-    fn test_parse_usage_response_empty() {
-        let provider = AlibabaProvider::new();
-        let json = serde_json::json!({});
-        let usage = provider.parse_usage_response(&json).unwrap();
-        assert!((usage.primary.used_percent - 0.0).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_parse_usage_response_snake_case() {
-        let provider = AlibabaProvider::new();
-        let json = serde_json::json!({
-            "data": {
-                "daily_used": 100.0,
-                "daily_limit": 200.0,
-                "monthly_used": 5000.0,
-                "monthly_limit": 10000.0,
-                "plan_name": "Enterprise"
-            }
-        });
-        let usage = provider.parse_usage_response(&json).unwrap();
-        assert!((usage.primary.used_percent - 50.0).abs() < 0.01);
-        assert_eq!(usage.login_method.as_deref(), Some("Enterprise"));
+    fn cookie_domain_for_region_mapping() {
+        assert_eq!(
+            AlibabaProvider::cookie_domain_for_region(None),
+            "modelstudio.console.alibabacloud.com"
+        );
+        assert_eq!(
+            AlibabaProvider::cookie_domain_for_region(Some("cn")),
+            "bailian.console.alibabacloud.com"
+        );
     }
 }
