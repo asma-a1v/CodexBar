@@ -269,6 +269,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           providers={expectsDenseOverview ? denseTrayProviders : sorted}
           selectedProviderId={selectedProviderId}
           showAsUsed={settings.showAsUsed}
+          showProviderIcons={settings.switcherShowsIcons}
           expanded={gridExpanded}
           onExpandedChange={setGridExpanded}
           onSelect={handleGridClick}

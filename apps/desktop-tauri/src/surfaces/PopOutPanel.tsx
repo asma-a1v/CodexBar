@@ -225,6 +225,7 @@ export default function PopOutPanel({
         providers={sorted}
         selectedProviderId={selectedProviderId}
         showAsUsed={settings.showAsUsed}
+        showProviderIcons={settings.switcherShowsIcons}
         expanded={gridExpanded}
         onExpandedChange={setGridExpanded}
         onSelect={handleGridClick}

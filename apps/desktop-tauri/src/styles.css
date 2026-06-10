@@ -4068,6 +4068,15 @@ html:has(.menu-surface--tray) {
   min-width: 0;
 }
 
+.provider-grid--no-icons .provider-grid__item {
+  justify-content: center;
+  gap: 3px;
+}
+
+.provider-grid--no-icons .provider-grid__label {
+  max-width: 30px;
+}
+
 .provider-grid__item:hover {
   background: rgba(255, 255, 255, 0.08);
 }

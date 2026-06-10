@@ -421,6 +421,23 @@ describe("TrayPanel provider grid", () => {
     });
   });
 
+  it("hides provider grid icons when the display setting is disabled", async () => {
+    const { container } = renderTrayPanel(
+      [provider("codex", "Codex"), provider("claude", "Claude")],
+      { switcherShowsIcons: false },
+    );
+
+    await waitFor(() => {
+      expect(container.querySelector(".provider-grid")).not.toBeNull();
+    });
+
+    const grid = container.querySelector(".provider-grid");
+    expect(grid?.getAttribute("data-show-icons")).toBe("false");
+    expect(grid?.classList.contains("provider-grid--no-icons")).toBe(true);
+    expect(container.querySelector(".provider-icon")).toBeNull();
+    expect(container.querySelector(".provider-grid__icon-overview")).toBeNull();
+  });
+
   it("reveals the tray panel if the native resize pass fails", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     windowMocks.getCurrentWindow.mockReturnValue({

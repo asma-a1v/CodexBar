@@ -4,13 +4,13 @@ use std::sync::Mutex;
 
 use crate::commands::ProviderCatalogEntry;
 use codexbar::core::ProviderId;
-use codexbar::settings::{MetricPreference, Settings};
+use codexbar::settings::{MetricPreference, Settings, TrayIconMode};
 use tauri::image::Image;
 use tauri::menu::{CheckMenuItemBuilder, IsMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager};
 
-use codexbar::tray::render_bar_icon_rgba;
+use codexbar::tray::{render_bar_icon_rgba, render_percent_icon_rgba};
 
 use crate::shell;
 use crate::state::{AppState, TrayAnchor};
@@ -347,21 +347,7 @@ pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     let catalog = crate::commands::get_provider_catalog();
     let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
         let guard = st.lock().unwrap();
-        guard
-            .provider_cache
-            .iter()
-            .filter(|s| s.error.is_none())
-            .map(|s| {
-                let label = s
-                    .tray_status_label
-                    .clone()
-                    .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
-                (
-                    s.provider_id.clone(),
-                    format!("{} {}", s.display_name, label),
-                )
-            })
-            .collect()
+        status_labels_for_settings(&Settings::load(), &guard.provider_cache)
     } else {
         vec![]
     };
@@ -378,26 +364,24 @@ pub fn update_tray_status_items(
     snapshots: &[crate::commands::ProviderUsageSnapshot],
 ) {
     let catalog = crate::commands::get_provider_catalog();
-    let status_labels: Vec<(String, String)> = snapshots
-        .iter()
-        .filter(|s| s.error.is_none())
-        .map(|s| {
-            let label = s
-                .tray_status_label
-                .clone()
-                .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
-            (
-                s.provider_id.clone(),
-                format!("{} {}", s.display_name, label),
-            )
-        })
-        .collect();
+    let status_labels = status_labels_for_settings(&Settings::load(), snapshots);
 
     if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
         && let Some(tray) = app.tray_by_id("codexbar-main")
     {
         let _ = tray.set_menu(Some(menu));
     }
+}
+
+/// Refresh every native tray surface that depends on settings and cached provider data.
+pub(crate) fn refresh_tray_presentation(app: &AppHandle) {
+    let snapshots = app
+        .try_state::<Mutex<AppState>>()
+        .map(|st| st.lock().unwrap().provider_cache.clone())
+        .unwrap_or_default();
+
+    update_tray_status_items(app, &snapshots);
+    update_tray_icon_and_tooltip(app, &snapshots);
 }
 
 /// Update the tray icon pixels and tooltip text to reflect current provider usage.
@@ -440,13 +424,60 @@ pub fn update_tray_icon_and_tooltip(
         ),
     };
 
-    let (rgba, w, h) = render_bar_icon_rgba(session_pct, weekly_pct, all_error);
+    let (rgba, w, h) = render_tray_icon_for_settings(&settings, session_pct, weekly_pct, all_error);
     let icon = Image::new_owned(rgba, w, h);
     let _ = tray.set_icon(Some(icon));
 
     // ── Tooltip ───────────────────────────────────────────────────────────
     let tooltip = build_tooltip(snapshots);
     let _ = tray.set_tooltip(Some(tooltip));
+}
+
+fn status_labels_for_settings(
+    settings: &Settings,
+    snapshots: &[crate::commands::ProviderUsageSnapshot],
+) -> Vec<(String, String)> {
+    let healthy: Vec<_> = snapshots.iter().filter(|s| s.error.is_none()).collect();
+    if settings.tray_icon_mode == TrayIconMode::PerProvider {
+        return healthy
+            .into_iter()
+            .map(provider_status_label)
+            .collect::<Vec<_>>();
+    }
+
+    let Some(selected) = pick_tray_provider(
+        &healthy,
+        settings.menu_bar_shows_highest_usage || settings.menu_bar_display_mode == "minimal",
+    ) else {
+        return vec![];
+    };
+
+    let (_, label) = provider_status_label(selected);
+    vec![("status_summary".to_string(), label)]
+}
+
+fn provider_status_label(snapshot: &crate::commands::ProviderUsageSnapshot) -> (String, String) {
+    let label = snapshot
+        .tray_status_label
+        .clone()
+        .unwrap_or_else(|| format!("{:.0}%", snapshot.primary.used_percent));
+    (
+        snapshot.provider_id.clone(),
+        format!("{} {}", snapshot.display_name, label),
+    )
+}
+
+fn render_tray_icon_for_settings(
+    settings: &Settings,
+    session_pct: f64,
+    weekly_pct: Option<f64>,
+    all_error: bool,
+) -> (Vec<u8>, u32, u32) {
+    if settings.menu_bar_shows_percent {
+        render_percent_icon_rgba(session_pct, all_error)
+    } else {
+        render_bar_icon_rgba(session_pct, weekly_pct, all_error)
+    }
 }
 
 /// Pick the provider whose usage the tray icon should render.
@@ -953,6 +984,68 @@ mod tests {
         let refs: Vec<&crate::commands::ProviderUsageSnapshot> = vec![];
         assert!(pick_tray_provider(&refs, true).is_none());
         assert!(pick_tray_provider(&refs, false).is_none());
+    }
+
+    #[test]
+    fn status_labels_per_provider_mode_lists_each_healthy_provider() {
+        let settings = Settings {
+            tray_icon_mode: TrayIconMode::PerProvider,
+            ..Settings::default()
+        };
+        let snapshots = vec![
+            fake_snapshot("codex", "Codex", 30.0),
+            fake_snapshot("claude", "Claude", 72.0),
+        ];
+
+        let labels = status_labels_for_settings(&settings, &snapshots);
+
+        assert_eq!(
+            labels,
+            vec![
+                ("codex".to_string(), "Codex 30%".to_string()),
+                ("claude".to_string(), "Claude 72%".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn status_labels_single_mode_collapses_to_selected_provider() {
+        let settings = Settings {
+            tray_icon_mode: TrayIconMode::Single,
+            menu_bar_shows_highest_usage: true,
+            ..Settings::default()
+        };
+        let snapshots = vec![
+            fake_snapshot("codex", "Codex", 30.0),
+            fake_snapshot("claude", "Claude", 72.0),
+        ];
+
+        let labels = status_labels_for_settings(&settings, &snapshots);
+
+        assert_eq!(
+            labels,
+            vec![("status_summary".to_string(), "Claude 72%".to_string())]
+        );
+    }
+
+    #[test]
+    fn tray_icon_renderer_uses_percent_mode_when_enabled() {
+        let bar_settings = Settings {
+            menu_bar_shows_percent: false,
+            ..Settings::default()
+        };
+        let percent_settings = Settings {
+            menu_bar_shows_percent: true,
+            ..Settings::default()
+        };
+
+        let (bar, bar_w, bar_h) =
+            render_tray_icon_for_settings(&bar_settings, 72.0, Some(40.0), false);
+        let (percent, pct_w, pct_h) =
+            render_tray_icon_for_settings(&percent_settings, 72.0, Some(40.0), false);
+
+        assert_eq!((bar_w, bar_h), (pct_w, pct_h));
+        assert_ne!(bar, percent);
     }
 
     #[test]

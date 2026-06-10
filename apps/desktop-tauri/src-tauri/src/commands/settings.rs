@@ -59,6 +59,16 @@ impl SettingsUpdate {
         self.float_bar_enabled.is_some()
     }
 
+    fn refreshes_tray_presentation(&self) -> bool {
+        self.tray_icon_mode.is_some()
+            || self.menu_bar_shows_highest_usage.is_some()
+            || self.menu_bar_shows_percent.is_some()
+            || self.show_as_used.is_some()
+            || self.menu_bar_display_mode.is_some()
+            || self.provider_metrics.is_some()
+            || self.enabled_providers.is_some()
+    }
+
     fn validate_shortcut_change(
         &self,
         app: &tauri::AppHandle,
@@ -265,6 +275,7 @@ pub async fn update_settings(
     let mut settings = Settings::load();
     let notify_float_bar = patch.notifies_float_bar();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
+    let refresh_tray_presentation = patch.refreshes_tray_presentation();
     let previous_language = settings.ui_language;
 
     patch.validate_shortcut_change(&app, &settings.global_shortcut)?;
@@ -279,6 +290,9 @@ pub async fn update_settings(
     crate::floatbar::after_settings_saved(&app, &float_bar_patch, &settings, notify_float_bar);
     if rebuild_tray_menu {
         crate::tray_bridge::rebuild_tray_menu(&app);
+    }
+    if refresh_tray_presentation {
+        crate::tray_bridge::refresh_tray_presentation(&app);
     }
 
     Ok(SettingsSnapshot::from(settings))

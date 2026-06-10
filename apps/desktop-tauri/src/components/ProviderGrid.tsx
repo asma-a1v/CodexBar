@@ -7,6 +7,7 @@ export default function ProviderGrid({
   providers,
   selectedProviderId,
   showAsUsed,
+  showProviderIcons = true,
   expanded,
   onExpandedChange,
   onSelect,
@@ -14,6 +15,7 @@ export default function ProviderGrid({
   providers: ProviderUsageSnapshot[];
   selectedProviderId: string | null;
   showAsUsed: boolean;
+  showProviderIcons?: boolean;
   expanded?: boolean;
   onExpandedChange?: (expanded: boolean) => void;
   onSelect: (providerId: string | null) => void;
@@ -52,9 +54,10 @@ export default function ProviderGrid({
 
   return (
     <div
-      className={`provider-grid${densityClass}`}
+      className={`provider-grid${densityClass}${showProviderIcons ? "" : " provider-grid--no-icons"}`}
       data-provider-count={totalItems}
       data-expanded={isExpanded ? "true" : "false"}
+      data-show-icons={showProviderIcons ? "true" : "false"}
     >
       <button
         type="button"
@@ -62,7 +65,7 @@ export default function ProviderGrid({
         onClick={() => onSelect(null)}
         aria-label="All providers"
       >
-        <span className="provider-grid__icon-overview">⊞</span>
+        {showProviderIcons && <span className="provider-grid__icon-overview">⊞</span>}
         <span className="provider-grid__label">All</span>
       </button>
       {visibleProviders.map((p) => (
@@ -73,7 +76,7 @@ export default function ProviderGrid({
           onClick={() => onSelect(p.providerId)}
           aria-label={p.displayName}
         >
-          <ProviderIcon providerId={p.providerId} size={16} />
+          {showProviderIcons && <ProviderIcon providerId={p.providerId} size={16} />}
           <span className="provider-grid__label">{labelFor(p.displayName)}</span>
           {!p.error && (
             <span
@@ -94,9 +97,11 @@ export default function ProviderGrid({
           aria-label={isExpanded ? "Show fewer providers" : "Show all providers"}
           aria-expanded={isExpanded}
         >
-          <span className="provider-grid__icon-overview" aria-hidden>
-            {isExpanded ? "−" : "+"}
-          </span>
+          {showProviderIcons && (
+            <span className="provider-grid__icon-overview" aria-hidden>
+              {isExpanded ? "−" : "+"}
+            </span>
+          )}
           <span className="provider-grid__label">
             {isExpanded ? "Less" : `+${hiddenCount}`}
           </span>
