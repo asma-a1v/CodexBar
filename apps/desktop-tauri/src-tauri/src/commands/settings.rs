@@ -21,7 +21,6 @@ pub struct SettingsUpdate {
     pub menu_bar_shows_highest_usage: Option<bool>,
     pub menu_bar_shows_percent: Option<bool>,
     pub show_as_used: Option<bool>,
-    pub show_credits_extra_usage: Option<bool>,
     pub show_all_token_accounts_in_menu: Option<bool>,
     pub enable_animations: Option<bool>,
     pub reset_time_relative: Option<bool>,
@@ -35,7 +34,6 @@ pub struct SettingsUpdate {
     pub theme: Option<String>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub disable_keychain_access: Option<bool>,
-    pub show_debug_settings: Option<bool>,
     /// Map of provider CLI name → metric preference label.
     pub provider_metrics: Option<std::collections::HashMap<String, String>>,
     pub float_bar_enabled: Option<bool>,
@@ -149,9 +147,6 @@ impl SettingsUpdate {
         if let Some(v) = self.menu_bar_shows_percent {
             settings.menu_bar_shows_percent = v;
         }
-        if let Some(v) = self.show_credits_extra_usage {
-            settings.show_credits_extra_usage = v;
-        }
         if let Some(v) = self.show_all_token_accounts_in_menu {
             settings.show_all_token_accounts_in_menu = v;
         }
@@ -205,9 +200,6 @@ impl SettingsUpdate {
             if v {
                 settings.set_claude_avoid_keychain_prompts(true);
             }
-        }
-        if let Some(v) = self.show_debug_settings {
-            settings.show_debug_settings = v;
         }
         self
     }

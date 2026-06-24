@@ -49,8 +49,6 @@ impl LocaleKey {
             LocaleKey::ResetTimeRelativeHelper,
             "ResetTimeRelativeHelper",
         ),
-        (LocaleKey::ShowCreditsExtra, "ShowCreditsExtra"),
-        (LocaleKey::ShowCreditsExtraHelper, "ShowCreditsExtraHelper"),
         (LocaleKey::TrayIcon, "TrayIcon"),
         (LocaleKey::MergeTrayIcons, "MergeTrayIcons"),
         (LocaleKey::MergeTrayIconsHelper, "MergeTrayIconsHelper"),
@@ -551,11 +549,6 @@ impl LocaleKey {
         (
             LocaleKey::DisableAllKeychainHelper,
             "DisableAllKeychainHelper",
-        ),
-        (LocaleKey::ShowDebugSettingsLabel, "ShowDebugSettingsLabel"),
-        (
-            LocaleKey::ShowDebugSettingsHelper,
-            "ShowDebugSettingsHelper",
         ),
         (LocaleKey::LanguageEnglishOption, "LanguageEnglishOption"),
         (LocaleKey::LanguageChineseOption, "LanguageChineseOption"),

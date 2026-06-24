@@ -95,17 +95,6 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
             />
           </Field>
           <Field
-            label={t("ShowCreditsExtra")}
-            description={t("ShowCreditsExtraHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showCreditsExtraUsage}
-              disabled={saving}
-              onChange={(v) => set({ showCreditsExtraUsage: v })}
-            />
-          </Field>
-          <Field
             label={t("ShowAllTokenAccountsLabel")}
             description={t("ShowAllTokenAccountsHelper")}
             leading

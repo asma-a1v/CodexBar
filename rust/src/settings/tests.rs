@@ -116,8 +116,6 @@ fn float_bar_raw_clamps_out_of_range_opacity_on_load() {
             "enable_animations": true,
             "reset_time_relative": true,
             "menu_bar_display_mode": "detailed",
-            "show_credits_extra_usage": true,
-            "show_debug_settings": false,
             "disable_keychain_access": false,
             "hide_personal_info": false,
             "float_bar_opacity": 250,

@@ -40,8 +40,6 @@ impl LocaleKey {
             LocaleKey::ShowUsageAsUsedHelper => "Display as used percentage instead of remaining",
             LocaleKey::ResetTimeRelative => "Relative Reset Time",
             LocaleKey::ResetTimeRelativeHelper => "Show \"2h 30m\" instead of \"3:00 PM\"",
-            LocaleKey::ShowCreditsExtra => "Show Credits & Extra Usage",
-            LocaleKey::ShowCreditsExtraHelper => "Display credit balance and extra usage info",
             LocaleKey::TrayIcon => "Tray Icon",
             LocaleKey::MergeTrayIcons => "Merge Tray Icons",
             LocaleKey::MergeTrayIconsHelper => "Show all providers in a single tray icon",
@@ -505,10 +503,6 @@ impl LocaleKey {
             LocaleKey::DisableAllKeychainLabel => "Disable all keychain access",
             LocaleKey::DisableAllKeychainHelper => {
                 "Turn off credential/keychain reads for all providers. Also enables the Claude option above."
-            }
-            LocaleKey::ShowDebugSettingsLabel => "Show debug settings",
-            LocaleKey::ShowDebugSettingsHelper => {
-                "Reveal troubleshooting and developer surfaces in the UI."
             }
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",

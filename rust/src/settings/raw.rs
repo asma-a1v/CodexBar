@@ -33,7 +33,6 @@ pub(super) struct RawSettings {
     enable_animations: bool,
     reset_time_relative: bool,
     menu_bar_display_mode: String,
-    show_credits_extra_usage: bool,
     show_all_token_accounts_in_menu: bool,
 
     // ── New unified per-provider map ─────────────────────────────────
@@ -97,7 +96,6 @@ pub(super) struct RawSettings {
     #[serde(default)]
     claude_avoid_keychain_prompts: Option<bool>,
 
-    show_debug_settings: bool,
     disable_keychain_access: bool,
     hide_personal_info: bool,
     update_channel: UpdateChannel,
@@ -152,7 +150,6 @@ impl Default for RawSettings {
             enable_animations: s.enable_animations,
             reset_time_relative: s.reset_time_relative,
             menu_bar_display_mode: s.menu_bar_display_mode,
-            show_credits_extra_usage: s.show_credits_extra_usage,
             show_all_token_accounts_in_menu: s.show_all_token_accounts_in_menu,
             provider_configs: s.provider_configs,
             claude_usage_source: None,
@@ -183,7 +180,6 @@ impl Default for RawSettings {
             minimax_api_token: None,
             minimax_api_region: None,
             claude_avoid_keychain_prompts: None,
-            show_debug_settings: s.show_debug_settings,
             disable_keychain_access: s.disable_keychain_access,
             hide_personal_info: s.hide_personal_info,
             update_channel: s.update_channel,
@@ -432,10 +428,8 @@ impl From<RawSettings> for Settings {
             enable_animations: raw.enable_animations,
             reset_time_relative: raw.reset_time_relative,
             menu_bar_display_mode: raw.menu_bar_display_mode,
-            show_credits_extra_usage: raw.show_credits_extra_usage,
             show_all_token_accounts_in_menu: raw.show_all_token_accounts_in_menu,
             provider_configs,
-            show_debug_settings: raw.show_debug_settings,
             disable_keychain_access: raw.disable_keychain_access,
             hide_personal_info: raw.hide_personal_info,
             update_channel: raw.update_channel,

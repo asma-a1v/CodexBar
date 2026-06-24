@@ -59,24 +59,6 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
         <p className="settings-section__hint">{t("ShortcutRecordingHint")}</p>
       </section>
 
-      {/* ── Debug ────────────────────────────────────────────────── */}
-      <section className="settings-section">
-        <h3 className="settings-section__title">{t("SectionDebug")}</h3>
-        <div className="settings-section__group">
-          <Field
-            label={t("ShowDebugSettingsLabel")}
-            description={t("ShowDebugSettingsHelper")}
-            leading
-          >
-            <Toggle
-              checked={settings.showDebugSettings}
-              disabled={saving}
-              onChange={(v) => set({ showDebugSettings: v })}
-            />
-          </Field>
-        </div>
-      </section>
-
       {/* ── Privacy ──────────────────────────────────────────────── */}
       <section className="settings-section">
         <h3 className="settings-section__title">{t("PrivacyTitle")}</h3>

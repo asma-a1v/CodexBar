@@ -91,9 +91,6 @@ pub struct Settings {
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
 
-    /// Show credits and extra usage information in the UI
-    pub show_credits_extra_usage: bool,
-
     /// Show all token accounts in provider menus instead of collapsing behind switchers
     #[serde(default)]
     pub show_all_token_accounts_in_menu: bool,
@@ -103,10 +100,6 @@ pub struct Settings {
     /// fields; legacy `settings.json` files are migrated via [`RawSettings`].
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub provider_configs: HashMap<ProviderId, ProviderConfig>,
-
-    /// Show debug-oriented settings and troubleshooting surfaces
-    #[serde(default)]
-    pub show_debug_settings: bool,
 
     /// Disable credential/keychain-style reads where supported
     #[serde(default)]
@@ -323,10 +316,8 @@ impl Default for Settings {
             enable_animations: true,   // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
-            show_credits_extra_usage: true, // Show credits + extra usage by default
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),
-            show_debug_settings: false,
             disable_keychain_access: false,
             hide_personal_info: false, // Show personal info by default
             update_channel: UpdateChannel::default(), // Stable by default

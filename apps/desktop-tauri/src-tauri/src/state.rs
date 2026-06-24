@@ -1,12 +1,7 @@
-// Future-use fields/variants — suppress until vertical slices consume them.
-#![allow(dead_code)]
-
-use std::collections::HashMap;
-use std::path::PathBuf;
-use std::sync::Mutex;
-
 use codexbar::core::ProviderId;
 use serde::Serialize;
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::commands::ProviderUsageSnapshot;
 use crate::proof_harness::ProofConfig;
@@ -244,8 +239,6 @@ impl AppState {
 }
 
 /// The type registered as Tauri managed state.
-pub type SharedAppState = Mutex<AppState>;
-
 #[cfg(test)]
 mod tests {
     use super::AppState;

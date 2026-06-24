@@ -39,8 +39,6 @@ impl LocaleKey {
             LocaleKey::ShowUsageAsUsedHelper => "显示为已使用百分比（而非剩余）",
             LocaleKey::ResetTimeRelative => "相对重置时间",
             LocaleKey::ResetTimeRelativeHelper => "显示\"2h 30m\"而不是\"3:00 PM\"",
-            LocaleKey::ShowCreditsExtra => "显示额度与扩展用量",
-            LocaleKey::ShowCreditsExtraHelper => "显示额度余额和额外用量信息",
             LocaleKey::UsageDisplay => "用量显示",
             LocaleKey::TrayIcon => "托盘图标",
             LocaleKey::MergeTrayIcons => "合并托盘图标",
@@ -472,8 +470,6 @@ impl LocaleKey {
             LocaleKey::DisableAllKeychainHelper => {
                 "关闭所有服务商的凭据/钥匙串读取。同时启用上方的 Claude 选项。"
             }
-            LocaleKey::ShowDebugSettingsLabel => "显示调试设置",
-            LocaleKey::ShowDebugSettingsHelper => "在界面中显示故障排查和开发者相关选项。",
             LocaleKey::LanguageEnglishOption => "English",
             LocaleKey::LanguageChineseOption => "中文",
             LocaleKey::LanguageJapaneseOption => "日本語",
