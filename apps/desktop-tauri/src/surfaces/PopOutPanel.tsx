@@ -13,7 +13,6 @@ import MenuSurface, {
 } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
-import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
 import { orderProviderSnapshots } from "../lib/providerOrder";
 
 /**
@@ -29,12 +28,11 @@ export default function PopOutPanel({
   providerId?: string;
 }) {
   const {
-    providers: realProviders,
+    providers,
     isRefreshing,
     refresh,
     hasCachedData,
   } = useProviders();
-  const providers = DEMO_ENABLED ? DEMO_PROVIDERS : realProviders;
   const { settings } = useSettings(state.settings);
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();

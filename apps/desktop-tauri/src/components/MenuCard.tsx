@@ -13,7 +13,6 @@ import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
-import { DEMO_ENABLED } from "../lib/demoProviders";
 import { providerSupportsChartData } from "../lib/providerCharts";
 import { getPaceBudget } from "../lib/paceBudget";
 import PaceDetailsChart from "./PaceDetailsChart";
@@ -70,49 +69,12 @@ function formatCurrency(amount: number, code: string): string {
   }
 }
 
-const DEMO_COST_BARS = [
-  0.58, 0.73, 0.66, 0.62, 0.26, 0.86, 0.17, 0.10, 0.21, 0.19,
-  0.23, 0.38, 0.09, 0.34, 0.24, 1.0, 0.42, 0.51, 0.14, 0.08,
-  0.20, 0.15, 0.22, 0.11, 0.18, 0.41, 0.55, 0.16, 0.44, 0.31,
-];
-
-const DEMO_LOCAL_USAGE: Record<string, ProviderLocalUsageSummary> = {
-  codex: {
-    todayCost: 75.24,
-    thirtyDayCost: 3442.16,
-    thirtyDayTokens: 4_700_000_000,
-    latestTokens: 115_000_000,
-    topModel: "gpt-5.5",
-    estimateNote: "Estimated from local logs; may differ from your bill",
-  },
-  claude: {
-    todayCost: null,
-    thirtyDayCost: null,
-    thirtyDayTokens: 584_000,
-    latestTokens: 352_000,
-    topModel: "glm-4.6",
-    estimateNote:
-      "Estimated from local Claude logs at API rates; token totals may differ from your bill",
-  },
-};
-
 function formatCompactCount(value: number | null): string {
   if (value == null || value <= 0) return "—";
   return new Intl.NumberFormat("en-US", {
     notation: "compact",
     maximumFractionDigits: value >= 1_000_000 ? 1 : 0,
   }).format(value);
-}
-
-function localUsageForDemo(providerId: string): ProviderLocalUsageSummary | null {
-  return DEMO_ENABLED ? DEMO_LOCAL_USAGE[providerId] ?? null : null;
-}
-
-function costBarsForDemo(): DailyCostPoint[] {
-  return DEMO_COST_BARS.map((value, index) => ({
-    date: String(index),
-    value,
-  }));
 }
 
 function LocalUsageBlock({
@@ -394,7 +356,7 @@ export default function MenuCard({
   );
 
   useEffect(() => {
-    if (DEMO_ENABLED || !providerSupportsChartData(provider.providerId)) {
+    if (!providerSupportsChartData(provider.providerId)) {
       setChartData(null);
       return;
     }
@@ -466,11 +428,8 @@ export default function MenuCard({
   const hasUsageBreakdown =
     chartData !== null && chartData.usageBreakdown.length > 0;
   const hasCharts = hasCostHistory || hasCreditsHistory || hasUsageBreakdown;
-  const demoLocalUsage = localUsageForDemo(provider.providerId);
-  const localUsage = provider.error ? null : chartData?.localUsage ?? demoLocalUsage;
-  const localCostHistory = DEMO_ENABLED
-    ? costBarsForDemo()
-    : chartData?.costHistory ?? [];
+  const localUsage = provider.error ? null : chartData?.localUsage ?? null;
+  const localCostHistory = chartData?.costHistory ?? [];
   const hasMetrics = visibleMetrics.length > 0;
   const hasCost = !!provider.cost;
   const hasPace = !!provider.pace;

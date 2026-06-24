@@ -21,7 +21,6 @@ import MenuSurface, {
 import UpdateBanner from "../components/UpdateBanner";
 import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
 import { openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
-import { DEMO_ENABLED, DEMO_PROVIDERS } from "../lib/demoProviders";
 import { orderProviderSnapshots } from "../lib/providerOrder";
 import {
   hydrateProviderSlots,
@@ -68,13 +67,12 @@ void getProviderStatus;
  */
 export default function TrayPanel({ state }: { state: BootstrapState }) {
   const {
-    providers: realProviders,
+    providers,
     isRefreshing,
     refresh,
     hasCachedData,
     hasLoadedCache,
   } = useProviders({ initialRefreshDelayMs: TRAY_INITIAL_REFRESH_DELAY_MS });
-  const providers = DEMO_ENABLED ? DEMO_PROVIDERS : realProviders;
   const { settings } = useSettings(state.settings);
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
@@ -131,11 +129,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // Detail: only the selected provider's card (macOS shows single provider)
   const visibleProviders = useMemo(() => {
     if (selectedProviderId === null) {
-      if (DEMO_ENABLED) {
-        return ["codex", "claude"]
-          .map((id) => providers.find((p) => p.providerId === id))
-          .filter((p): p is ProviderUsageSnapshot => p !== undefined);
-      }
       // Overview: show providers in the same Settings/catalog order as the grid.
       if (sorted.length + 1 > DENSE_OVERVIEW_THRESHOLD && !gridExpanded) {
         return prioritizeProviders(denseTrayProviders, null).slice(0, 4);
