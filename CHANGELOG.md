@@ -1,5 +1,12 @@
 # Changelog
 
+## [Windows] 0.37.4 - 2026-06-24
+
+### Changed
+- Remove stale release scripts, unused fetch planning code, the fake Synthetic provider, and dead settings toggles.
+
+---
+
 ## [Windows] 0.33.2 - 2026-06-12
 
 ### Fixed
