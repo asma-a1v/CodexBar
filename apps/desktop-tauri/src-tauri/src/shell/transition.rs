@@ -29,8 +29,11 @@ fn os_position(_window: &WebviewWindow, x: i32, y: i32) -> tauri::PhysicalPositi
 pub(super) fn should_force_tray_panel_reveal(
     current: SurfaceMode,
     main_window_visible: bool,
+    main_window_size: Option<(u32, u32)>,
 ) -> bool {
-    current == SurfaceMode::TrayPanel && !main_window_visible
+    current == SurfaceMode::TrayPanel
+        && (!main_window_visible
+            || main_window_size.is_some_and(|(width, height)| width < 100 || height < 100))
 }
 
 fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
@@ -51,8 +54,14 @@ fn schedule_tray_panel_reveal_fallback(app: &AppHandle) {
                 return;
             };
             let visible = window.is_visible().unwrap_or(false);
-            if should_force_tray_panel_reveal(current, visible) {
-                match show_window(&window) {
+            let size = window
+                .outer_size()
+                .ok()
+                .map(|size| (size.width, size.height));
+            if should_force_tray_panel_reveal(current, visible, size) {
+                let layout_result =
+                    apply_window_layout(&window, &SurfaceMode::TrayPanel.window_properties());
+                match layout_result.and_then(|_| show_window(&window)) {
                     Ok(()) => mark_tray_panel_shown(&app_on_main),
                     Err(error) => {
                         tracing::debug!("shell: tray reveal fallback show failed: {error}")

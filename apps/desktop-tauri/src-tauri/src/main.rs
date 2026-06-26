@@ -25,7 +25,7 @@ use surface_target::SurfaceTarget;
 use tauri::Manager;
 
 const PROOF_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
-const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(0);
+const VISIBLE_START_ACTIVATION_DELAY: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct LaunchBehavior {
@@ -184,8 +184,9 @@ fn main() {
             floatbar::install(app.handle());
             auto_refresh::install(app.handle().clone());
 
-            // The frontend receives surface state before show, so fixed
-            // startup sleeps only make tray activation feel slower.
+            // Give the WebView/event loop one turn to finish startup before
+            // routing shortcut launches into the tray panel. Without this, the
+            // Windows shell can leave only Tauri's tiny internal window visible.
             if is_proof_mode {
                 let app_handle = app.handle().clone();
                 tauri::async_runtime::spawn(async move {
@@ -337,6 +338,6 @@ mod tests {
     #[test]
     fn visible_start_delays_stay_short() {
         assert_eq!(PROOF_ACTIVATION_DELAY, Duration::ZERO);
-        assert_eq!(VISIBLE_START_ACTIVATION_DELAY, Duration::ZERO);
+        assert!(VISIBLE_START_ACTIVATION_DELAY <= Duration::from_millis(500));
     }
 }
