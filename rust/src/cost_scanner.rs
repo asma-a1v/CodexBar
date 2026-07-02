@@ -105,7 +105,17 @@ impl CodexPricing {
     }
 }
 
-/// Claude token pricing (per 1M tokens, as of 2024)
+/// Fallback Claude model used when a scanned model isn't in the canonical
+/// pricing table (unknown or retired IDs). Prices as Sonnet 4.6.
+const FALLBACK_CLAUDE_MODEL: &str = "claude-sonnet-4-6";
+
+/// Claude cost calculation for the usage scanner.
+///
+/// Per-token rates come from the canonical `CostUsagePricing::claude_cost_usd`
+/// table (the single source of truth for Claude pricing). The only
+/// scanner-specific piece is the one-hour cache-write premium, which the
+/// canonical cost function doesn't model: one-hour cache writes bill at 2x the
+/// input rate.
 struct ClaudePricing;
 
 impl ClaudePricing {
@@ -117,28 +127,37 @@ impl ClaudePricing {
         cache_read: u64,
         output: u64,
     ) -> f64 {
-        let (input_price, cache_create_price, cache_read_price, output_price) = match model
-            .to_lowercase()
-            .as_str()
-        {
-            m if m.contains("fable-5") => (10.00, 12.50, 1.00, 50.00),
-            m if m.contains("opus-4-6") || m.contains("opus_4_6") => (5.00, 6.25, 0.50, 25.00),
-            m if m.contains("sonnet-4-6") || m.contains("sonnet_4_6") => (3.00, 3.75, 0.30, 15.00),
-            m if m.contains("opus") => (15.00, 18.75, 1.50, 75.00),
-            m if m.contains("sonnet") => (3.00, 3.75, 0.30, 15.00),
-            m if m.contains("haiku") => (0.25, 0.30, 0.03, 1.25),
-            _ => (3.00, 3.75, 0.30, 15.00), // Default to Sonnet
-        };
-
         let cache_create_1h = cache_create_1h.min(cache_create);
         let cache_create_5m = cache_create.saturating_sub(cache_create_1h);
-        let input_cost = (input as f64 / 1_000_000.0) * input_price;
-        let cache_create_cost = (cache_create_5m as f64 / 1_000_000.0) * cache_create_price;
-        let cache_create_1h_cost = (cache_create_1h as f64 / 1_000_000.0) * input_price * 2.0;
-        let cache_read_cost = (cache_read as f64 / 1_000_000.0) * cache_read_price;
-        let output_cost = (output as f64 / 1_000_000.0) * output_price;
 
-        input_cost + cache_create_cost + cache_create_1h_cost + cache_read_cost + output_cost
+        // Standard buckets (input, cache-read, 5-minute cache-write, output),
+        // including any long-context tiering, come from the canonical table.
+        // Unknown/retired models fall back to Sonnet pricing.
+        let clamp = |v: u64| v.min(i32::MAX as u64) as i32;
+        let base = CostUsagePricing::claude_cost_usd(
+            model,
+            clamp(input),
+            clamp(cache_read),
+            clamp(cache_create_5m),
+            clamp(output),
+        )
+        .or_else(|| {
+            CostUsagePricing::claude_cost_usd(
+                FALLBACK_CLAUDE_MODEL,
+                clamp(input),
+                clamp(cache_read),
+                clamp(cache_create_5m),
+                clamp(output),
+            )
+        })
+        .unwrap_or(0.0);
+
+        // Scanner-specific: one-hour cache writes bill at 2x the input rate.
+        let input_rate = CostUsagePricing::claude_input_cost_per_token(model)
+            .or_else(|| CostUsagePricing::claude_input_cost_per_token(FALLBACK_CLAUDE_MODEL))
+            .unwrap_or(0.0);
+
+        base + (cache_create_1h as f64) * input_rate * 2.0
     }
 }
 
@@ -641,17 +660,13 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_pricing() {
-        // Test Sonnet pricing: $3/1M input, $15/1M output
-        let cost = ClaudePricing::cost_usd_with_cache_ttl(
-            "claude-3-5-sonnet",
-            1_000_000,
-            0,
-            0,
-            0,
-            1_000_000,
-        );
-        assert!((cost - 18.0).abs() < 0.01);
+    fn test_unknown_model_falls_back_to_sonnet() {
+        // Unknown/retired Claude IDs fall back to Sonnet 4.6 base pricing
+        // ($3/1M input, $15/1M output). 100k tokens stay under the 200k tier.
+        let cost =
+            ClaudePricing::cost_usd_with_cache_ttl("claude-3-5-sonnet", 100_000, 0, 0, 0, 100_000);
+        // 100k * $3/M + 100k * $15/M = 0.30 + 1.50 = 1.80
+        assert!((cost - 1.80).abs() < 0.001);
     }
 
     #[test]
@@ -676,9 +691,64 @@ mod tests {
     }
 
     #[test]
-    fn test_claude_sonnet_46_uses_standard_full_context_pricing() {
+    fn test_claude_sonnet_46_honors_200k_tier() {
+        // Delegating to the canonical table means the scanner now honors the
+        // 200k long-context tier: 200k @ $3/M + 40k @ $6/M = 0.60 + 0.24 = 0.84
+        // (the scanner's old inline table applied a flat $3/M = 0.72).
         let cost = ClaudePricing::cost_usd_with_cache_ttl("claude-sonnet-4-6", 240_000, 0, 0, 0, 0);
-        assert!((cost - 0.72).abs() < 0.001);
+        assert!((cost - 0.84).abs() < 0.001);
+    }
+
+    #[test]
+    fn test_current_gen_opus_uses_5_25_pricing() {
+        // Opus 4.5/4.6/4.7/4.8 bill at $5/1M input + $25/1M output = $30 total.
+        // Delegation regression guard: opus-4-8 in particular must resolve
+        // through the canonical table (it was missing there before this fix).
+        for model in [
+            "claude-opus-4-5",
+            "claude-opus-4-6",
+            "claude-opus-4-7",
+            "claude-opus-4-8",
+        ] {
+            let cost = ClaudePricing::cost_usd_with_cache_ttl(model, 1_000_000, 0, 0, 0, 1_000_000);
+            assert!(
+                (cost - 30.00).abs() < 0.001,
+                "{model} should bill $30 ($5 in + $25 out), got {cost}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_legacy_opus_keeps_legacy_pricing() {
+        // Legacy Opus 4.0 / 4.1 remain at $15/1M input + $75/1M output = $90 in
+        // the canonical table. (Retired IDs absent from the table — e.g. Opus 3
+        // `claude-3-opus-...` — fall back to Sonnet instead; they are outside
+        // any realistic 30-day scan window.)
+        for model in ["claude-opus-4-20250514", "claude-opus-4-1"] {
+            let cost = ClaudePricing::cost_usd_with_cache_ttl(model, 1_000_000, 0, 0, 0, 1_000_000);
+            assert!(
+                (cost - 90.00).abs() < 0.001,
+                "{model} should bill $90 ($15 in + $75 out), got {cost}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_haiku_45_uses_current_pricing() {
+        // Haiku 4.5 bills at $1/1M input + $5/1M output = $6 via the canonical
+        // table (previously the scanner under-priced it at the Haiku 3 rate).
+        let cost = ClaudePricing::cost_usd_with_cache_ttl(
+            "claude-haiku-4-5",
+            1_000_000,
+            0,
+            0,
+            0,
+            1_000_000,
+        );
+        assert!(
+            (cost - 6.00).abs() < 0.001,
+            "haiku-4-5 should bill $6 ($1 in + $5 out), got {cost}"
+        );
     }
 
     #[test]
