@@ -60,6 +60,19 @@ fn test_locale_key_spanish() {
 }
 
 #[test]
+fn test_locale_key_korean() {
+    assert_eq!(get_text(Language::Korean, LocaleKey::TabGeneral), "일반");
+    assert_eq!(
+        get_text(Language::Korean, LocaleKey::InterfaceLanguage),
+        "인터페이스 언어"
+    );
+    assert_eq!(
+        get_text(Language::Korean, LocaleKey::StartAtLogin),
+        "로그인 시 자동 실행"
+    );
+}
+
+#[test]
 fn test_locale_respects_language_setting() {
     // Test that English language returns English strings
     let lang = Language::English;
@@ -72,6 +85,10 @@ fn test_locale_respects_language_setting() {
     // Test that Japanese language returns Japanese strings
     let lang = Language::Japanese;
     assert_eq!(get_text(lang, LocaleKey::TabAbout), "情報");
+
+    // Test that Korean language returns Korean strings
+    let lang = Language::Korean;
+    assert_eq!(get_text(lang, LocaleKey::TabAbout), "정보");
 
     // Test that Spanish language returns Spanish strings
     let lang = Language::Spanish;
@@ -197,5 +214,9 @@ fn test_all_locale_keys_have_all_languages() {
         // Spanish should not be empty
         let spanish = key.spanish();
         assert!(!spanish.is_empty(), "Spanish string for {:?} is empty", key);
+
+        // Korean should not be empty
+        let korean = key.korean();
+        assert!(!korean.is_empty(), "Korean string for {:?} is empty", key);
     }
 }

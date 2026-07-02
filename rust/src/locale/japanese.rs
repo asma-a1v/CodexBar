@@ -513,10 +513,6 @@ impl LocaleKey {
             LocaleKey::DisableAllKeychainHelper => {
                 "Turn off credential/keychain reads for all providers. Also enables the Claude option above."
             }
-            LocaleKey::LanguageEnglishOption => "English",
-            LocaleKey::LanguageChineseOption => "中文",
-            LocaleKey::LanguageJapaneseOption => "日本語",
-            LocaleKey::LanguageSpanishOption => "スペイン語",
 
             // Tauri desktop shell — Theme (Phase 12)
             LocaleKey::SectionTheme => "Appearance",
@@ -603,6 +599,38 @@ impl LocaleKey {
             LocaleKey::ProviderStatusLoading => "Loading",
             LocaleKey::ProviderStatusDisabled => "Disabled",
             LocaleKey::ProviderDetailPlaceholder => "Detail pane arriving in Phase 6b",
+            LocaleKey::ProviderIssueNeedsSignIn => "needs sign-in",
+            LocaleKey::ProviderIssueFetchNeedsAttention => "Provider fetch needs attention",
+            LocaleKey::ProviderIssueCopy => "Copy",
+            LocaleKey::ProviderIssueUnsupportedSourceModePrefix => {
+                "Source mode not supported for this provider"
+            }
+            LocaleKey::CredentialStorageTitle => "Credential Storage",
+            LocaleKey::CredentialRevokeStored => "Revoke Stored Credentials",
+            LocaleKey::CredentialApiKeys => "API keys",
+            LocaleKey::CredentialManualCookies => "Manual cookies",
+            LocaleKey::CredentialTokenAccounts => "Token accounts",
+            LocaleKey::CredentialProtectedPrefix => "Protected",
+            LocaleKey::CredentialStatusNotCreated => "Not created",
+            LocaleKey::CredentialStatusPlaintext => "Plaintext",
+            LocaleKey::CredentialStatusUnavailable => "Unavailable",
+            LocaleKey::CredentialStatusUnreadable => "Unreadable",
+            LocaleKey::BrowserCookiesSectionTitle => "Browser Cookies",
+            LocaleKey::BrowserCookieNoneSaved => "No cookie saved.",
+            LocaleKey::BrowserCookieSavedBadge => "Saved",
+            LocaleKey::BrowserCookieRemove => "Remove",
+            LocaleKey::BrowserCookieImportSuccess => "Cookies imported successfully.",
+            LocaleKey::BrowserCookieImportFromBrowser => "Import from Browser",
+            LocaleKey::BrowserCookieProfileSingular => "profile",
+            LocaleKey::BrowserCookieProfilePlural => "profiles",
+            LocaleKey::BrowserCookiePlaceholderDefault => "Paste cookie header value...",
+            LocaleKey::BrowserCookiePlaceholderOllama => {
+                "Paste the full Cookie header or just the __Secure-session value..."
+            }
+            LocaleKey::BrowserCookiePlaceholderCurl => {
+                "Paste the Cookie header or full browser cURL request..."
+            }
+            LocaleKey::BrowserCookieSave => "Save Cookie",
 
             // Phase 6d — credential detection
             LocaleKey::CredentialsSectionTitle => "Credentials",

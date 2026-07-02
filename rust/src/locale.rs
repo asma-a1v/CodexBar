@@ -12,6 +12,7 @@ pub fn get_text(lang: Language, key: LocaleKey) -> &'static str {
         Language::English => key.english(),
         Language::Chinese => key.chinese(),
         Language::Japanese => key.japanese(),
+        Language::Korean => key.korean(),
         Language::Spanish => key.spanish(),
     }
 }
@@ -544,11 +545,6 @@ pub enum LocaleKey {
     AvoidKeychainPromptsHelper,
     DisableAllKeychainLabel,
     DisableAllKeychainHelper,
-    LanguageEnglishOption,
-    LanguageChineseOption,
-    LanguageJapaneseOption,
-    LanguageSpanishOption,
-
     // Tauri desktop shell — Theme (Phase 12)
     SectionTheme,
     ThemeLabel,
@@ -630,6 +626,32 @@ pub enum LocaleKey {
     ProviderStatusLoading,
     ProviderStatusDisabled,
     ProviderDetailPlaceholder,
+    ProviderIssueNeedsSignIn,
+    ProviderIssueFetchNeedsAttention,
+    ProviderIssueCopy,
+    ProviderIssueUnsupportedSourceModePrefix,
+    CredentialStorageTitle,
+    CredentialRevokeStored,
+    CredentialApiKeys,
+    CredentialManualCookies,
+    CredentialTokenAccounts,
+    CredentialProtectedPrefix,
+    CredentialStatusNotCreated,
+    CredentialStatusPlaintext,
+    CredentialStatusUnavailable,
+    CredentialStatusUnreadable,
+    BrowserCookiesSectionTitle,
+    BrowserCookieNoneSaved,
+    BrowserCookieSavedBadge,
+    BrowserCookieRemove,
+    BrowserCookieImportSuccess,
+    BrowserCookieImportFromBrowser,
+    BrowserCookieProfileSingular,
+    BrowserCookieProfilePlural,
+    BrowserCookiePlaceholderDefault,
+    BrowserCookiePlaceholderOllama,
+    BrowserCookiePlaceholderCurl,
+    BrowserCookieSave,
 
     // Tauri desktop shell — Phase 6d credential detection UIs
     CredentialsSectionTitle,
@@ -693,6 +715,7 @@ mod chinese;
 mod english;
 mod japanese;
 mod keys;
+mod korean;
 mod spanish;
 
 #[cfg(test)]

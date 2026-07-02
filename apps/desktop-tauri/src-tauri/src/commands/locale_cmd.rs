@@ -122,6 +122,14 @@ mod locale_tests {
     }
 
     #[test]
+    fn locale_strings_roundtrip_korean() {
+        let bundle = locale_strings_for(Language::Korean);
+        assert_eq!(bundle.language, "korean");
+        assert_eq!(bundle.entries.get("TabGeneral").copied(), Some("일반"));
+        assert_eq!(bundle.entries.len(), locale::LocaleKey::ALL.len());
+    }
+
+    #[test]
     fn locale_strings_contains_every_variant() {
         let bundle = locale_strings_for(Language::English);
         for (_, name) in locale::LocaleKey::ALL {
@@ -130,6 +138,22 @@ mod locale_tests {
                 "missing key in locale bundle: {name}"
             );
         }
+    }
+
+    #[test]
+    fn available_languages_uses_canonical_language_catalog() {
+        let options = get_available_languages();
+        let values: Vec<_> = options.iter().map(|option| option.value).collect();
+        let displays: Vec<_> = options.iter().map(|option| option.display).collect();
+
+        assert_eq!(
+            values,
+            vec!["english", "chinese", "japanese", "korean", "spanish"]
+        );
+        assert_eq!(
+            displays,
+            vec!["English", "中文", "日本語", "한국어", "Español"]
+        );
     }
 
     #[test]
@@ -165,6 +189,22 @@ mod locale_tests {
         assert!(matches!(
             parse_locale_language("日本語"),
             Some(Language::Japanese)
+        ));
+        assert!(matches!(
+            parse_locale_language("ko"),
+            Some(Language::Korean)
+        ));
+        assert!(matches!(
+            parse_locale_language("ko-kr"),
+            Some(Language::Korean)
+        ));
+        assert!(matches!(
+            parse_locale_language("korean"),
+            Some(Language::Korean)
+        ));
+        assert!(matches!(
+            parse_locale_language("한국어"),
+            Some(Language::Korean)
         ));
         assert!(matches!(
             parse_locale_language("es"),

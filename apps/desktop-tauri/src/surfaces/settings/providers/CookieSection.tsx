@@ -7,6 +7,7 @@ import {
   setManualCookie,
 } from "../../../lib/tauri";
 import { Select } from "../../../components/FormControls";
+import { useLocale } from "../../../hooks/useLocale";
 import type {
   CookieInfoBridge,
   DetectedBrowserBridge,
@@ -17,14 +18,17 @@ interface Props {
   cookieDomain: string | null;
 }
 
-function cookiePlaceholder(providerId: string): string {
+function cookiePlaceholder(
+  providerId: string,
+  t: ReturnType<typeof useLocale>["t"],
+): string {
   if (providerId === "ollama") {
-    return "Paste the full Cookie header or just the __Secure-session value...";
+    return t("BrowserCookiePlaceholderOllama");
   }
   if (providerId === "t3chat") {
-    return "Paste the Cookie header or full browser cURL request...";
+    return t("BrowserCookiePlaceholderCurl");
   }
-  return "Paste cookie header value...";
+  return t("BrowserCookiePlaceholderDefault");
 }
 
 /**
@@ -32,6 +36,7 @@ function cookiePlaceholder(providerId: string): string {
  * that do not have a cookieDomain (i.e. don't authenticate via web cookies).
  */
 export function CookieSection({ providerId, cookieDomain }: Props) {
+  const { t } = useLocale();
   const [saved, setSaved] = useState<CookieInfoBridge | null>(null);
   const [loaded, setLoaded] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -108,7 +113,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
     try {
       const next = await importBrowserCookies(providerId, browserType);
       setSaved(next.find((c) => c.providerId === providerId) ?? null);
-      setImportStatus("Cookies imported successfully.");
+      setImportStatus(t("BrowserCookieImportSuccess"));
     } catch (err: unknown) {
       setImportError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -133,7 +138,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
 
   return (
     <section className="provider-detail-section">
-      <h4>Browser Cookies</h4>
+      <h4>{t("BrowserCookiesSectionTitle")}</h4>
 
       {error && (
         <div className="settings-status settings-status--error">{error}</div>
@@ -146,7 +151,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
               <div className="credential-card__info">
                 <span className="credential-card__meta">
                   <span className="credential-card__badge credential-card__badge--set">
-                    Saved
+                    {t("BrowserCookieSavedBadge")}
                   </span>
                   <span className="credential-card__date">{saved.savedAt}</span>
                 </span>
@@ -157,14 +162,14 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
                   disabled={busy}
                   onClick={() => void handleRemove()}
                 >
-                  Remove
+                  {t("BrowserCookieRemove")}
                 </button>
               </div>
             </div>
           </li>
         </ul>
       ) : (
-        <p className="credential-empty">No cookie saved.</p>
+        <p className="credential-empty">{t("BrowserCookieNoneSaved")}</p>
       )}
 
       {browsersLoaded && browsers.length > 0 && (
@@ -184,7 +189,11 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
               value={browserType}
               options={browsers.map((b) => ({
                 value: b.browserType,
-                label: `${b.displayName} (${b.profileCount} profile${b.profileCount !== 1 ? "s" : ""})`,
+                label: `${b.displayName} (${b.profileCount} ${
+                  b.profileCount === 1
+                    ? t("BrowserCookieProfileSingular")
+                    : t("BrowserCookieProfilePlural")
+                })`,
               }))}
               onChange={setBrowserType}
               disabled={busy}
@@ -194,7 +203,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
               disabled={busy || !browserType}
               onClick={() => void handleImport()}
             >
-              Import from Browser
+              {t("BrowserCookieImportFromBrowser")}
             </button>
           </div>
         </>
@@ -203,7 +212,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
       <div className="credential-add-form">
         <textarea
           className="text-input credential-textarea"
-          placeholder={cookiePlaceholder(providerId)}
+          placeholder={cookiePlaceholder(providerId, t)}
           rows={3}
           value={pasteValue}
           onChange={(e) => setPasteValue(e.target.value)}
@@ -214,7 +223,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
           disabled={busy || !pasteValue.trim()}
           onClick={() => void handlePaste()}
         >
-          Save Cookie
+          {t("BrowserCookieSave")}
         </button>
       </div>
     </section>

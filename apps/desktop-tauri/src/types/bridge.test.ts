@@ -8,6 +8,8 @@ describe("Language type", () => {
     // exercises value correctness; tsc provides the RED/GREEN gate.
     const lang: Language = "spanish";
     expect(lang).toBe("spanish");
+    const langKo: Language = "korean";
+    expect(langKo).toBe("korean");
   });
 
   it("allows 'spanish' in LocaleStrings payload", () => {
@@ -17,6 +19,13 @@ describe("Language type", () => {
     };
     expect(payload.language).toBe("spanish");
     expect(payload.entries.TabGeneral).toBe("General");
+
+    const payloadKo: LocaleStrings = {
+      language: "korean",
+      entries: { TabGeneral: "일반" },
+    };
+    expect(payloadKo.language).toBe("korean");
+    expect(payloadKo.entries.TabGeneral).toBe("일반");
   });
 
   it("allows 'spanish' in SettingsSnapshot.uiLanguage", () => {
@@ -61,5 +70,11 @@ describe("Language type", () => {
       floatBarShowResetInline: false,
     };
     expect(snap.uiLanguage).toBe("spanish");
+
+    const snapKo: SettingsSnapshot = {
+      ...snap,
+      uiLanguage: "korean",
+    };
+    expect(snapKo.uiLanguage).toBe("korean");
   });
 });

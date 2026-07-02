@@ -11,6 +11,8 @@ pub enum Language {
     Chinese,
     /// Japanese
     Japanese,
+    /// Korean
+    Korean,
     /// Spanish (Mexican)
     Spanish,
 }
@@ -22,6 +24,7 @@ impl Language {
             Language::English => "English",
             Language::Chinese => "中文",
             Language::Japanese => "日本語",
+            Language::Korean => "한국어",
             Language::Spanish => "Español",
         }
     }
@@ -32,6 +35,7 @@ impl Language {
             Language::English,
             Language::Chinese,
             Language::Japanese,
+            Language::Korean,
             Language::Spanish,
         ]
     }
@@ -43,6 +47,7 @@ impl Language {
             Language::English => "english",
             Language::Chinese => "chinese",
             Language::Japanese => "japanese",
+            Language::Korean => "korean",
             Language::Spanish => "spanish",
         }
     }
@@ -54,6 +59,7 @@ impl Language {
             Language::English => &["en", "en-us"],
             Language::Chinese => &["zh", "zh-cn", "zh-hans", "中文"],
             Language::Japanese => &["ja", "ja-jp", "日本語"],
+            Language::Korean => &["ko", "ko-kr", "한국어"],
             Language::Spanish => &["es", "es-mx", "español"],
         }
     }

@@ -557,10 +557,6 @@ impl LocaleKey {
             LocaleKey::DisableAllKeychainHelper,
             "DisableAllKeychainHelper",
         ),
-        (LocaleKey::LanguageEnglishOption, "LanguageEnglishOption"),
-        (LocaleKey::LanguageChineseOption, "LanguageChineseOption"),
-        (LocaleKey::LanguageJapaneseOption, "LanguageJapaneseOption"),
-        (LocaleKey::LanguageSpanishOption, "LanguageSpanishOption"),
         (LocaleKey::SectionTheme, "SectionTheme"),
         (LocaleKey::ThemeLabel, "ThemeLabel"),
         (LocaleKey::ThemeHelper, "ThemeHelper"),
@@ -679,6 +675,89 @@ impl LocaleKey {
             LocaleKey::ProviderDetailPlaceholder,
             "ProviderDetailPlaceholder",
         ),
+        (
+            LocaleKey::ProviderIssueNeedsSignIn,
+            "ProviderIssueNeedsSignIn",
+        ),
+        (
+            LocaleKey::ProviderIssueFetchNeedsAttention,
+            "ProviderIssueFetchNeedsAttention",
+        ),
+        (LocaleKey::ProviderIssueCopy, "ProviderIssueCopy"),
+        (
+            LocaleKey::ProviderIssueUnsupportedSourceModePrefix,
+            "ProviderIssueUnsupportedSourceModePrefix",
+        ),
+        (LocaleKey::CredentialStorageTitle, "CredentialStorageTitle"),
+        (LocaleKey::CredentialRevokeStored, "CredentialRevokeStored"),
+        (LocaleKey::CredentialApiKeys, "CredentialApiKeys"),
+        (
+            LocaleKey::CredentialManualCookies,
+            "CredentialManualCookies",
+        ),
+        (
+            LocaleKey::CredentialTokenAccounts,
+            "CredentialTokenAccounts",
+        ),
+        (
+            LocaleKey::CredentialProtectedPrefix,
+            "CredentialProtectedPrefix",
+        ),
+        (
+            LocaleKey::CredentialStatusNotCreated,
+            "CredentialStatusNotCreated",
+        ),
+        (
+            LocaleKey::CredentialStatusPlaintext,
+            "CredentialStatusPlaintext",
+        ),
+        (
+            LocaleKey::CredentialStatusUnavailable,
+            "CredentialStatusUnavailable",
+        ),
+        (
+            LocaleKey::CredentialStatusUnreadable,
+            "CredentialStatusUnreadable",
+        ),
+        (
+            LocaleKey::BrowserCookiesSectionTitle,
+            "BrowserCookiesSectionTitle",
+        ),
+        (LocaleKey::BrowserCookieNoneSaved, "BrowserCookieNoneSaved"),
+        (
+            LocaleKey::BrowserCookieSavedBadge,
+            "BrowserCookieSavedBadge",
+        ),
+        (LocaleKey::BrowserCookieRemove, "BrowserCookieRemove"),
+        (
+            LocaleKey::BrowserCookieImportSuccess,
+            "BrowserCookieImportSuccess",
+        ),
+        (
+            LocaleKey::BrowserCookieImportFromBrowser,
+            "BrowserCookieImportFromBrowser",
+        ),
+        (
+            LocaleKey::BrowserCookieProfileSingular,
+            "BrowserCookieProfileSingular",
+        ),
+        (
+            LocaleKey::BrowserCookieProfilePlural,
+            "BrowserCookieProfilePlural",
+        ),
+        (
+            LocaleKey::BrowserCookiePlaceholderDefault,
+            "BrowserCookiePlaceholderDefault",
+        ),
+        (
+            LocaleKey::BrowserCookiePlaceholderOllama,
+            "BrowserCookiePlaceholderOllama",
+        ),
+        (
+            LocaleKey::BrowserCookiePlaceholderCurl,
+            "BrowserCookiePlaceholderCurl",
+        ),
+        (LocaleKey::BrowserCookieSave, "BrowserCookieSave"),
         // Phase 6d — credential detection
         (
             LocaleKey::CredentialsSectionTitle,

@@ -264,6 +264,7 @@ export function ProviderDetailPane({
           detail={detail}
           message={detail.lastError}
           onCopy={handleCopyError}
+          t={t}
         />
       )}
 
@@ -302,6 +303,7 @@ export function ProviderDetailPane({
         status={credentialStatus}
         busy={busy}
         onRevoke={handleRevokeCredentials}
+        t={t}
       />
       {tokenProviderIds.has(detail.id) && (
         <TokenAccountsPanel
@@ -344,10 +346,12 @@ function ProviderIssueNotice({
   detail,
   message,
   onCopy,
+  t,
 }: {
   detail: ProviderDetail;
   message: string;
   onCopy: () => void;
+  t: ReturnType<typeof useLocale>["t"];
 }) {
   const cleaned = message.replace(/^last fetch failed:\s*/i, "").trim();
   const lower = cleaned.toLowerCase();
@@ -360,8 +364,9 @@ function ProviderIssueNotice({
     lower.includes("run codex") ||
     lower.includes("run claude");
   const title = needsLogin
-    ? `${detail.displayName} needs sign-in`
-    : "Provider fetch needs attention";
+    ? `${detail.displayName} ${t("ProviderIssueNeedsSignIn")}`
+    : t("ProviderIssueFetchNeedsAttention");
+  const displayMessage = localizeProviderIssue(cleaned, t);
 
   return (
     <div className="provider-detail-error" role="status">
@@ -372,62 +377,75 @@ function ProviderIssueNotice({
           className="provider-detail-error__copy"
           onClick={onCopy}
         >
-          Copy
+          {t("ProviderIssueCopy")}
         </button>
       </div>
-      <p>{cleaned}</p>
+      <p>{displayMessage}</p>
     </div>
   );
+}
+
+function localizeProviderIssue(
+  message: string,
+  t: ReturnType<typeof useLocale>["t"],
+): string {
+  const unsupported = message.match(/^Source mode `?([^`']+)`? not supported for this provider$/i);
+  if (unsupported) {
+    return `${t("ProviderIssueUnsupportedSourceModePrefix")} (${unsupported[1]})`;
+  }
+  return message;
 }
 
 function CredentialStorageSection({
   status,
   busy,
   onRevoke,
+  t,
 }: {
   status: CredentialStorageStatus | null;
   busy: boolean;
   onRevoke: () => void;
+  t: ReturnType<typeof useLocale>["t"];
 }) {
   if (!status) return null;
 
   return (
     <section className="provider-detail-section provider-detail-credential-storage">
       <div className="provider-detail-section__header">
-        <h4>Credential Storage</h4>
+        <h4>{t("CredentialStorageTitle")}</h4>
         <button
           className="credential-btn credential-btn--danger"
           disabled={busy}
           onClick={onRevoke}
         >
-          Revoke Stored Credentials
+          {t("CredentialRevokeStored")}
         </button>
       </div>
       <dl className="provider-detail-grid provider-detail-grid--storage">
-        <dt>API keys</dt>
-        <dd>{storageLabel(status.apiKeys)}</dd>
-        <dt>Manual cookies</dt>
-        <dd>{storageLabel(status.manualCookies)}</dd>
-        <dt>Token accounts</dt>
-        <dd>{storageLabel(status.tokenAccounts)}</dd>
+        <dt>{t("CredentialApiKeys")}</dt>
+        <dd>{storageLabel(status.apiKeys, t)}</dd>
+        <dt>{t("CredentialManualCookies")}</dt>
+        <dd>{storageLabel(status.manualCookies, t)}</dd>
+        <dt>{t("CredentialTokenAccounts")}</dt>
+        <dd>{storageLabel(status.tokenAccounts, t)}</dd>
       </dl>
     </section>
   );
 }
 
-function storageLabel(value: string): string {
+function storageLabel(value: string, t: ReturnType<typeof useLocale>["t"]): string {
   if (value.startsWith("protected:")) {
-    return `Protected (${value.slice("protected:".length)})`;
+    return `${t("CredentialProtectedPrefix")} (${value.slice("protected:".length)})`;
   }
   switch (value) {
     case "missing":
-      return "Not created";
+      return t("CredentialStatusNotCreated");
     case "plaintext":
-      return "Plaintext";
+      return t("CredentialStatusPlaintext");
     case "unavailable":
-      return "Unavailable";
+      return t("CredentialStatusUnavailable");
     case "unreadable":
-      return "Unreadable";
+      return t("CredentialStatusUnreadable");
     default:
       return value;
   }
