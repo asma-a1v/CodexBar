@@ -2,9 +2,9 @@
 //!
 //! Scans local JSONL log files to aggregate token usage and calculate costs
 
-use chrono::{DateTime, Duration, NaiveDate, Utc};
+use chrono::{DateTime, Duration, Local, NaiveDate, Utc};
 use serde::Deserialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs::{self, File};
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -180,29 +180,70 @@ struct CodexEventMsg {
     output_tokens: Option<u64>,
 }
 
-/// JSONL event structures for Claude
-#[allow(dead_code)]
+/// JSONL event structures for Claude transcripts. Unknown fields are
+/// ignored, so lines that are not assistant usage events still parse.
 #[derive(Debug, Deserialize)]
 struct ClaudeEvent {
     #[serde(rename = "type")]
     event_type: Option<String>,
+    timestamp: Option<String>,
+    #[serde(rename = "requestId", alias = "request_id")]
+    request_id: Option<String>,
     message: Option<ClaudeMessage>,
 }
 
-#[allow(dead_code)]
+impl ClaudeEvent {
+    fn parsed_timestamp(&self) -> Option<DateTime<Utc>> {
+        let timestamp = self.timestamp.as_deref()?;
+        DateTime::parse_from_rfc3339(timestamp)
+            .ok()
+            .map(|ts| ts.with_timezone(&Utc))
+    }
+}
+
 #[derive(Debug, Deserialize)]
 struct ClaudeMessage {
+    id: Option<String>,
     model: Option<String>,
     usage: Option<ClaudeUsage>,
 }
 
-#[allow(dead_code)]
 #[derive(Debug, Deserialize)]
 struct ClaudeUsage {
     input_tokens: Option<u64>,
     output_tokens: Option<u64>,
     cache_creation_input_tokens: Option<u64>,
     cache_read_input_tokens: Option<u64>,
+    cache_creation: Option<ClaudeCacheCreation>,
+}
+
+impl ClaudeUsage {
+    /// One-hour cache-write tokens, clamped to the total cache-write count.
+    fn one_hour_cache_creation_tokens(&self, total: u64) -> u64 {
+        self.cache_creation
+            .as_ref()
+            .and_then(|cache_creation| cache_creation.ephemeral_1h_input_tokens)
+            .unwrap_or(0)
+            .min(total)
+    }
+}
+
+/// TTL breakdown of cache writes reported by the API.
+#[derive(Debug, Deserialize)]
+struct ClaudeCacheCreation {
+    ephemeral_1h_input_tokens: Option<u64>,
+}
+
+#[derive(Debug)]
+struct ClaudeUsageRecord {
+    model: String,
+    timestamp: Option<DateTime<Utc>>,
+    dedup_key: Option<String>,
+    input: u64,
+    output: u64,
+    cache_create: u64,
+    cache_read: u64,
+    cost: f64,
 }
 
 /// Cost usage scanner
@@ -286,8 +327,19 @@ impl CostScanner {
         summary.period_start = Some(start_date);
         summary.period_end = Some(today);
 
-        // Walk through projects directory
-        self.scan_claude_dir(&projects_dir, &cutoff, &mut summary, cancel);
+        // Walk through projects directory, de-duplicating usage records
+        // that appear across multiple files.
+        let mut seen = HashSet::new();
+        let mut handle_file = |path: &Path| {
+            let counted =
+                for_each_claude_usage_record(path, &cutoff, &mut seen, cancel, |record| {
+                    add_claude_record_to_summary(&mut summary, record);
+                });
+            if counted > 0 {
+                summary.sessions_count += 1;
+            }
+        };
+        self.walk_claude_files(&projects_dir, &cutoff, cancel, &mut handle_file);
 
         summary
     }
@@ -350,13 +402,15 @@ impl CostScanner {
         }
     }
 
-    fn scan_claude_dir(
+    fn walk_claude_files<F>(
         &self,
-        dir: &PathBuf,
+        dir: &Path,
         cutoff: &DateTime<Utc>,
-        summary: &mut CostSummary,
         cancel: Option<&AtomicBool>,
-    ) {
+        on_file: &mut F,
+    ) where
+        F: FnMut(&Path),
+    {
         if is_cancelled(cancel) {
             return;
         }
@@ -371,7 +425,7 @@ impl CostScanner {
             }
             let path = entry.path();
             if path.is_dir() {
-                self.scan_claude_dir(&path, cutoff, summary, cancel);
+                self.walk_claude_files(&path, cutoff, cancel, on_file);
             } else if path.extension().is_some_and(|e| e == "jsonl") {
                 // Check file modification time
                 if let Ok(metadata) = fs::metadata(&path)
@@ -379,105 +433,153 @@ impl CostScanner {
                 {
                     let modified_dt: DateTime<Utc> = modified.into();
                     if modified_dt >= *cutoff {
-                        self.parse_claude_file(&path, summary, cancel);
+                        on_file(&path);
                     }
                 }
             }
-        }
-    }
-
-    fn parse_claude_file(
-        &self,
-        path: &PathBuf,
-        summary: &mut CostSummary,
-        cancel: Option<&AtomicBool>,
-    ) {
-        let file = match File::open(path) {
-            Ok(f) => f,
-            Err(_) => return,
-        };
-
-        let reader = BufReader::new(file);
-        let mut session_cost = 0.0;
-        let mut has_tokens = false;
-
-        for line in reader.lines().map_while(Result::ok) {
-            if is_cancelled(cancel) {
-                return;
-            }
-            if let Ok(event) = serde_json::from_str::<serde_json::Value>(&line) {
-                // Look for assistant messages with usage
-                if event.get("type").and_then(|t| t.as_str()) == Some("assistant")
-                    && let Some(message) = event.get("message")
-                {
-                    let model = message
-                        .get("model")
-                        .and_then(|m| m.as_str())
-                        .unwrap_or("claude-3-5-sonnet");
-
-                    if let Some(usage) = message.get("usage") {
-                        let input = usage
-                            .get("input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let output = usage
-                            .get("output_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let cache_create = usage
-                            .get("cache_creation_input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-                        let cache_create_1h =
-                            claude_one_hour_cache_creation_tokens(usage, cache_create);
-                        let cache_read = usage
-                            .get("cache_read_input_tokens")
-                            .and_then(|t| t.as_u64())
-                            .unwrap_or(0);
-
-                        summary.input_tokens += input;
-                        summary.output_tokens += output;
-                        summary.cached_tokens += cache_create + cache_read;
-
-                        let cost = ClaudePricing::cost_usd_with_cache_ttl(
-                            model,
-                            input,
-                            cache_create,
-                            cache_create_1h,
-                            cache_read,
-                            output,
-                        );
-                        session_cost += cost;
-                        has_tokens = true;
-
-                        *summary.by_model.entry(model.to_string()).or_insert(0.0) += cost;
-
-                        let model_tokens = summary
-                            .by_model_tokens
-                            .entry(model.to_string())
-                            .or_default();
-                        model_tokens.input_tokens += input;
-                        model_tokens.output_tokens += output;
-                        model_tokens.cached_tokens += cache_create + cache_read;
-                    }
-                }
-            }
-        }
-
-        if has_tokens {
-            summary.total_cost_usd += session_cost;
-            summary.sessions_count += 1;
         }
     }
 }
 
-fn claude_one_hour_cache_creation_tokens(usage: &serde_json::Value, total: u64) -> u64 {
-    usage
-        .get("cache_creation")
-        .and_then(|cache_creation| cache_creation.get("ephemeral_1h_input_tokens"))
-        .and_then(|tokens| tokens.as_u64())
-        .unwrap_or(0)
-        .min(total)
+/// Stream the de-duplicated, in-window usage records from one transcript
+/// file into `on_record`. Both the summary scan and the daily-history scan
+/// consume this single reader, so Claude log semantics live in one place.
+/// Returns the number of records consumed, so callers can tell whether the
+/// file contributed anything.
+fn for_each_claude_usage_record<F>(
+    path: &Path,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<String>,
+    cancel: Option<&AtomicBool>,
+    mut on_record: F,
+) -> usize
+where
+    F: FnMut(&ClaudeUsageRecord),
+{
+    let Ok(file) = File::open(path) else {
+        return 0;
+    };
+
+    let mut counted = 0;
+    for line in BufReader::new(file).lines().map_while(Result::ok) {
+        if is_cancelled(cancel) {
+            break;
+        }
+        if let Ok(event) = serde_json::from_str::<ClaudeEvent>(&line)
+            && let Some(record) = claude_usage_record_from_event(&event)
+            && should_count_claude_record(&record, cutoff, seen)
+        {
+            counted += 1;
+            on_record(&record);
+        }
+    }
+    counted
+}
+
+fn claude_usage_record_from_event(event: &ClaudeEvent) -> Option<ClaudeUsageRecord> {
+    if event.event_type.as_deref() != Some("assistant") {
+        return None;
+    }
+
+    let message = event.message.as_ref()?;
+    let usage = message.usage.as_ref()?;
+    let model = message.model.as_deref().unwrap_or("claude-3-5-sonnet");
+
+    let input = usage.input_tokens.unwrap_or(0);
+    let output = usage.output_tokens.unwrap_or(0);
+    let cache_create = usage.cache_creation_input_tokens.unwrap_or(0);
+    let cache_read = usage.cache_read_input_tokens.unwrap_or(0);
+
+    if input == 0 && output == 0 && cache_create == 0 && cache_read == 0 {
+        return None;
+    }
+
+    let cache_create_1h = usage.one_hour_cache_creation_tokens(cache_create);
+    let cost = ClaudePricing::cost_usd_with_cache_ttl(
+        model,
+        input,
+        cache_create,
+        cache_create_1h,
+        cache_read,
+        output,
+    );
+
+    Some(ClaudeUsageRecord {
+        model: model.to_string(),
+        timestamp: event.parsed_timestamp(),
+        dedup_key: claude_usage_dedup_key(message.id.as_deref(), event.request_id.as_deref()),
+        input,
+        output,
+        cache_create,
+        cache_read,
+        cost,
+    })
+}
+
+fn claude_usage_dedup_key(message_id: Option<&str>, request_id: Option<&str>) -> Option<String> {
+    match (message_id, request_id) {
+        (Some(message_id), Some(request_id)) => Some(format!("{message_id}:{request_id}")),
+        (Some(message_id), None) => Some(format!("message:{message_id}")),
+        (None, Some(request_id)) => Some(format!("request:{request_id}")),
+        (None, None) => None,
+    }
+}
+
+fn should_count_claude_record(
+    record: &ClaudeUsageRecord,
+    cutoff: &DateTime<Utc>,
+    seen: &mut HashSet<String>,
+) -> bool {
+    if let Some(timestamp) = record.timestamp
+        && timestamp < *cutoff
+    {
+        return false;
+    }
+
+    if let Some(key) = &record.dedup_key
+        && !seen.insert(key.clone())
+    {
+        return false;
+    }
+
+    true
+}
+
+fn add_claude_record_to_summary(summary: &mut CostSummary, record: &ClaudeUsageRecord) {
+    summary.input_tokens += record.input;
+    summary.output_tokens += record.output;
+    summary.cached_tokens += record.cache_create + record.cache_read;
+    summary.total_cost_usd += record.cost;
+
+    *summary.by_model.entry(record.model.clone()).or_insert(0.0) += record.cost;
+
+    let model_tokens = summary
+        .by_model_tokens
+        .entry(record.model.clone())
+        .or_default();
+    model_tokens.input_tokens += record.input;
+    model_tokens.output_tokens += record.output;
+    model_tokens.cached_tokens += record.cache_create + record.cache_read;
+}
+
+/// Add one usage record to the per-day cost buckets, keyed by the record's
+/// own timestamp in the local timezone. Records outside the initialized
+/// date range (or without a timestamp) are ignored.
+fn add_claude_record_to_daily_costs(
+    daily_costs: &mut HashMap<String, f64>,
+    record: &ClaudeUsageRecord,
+) {
+    let Some(timestamp) = record.timestamp else {
+        return;
+    };
+    let date_str = timestamp
+        .with_timezone(&Local)
+        .date_naive()
+        .format("%Y-%m-%d")
+        .to_string();
+    if let Some(cost) = daily_costs.get_mut(&date_str) {
+        *cost += record.cost;
+    }
 }
 
 type CodexDays = HashMap<String, HashMap<String, Vec<i32>>>;
@@ -560,7 +662,7 @@ pub fn has_cost_usage_sources() -> bool {
 /// Returns Vec of (date_string, cost_usd) sorted by date
 pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
     let scanner = CostScanner::new(days);
-    let today = Utc::now().date_naive();
+    let today = Local::now().date_naive();
     let mut daily_costs: HashMap<String, f64> = HashMap::new();
 
     // Initialize all days with 0
@@ -600,15 +702,18 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
             }
         }
         "claude" => {
-            // For Claude, we need to check file modification times
-            // This is more complex, so we'll approximate using the summary for now
-            let summary = scanner.scan_claude();
-            if summary.total_cost_usd > 0.0 && days > 0 {
-                // Distribute evenly for now (TODO: actual daily breakdown)
-                let daily = summary.total_cost_usd / days as f64;
-                for (_, cost) in daily_costs.iter_mut() {
-                    *cost = daily;
-                }
+            // Real per-day breakdown: walk the project logs once,
+            // de-duplicating records across files.
+            let projects_dir = scanner.get_claude_projects_dir();
+            if projects_dir.exists() {
+                let cutoff = Utc::now() - Duration::days(days as i64);
+                let mut seen = HashSet::new();
+                let mut handle_file = |path: &Path| {
+                    for_each_claude_usage_record(path, &cutoff, &mut seen, None, |record| {
+                        add_claude_record_to_daily_costs(&mut daily_costs, record);
+                    });
+                };
+                scanner.walk_claude_files(&projects_dir, &cutoff, None, &mut handle_file);
             }
         }
         _ => {}
@@ -797,5 +902,159 @@ mod tests {
         );
         assert!(scan_codex_file_cost(&path) > 0.0);
         let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn derives_claude_dedup_key_from_message_and_request_ids() {
+        assert_eq!(
+            claude_usage_dedup_key(Some("msg_1"), Some("req_1")).as_deref(),
+            Some("msg_1:req_1")
+        );
+        assert_eq!(
+            claude_usage_dedup_key(Some("msg_1"), None).as_deref(),
+            Some("message:msg_1")
+        );
+        assert_eq!(
+            claude_usage_dedup_key(None, Some("req_1")).as_deref(),
+            Some("request:req_1")
+        );
+        assert_eq!(claude_usage_dedup_key(None, None), None);
+    }
+
+    #[test]
+    fn counts_claude_usage_once_across_duplicate_records() {
+        // The same API response can be replayed into several transcript files
+        // (session resume, sidechains); it must only be counted once.
+        let event: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","timestamp":"2026-01-15T10:00:00Z","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-4-6","usage":{"input_tokens":100,"output_tokens":50,"cache_creation_input_tokens":10,"cache_read_input_tokens":20}}}"#,
+        )
+        .unwrap();
+
+        let record = claude_usage_record_from_event(&event).expect("usage record");
+        assert_eq!(record.model, "claude-sonnet-4-6");
+        assert_eq!(record.input, 100);
+        assert_eq!(record.output, 50);
+        assert_eq!(record.cache_create, 10);
+        assert_eq!(record.cache_read, 20);
+        assert!(record.cost > 0.0);
+
+        let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut seen = HashSet::new();
+        assert!(should_count_claude_record(&record, &cutoff, &mut seen));
+        assert!(!should_count_claude_record(&record, &cutoff, &mut seen));
+    }
+
+    #[test]
+    fn rejects_claude_records_before_cutoff() {
+        let event: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","timestamp":"2025-12-01T10:00:00Z","requestId":"req_old","message":{"id":"msg_old","model":"claude-sonnet-4-6","usage":{"input_tokens":1,"output_tokens":1}}}"#,
+        )
+        .unwrap();
+        let record = claude_usage_record_from_event(&event).expect("usage record");
+        let cutoff = DateTime::parse_from_rfc3339("2026-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let mut seen = HashSet::new();
+        assert!(!should_count_claude_record(&record, &cutoff, &mut seen));
+    }
+
+    #[test]
+    fn ignores_claude_events_without_countable_usage() {
+        // Non-assistant events carry no billable usage.
+        let event: ClaudeEvent =
+            serde_json::from_str(r#"{"type":"user","message":{"usage":{"input_tokens":5}}}"#)
+                .unwrap();
+        assert!(claude_usage_record_from_event(&event).is_none());
+
+        // Zero-token usage blocks (e.g. synthetic messages) are not sessions.
+        let event: ClaudeEvent = serde_json::from_str(
+            r#"{"type":"assistant","message":{"id":"msg_zero","model":"claude-sonnet-4-6","usage":{"input_tokens":0,"output_tokens":0}}}"#,
+        )
+        .unwrap();
+        assert!(claude_usage_record_from_event(&event).is_none());
+    }
+
+    fn claude_transcript_line(
+        timestamp: &str,
+        request_key: &str,
+        request_id: &str,
+        message_id: &str,
+    ) -> String {
+        format!(
+            r#"{{"type":"assistant","timestamp":"{timestamp}","{request_key}":"{request_id}","message":{{"id":"{message_id}","model":"claude-sonnet-4-6","usage":{{"input_tokens":1000,"output_tokens":500}}}}}}"#
+        )
+    }
+
+    #[test]
+    fn daily_history_dedups_across_files_and_buckets_by_local_day() {
+        // End-to-end regression for the daily buckets: two transcript files,
+        // two different days, plus a replay of the day-one record in the
+        // second file (snake_case request_id, as another writer would emit).
+        let dir = std::env::temp_dir();
+        let file_a = dir.join(format!(
+            "codexbar-claude-daily-a-{}.jsonl",
+            std::process::id()
+        ));
+        let file_b = dir.join(format!(
+            "codexbar-claude-daily-b-{}.jsonl",
+            std::process::id()
+        ));
+
+        // >24h apart guarantees two distinct local calendar days.
+        let day_one = Utc::now() - Duration::hours(30);
+        let day_two = Utc::now() - Duration::hours(2);
+        let ts_one = day_one.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+        let ts_two = day_two.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string();
+
+        std::fs::write(
+            &file_a,
+            format!(
+                "{}\n{}\n",
+                claude_transcript_line(&ts_one, "requestId", "req_1", "msg_1"),
+                claude_transcript_line(&ts_two, "requestId", "req_2", "msg_2"),
+            ),
+        )
+        .unwrap();
+        std::fs::write(
+            &file_b,
+            format!(
+                "{}\n",
+                claude_transcript_line(&ts_one, "request_id", "req_1", "msg_1"),
+            ),
+        )
+        .unwrap();
+
+        let day_key = |ts: &DateTime<Utc>| {
+            ts.with_timezone(&Local)
+                .date_naive()
+                .format("%Y-%m-%d")
+                .to_string()
+        };
+        let mut daily_costs = HashMap::new();
+        daily_costs.insert(day_key(&day_one), 0.0);
+        daily_costs.insert(day_key(&day_two), 0.0);
+
+        let cutoff = Utc::now() - Duration::days(30);
+        let mut seen = HashSet::new();
+        for path in [&file_a, &file_b] {
+            for_each_claude_usage_record(path, &cutoff, &mut seen, None, |record| {
+                add_claude_record_to_daily_costs(&mut daily_costs, record);
+            });
+        }
+
+        let day_one_cost = daily_costs[&day_key(&day_one)];
+        let day_two_cost = daily_costs[&day_key(&day_two)];
+        assert!(day_one_cost > 0.0, "day one should carry real cost");
+        // Identical usage on both days: equal buckets proves the file-b
+        // replay was de-duplicated (a leak would double day one).
+        assert!(
+            (day_one_cost - day_two_cost).abs() < f64::EPSILON,
+            "each day should hold exactly one record's cost, got {day_one_cost} vs {day_two_cost}"
+        );
+
+        let _ = std::fs::remove_file(&file_a);
+        let _ = std::fs::remove_file(&file_b);
     }
 }
