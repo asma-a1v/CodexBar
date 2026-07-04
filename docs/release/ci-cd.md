@@ -26,7 +26,7 @@ Use the version/ref being released.
 
 ## Release flow
 
-1. Tag the release, for example `v0.30.0`.
+1. Tag the release, for example `v0.38.2`.
 2. Run `scripts\release-doctor.ps1`.
 3. Run `scripts\windows-release-build.ps1 -SmokeInstall`.
 4. Upload the verified installer, portable exe, and SHA-256 sidecars to GitHub Releases.
