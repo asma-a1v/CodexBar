@@ -3,9 +3,8 @@ use super::*;
 impl LocaleKey {
     /// Every variant of `LocaleKey` paired with its serialized name.
     ///
-    /// Kept in sync with the `LocaleKey` enum above; used by the Tauri
-    /// desktop shell to expose the full set of localized strings to the
-    /// frontend via `get_locale_strings`.
+    /// Used by the Tauri desktop shell to expose the full set of localized
+    /// strings to the frontend via `get_locale_strings`.
     pub const ALL: &'static [(LocaleKey, &'static str)] = &[
         (LocaleKey::TabGeneral, "TabGeneral"),
         (LocaleKey::TabProviders, "TabProviders"),
@@ -766,7 +765,6 @@ impl LocaleKey {
             "BrowserCookiePlaceholderCurl",
         ),
         (LocaleKey::BrowserCookieSave, "BrowserCookieSave"),
-        // Phase 6d — credential detection
         (
             LocaleKey::CredentialsSectionTitle,
             "CredentialsSectionTitle",
@@ -846,7 +844,6 @@ impl LocaleKey {
         ),
         (LocaleKey::CredsKiroHelperMissing, "CredsKiroHelperMissing"),
         (LocaleKey::CredsOpenAiHistoryHelp, "CredsOpenAiHistoryHelp"),
-        // Phase 6e — Token accounts (review)
         (LocaleKey::TokenAccountActive, "TokenAccountActive"),
         (LocaleKey::TokenAccountSetActive, "TokenAccountSetActive"),
         (LocaleKey::TokenAccountRemove, "TokenAccountRemove"),
@@ -882,7 +879,6 @@ impl LocaleKey {
             LocaleKey::TokenAccountInlineSummary,
             "TokenAccountInlineSummary",
         ),
-        // Phase 9 - Tray / pop-out pace badges + countdowns
         (LocaleKey::TrayPaceBadgeSlow, "TrayPaceBadgeSlow"),
         (LocaleKey::TrayPaceBadgeSteady, "TrayPaceBadgeSteady"),
         (LocaleKey::TrayPaceBadgeRacing, "TrayPaceBadgeRacing"),
@@ -890,4 +886,11 @@ impl LocaleKey {
         (LocaleKey::TrayResetsInLabel, "TrayResetsInLabel"),
         (LocaleKey::TrayResetsDueNow, "TrayResetsDueNow"),
     ];
+
+    pub fn name(self) -> &'static str {
+        Self::ALL
+            .iter()
+            .find_map(|(key, name)| (*key == self).then_some(*name))
+            .expect("LocaleKey::ALL must contain every LocaleKey variant")
+    }
 }
