@@ -1,5 +1,12 @@
 # Changelog
 
+## [Windows] 0.38.3 - 2026-07-06
+
+### Fixed
+- Fix NanoGPT usage parsing when the API omits the monthly usage block.
+
+---
+
 ## [Windows] 0.38.2 - 2026-07-05
 
 ### Fixed
