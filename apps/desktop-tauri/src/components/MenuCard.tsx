@@ -60,6 +60,37 @@ function maskEmail(email: string): string {
   return email[0] + "•".repeat(at - 1) + email.slice(at);
 }
 
+/** Localize raw provider window labels using the active locale. */
+function localizeWindowLabel(
+  raw: string | undefined,
+  t: (key: LocaleKey) => string,
+): string {
+  if (raw?.trim().toLowerCase() === "weekly") {
+    return t("ProviderWeeklyLabel");
+  }
+  return raw ?? "";
+}
+
+/** Format a reserve description from raw pace data at render time. */
+function formatReserveDescription(
+  snap: RateWindowSnapshot,
+  t: (key: LocaleKey) => string,
+): string | null {
+  if (snap.reservePercent == null) return null;
+  if (snap.reserveWillLastToReset) {
+    return t("PanelReserveLastsUntilReset");
+  }
+  const eta = snap.reserveEtaSeconds;
+  if (eta == null) return null;
+  const h = Math.floor(eta / 3600);
+  if (h >= 24) {
+    return t("PanelReserveRunsOutInDaysHours")
+      .replace("{}", String(Math.floor(h / 24)))
+      .replace("{}", String(h % 24));
+  }
+  return t("PanelReserveRunsOutInHours").replace("{}", String(h));
+}
+
 function formatCurrency(amount: number, code: string): string {
   try {
     return new Intl.NumberFormat("en-US", {
@@ -196,7 +227,7 @@ interface MetricEntry {
 
 type MetricPaceView =
   | { kind: "budget"; budget: NonNullable<ReturnType<typeof getPaceBudget>> }
-  | { kind: "reserve"; percent: number; description: string | null }
+  | { kind: "reserve"; percent: number }
   | { kind: "none" };
 
 function getMetricPaceView(snap: RateWindowSnapshot): MetricPaceView {
@@ -208,11 +239,7 @@ function getMetricPaceView(snap: RateWindowSnapshot): MetricPaceView {
   if (budget) return { kind: "budget", budget };
 
   if (snap.reservePercent != null) {
-    return {
-      kind: "reserve",
-      percent: snap.reservePercent,
-      description: snap.reserveDescription,
-    };
+    return { kind: "reserve", percent: snap.reservePercent };
   }
 
   return { kind: "none" };
@@ -255,6 +282,7 @@ function MetricRow({
     resetTimeRelative,
   );
   const paceView = getMetricPaceView(snap);
+  const reserveDescription = formatReserveDescription(snap, t);
   const formatBudget = (value: number) =>
     value < 10 ? value.toFixed(1).replace(/\.0$/, "") : Math.round(value).toString();
   return (
@@ -281,7 +309,7 @@ function MetricRow({
             aria-expanded={expanded}
           >
             <span>{t("PanelOnPaceBudget")}</span>
-            {snap.reserveDescription && <span>{snap.reserveDescription}</span>}
+            {reserveDescription && <span>{reserveDescription}</span>}
           </button>
           <div className="menu-metric__budget-pills">
             {[
@@ -301,8 +329,8 @@ function MetricRow({
       {paceView.kind === "reserve" && (
         <div className="menu-metric__row menu-metric__reserve">
           <span className="menu-metric__pct">{Math.round(paceView.percent)}% {t("PanelReserveSuffix")}</span>
-          {paceView.description && (
-            <span className="menu-metric__reset">{paceView.description}</span>
+          {reserveDescription && (
+            <span className="menu-metric__reset">{reserveDescription}</span>
           )}
         </div>
       )}
@@ -386,7 +414,7 @@ export default function MenuCard({
   if (provider.secondary)
     metrics.push({
       id: "secondary",
-      label: provider.secondaryLabel ?? t("DetailWindowSecondary"),
+      label: localizeWindowLabel(provider.secondaryLabel, t) || t("DetailWindowSecondary"),
       snap: provider.secondary,
     });
   if (provider.modelSpecific)

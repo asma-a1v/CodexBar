@@ -13,6 +13,8 @@ pub struct RateWindowSnapshot {
     pub is_exhausted: bool,
     pub reserve_percent: Option<f64>,
     pub reserve_description: Option<String>,
+    pub reserve_will_last_to_reset: bool,
+    pub reserve_eta_seconds: Option<f64>,
 }
 
 impl RateWindowSnapshot {
@@ -26,43 +28,21 @@ impl RateWindowSnapshot {
             is_exhausted: rw.is_exhausted(),
             reserve_percent: None,
             reserve_description: None,
+            reserve_will_last_to_reset: false,
+            reserve_eta_seconds: None,
         }
     }
 
-    /// Enrich with reserve info derived from pace analysis.
+    /// Enrich with raw reserve info derived from pace analysis.
     /// delta_percent = actual - expected; negative means ahead (in reserve).
     /// Only meaningful for longer windows (weekly); skip if reserve rounds to 0.
-    fn with_pace_reserve(
-        mut self,
-        pace: &codexbar::core::UsagePace,
-        lang: codexbar::settings::Language,
-    ) -> Self {
+    /// Localization happens at render time so cached snapshots stay language-neutral.
+    fn with_pace_reserve(mut self, pace: &codexbar::core::UsagePace) -> Self {
         let reserve = pace.delta_percent.abs().round();
         if pace.delta_percent < 0.0 && reserve > 0.0 {
             self.reserve_percent = Some(reserve);
-            self.reserve_description = if pace.will_last_to_reset {
-                Some(locale::get_text(
-                    lang,
-                    locale::LocaleKey::PanelReserveLastsUntilReset,
-                ))
-            } else {
-                pace.eta_seconds.map(|s| {
-                    let h = (s / 3600.0) as u64;
-                    if h >= 24 {
-                        locale::format_locale(
-                            lang,
-                            locale::LocaleKey::PanelReserveRunsOutInDaysHours,
-                            &[&(h / 24).to_string(), &(h % 24).to_string()],
-                        )
-                    } else {
-                        locale::format_locale(
-                            lang,
-                            locale::LocaleKey::PanelReserveRunsOutInHours,
-                            &[&h.to_string()],
-                        )
-                    }
-                })
-            };
+            self.reserve_will_last_to_reset = pace.will_last_to_reset;
+            self.reserve_eta_seconds = pace.eta_seconds;
         }
         self
     }
@@ -144,7 +124,6 @@ impl ProviderUsageSnapshot {
         id: ProviderId,
         metadata: &ProviderMetadata,
         result: &ProviderFetchResult,
-        lang: Language,
     ) -> Self {
         let usage = &result.usage;
 
@@ -170,16 +149,10 @@ impl ProviderUsageSnapshot {
         let secondary_snap = usage.secondary.as_ref().map(|sw| {
             let mut s = RateWindowSnapshot::from_rate_window(sw);
             if let Some(ref p) = secondary_pace {
-                s = s.with_pace_reserve(p, lang);
+                s = s.with_pace_reserve(p);
             }
             s
         });
-
-        let tray_status_label = Some(compact_tray_status_label(
-            &usage.primary,
-            usage.primary.used_percent,
-            lang,
-        ));
 
         Self {
             provider_id: id.cli_name().to_string(),
@@ -190,7 +163,7 @@ impl ProviderUsageSnapshot {
             secondary_label: usage
                 .secondary
                 .as_ref()
-                .map(|_| localize_weekly_label(metadata.weekly_label, lang)),
+                .map(|_| metadata.weekly_label.to_string()),
             model_specific: usage
                 .model_specific
                 .as_ref()
@@ -225,7 +198,7 @@ impl ProviderUsageSnapshot {
             error: None,
             pace,
             account_organization: usage.account_organization.clone(),
-            tray_status_label,
+            tray_status_label: None,
             fetch_duration_ms: None,
         }
     }
@@ -244,6 +217,8 @@ impl ProviderUsageSnapshot {
                 is_exhausted: false,
                 reserve_percent: None,
                 reserve_description: None,
+                reserve_will_last_to_reset: false,
+                reserve_eta_seconds: None,
             },
             primary_label: Some(metadata.session_label.to_string()),
             secondary: None,
@@ -265,22 +240,13 @@ impl ProviderUsageSnapshot {
     }
 }
 
-/// Localize generic provider window labels that are static UI copy.
-/// Product-specific labels (e.g. "Cash", "DIEM") are passed through unchanged.
-fn localize_weekly_label(raw: &str, lang: codexbar::settings::Language) -> String {
-    if raw.eq_ignore_ascii_case("weekly") {
-        locale::get_text(lang, locale::LocaleKey::ProviderWeeklyLabel)
-    } else {
-        raw.to_string()
-    }
-}
-
-fn compact_tray_status_label(
-    window: &RateWindow,
-    used_percent: f64,
+/// Build a compact tray status label from a raw snapshot using the current language.
+/// Localization is done at render time so cached snapshots stay language-neutral.
+pub(crate) fn compact_tray_status_label(
+    window: &RateWindowSnapshot,
     lang: codexbar::settings::Language,
 ) -> String {
-    let pct = format!("{used_percent:.0}%");
+    let pct = format!("{:.0}%", window.used_percent);
     if let Some(reset) = compact_reset_description(window, lang) {
         format!("{pct} • {reset}")
     } else {
@@ -289,11 +255,14 @@ fn compact_tray_status_label(
 }
 
 fn compact_reset_description(
-    window: &RateWindow,
+    window: &RateWindowSnapshot,
     lang: codexbar::settings::Language,
 ) -> Option<String> {
-    if let Some(resets_at) = window.resets_at {
-        return Some(format_compact_reset_countdown(resets_at, lang));
+    if let Some(ref resets_at) = window.resets_at {
+        let dt = chrono::DateTime::parse_from_rfc3339(resets_at)
+            .ok()
+            .map(|dt| dt.with_timezone(&chrono::Utc))?;
+        return Some(format_compact_reset_countdown(dt, lang));
     }
 
     window
@@ -623,16 +592,36 @@ pub(super) fn parse_metric_preference(s: &str) -> Option<MetricPreference> {
 mod tests {
     use super::*;
 
+    fn snapshot_window_with(
+        used_percent: f64,
+        window_minutes: Option<u32>,
+        resets_at: Option<chrono::DateTime<chrono::Utc>>,
+        reset_description: Option<String>,
+    ) -> RateWindowSnapshot {
+        RateWindowSnapshot {
+            used_percent,
+            remaining_percent: 100.0 - used_percent,
+            window_minutes,
+            resets_at: resets_at.map(|dt| dt.to_rfc3339()),
+            reset_description,
+            is_exhausted: false,
+            reserve_percent: None,
+            reserve_description: None,
+            reserve_will_last_to_reset: false,
+            reserve_eta_seconds: None,
+        }
+    }
+
     #[test]
     fn tray_status_prefers_relative_reset_countdown() {
-        let window = RateWindow::with_details(
+        let window = snapshot_window_with(
             13.0,
             Some(300),
             Some(chrono::Utc::now() + chrono::Duration::minutes(125)),
             Some("Jun 10 at 3:00PM".to_string()),
         );
 
-        let label = compact_tray_status_label(&window, window.used_percent, Language::English);
+        let label = compact_tray_status_label(&window, Language::English);
 
         assert!(label.starts_with("13% • Resets in 2h "));
         assert!(label.ends_with('m'));
@@ -641,10 +630,10 @@ mod tests {
 
     #[test]
     fn tray_status_normalizes_fallback_reset_description() {
-        let window = RateWindow::with_details(8.0, Some(300), None, Some("2h 05m".to_string()));
+        let window = snapshot_window_with(8.0, Some(300), None, Some("2h 05m".to_string()));
 
         assert_eq!(
-            compact_tray_status_label(&window, window.used_percent, Language::English),
+            compact_tray_status_label(&window, Language::English),
             "8% • Resets in 2h 05m"
         );
     }
@@ -653,14 +642,14 @@ mod tests {
     fn japanese_tray_status_label_has_no_english_reset_text() {
         use codexbar::settings::Language;
 
-        let window = RateWindow::with_details(
+        let window = snapshot_window_with(
             13.0,
             Some(300),
             Some(chrono::Utc::now() + chrono::Duration::minutes(125)),
             None,
         );
 
-        let label = compact_tray_status_label(&window, window.used_percent, Language::Japanese);
+        let label = compact_tray_status_label(&window, Language::Japanese);
 
         assert!(label.contains("リセットまで"), "{label}");
         assert!(!label.to_ascii_lowercase().contains("resets in"), "{label}");
@@ -672,12 +661,32 @@ mod tests {
         use codexbar::settings::Language;
 
         let window =
-            RateWindow::with_details(8.0, Some(300), None, Some("Resets in 2h 05m".to_string()));
+            snapshot_window_with(8.0, Some(300), None, Some("Resets in 2h 05m".to_string()));
 
-        let label = compact_tray_status_label(&window, window.used_percent, Language::Japanese);
+        let label = compact_tray_status_label(&window, Language::Japanese);
 
         assert!(label.contains("リセットまで"), "{label}");
         assert!(!label.to_ascii_lowercase().contains("resets in"), "{label}");
         assert!(label.contains("2h 05m"), "{label}");
+    }
+
+    #[test]
+    fn tray_status_label_relocalizes_without_refetch() {
+        let window = snapshot_window_with(
+            13.0,
+            Some(300),
+            Some(chrono::Utc::now() + chrono::Duration::minutes(125)),
+            None,
+        );
+
+        let english = compact_tray_status_label(&window, Language::English);
+        let japanese = compact_tray_status_label(&window, Language::Japanese);
+
+        assert!(english.contains("Resets in"), "{english}");
+        assert!(japanese.contains("リセットまで"), "{japanese}");
+        assert!(
+            !japanese.to_ascii_lowercase().contains("resets in"),
+            "{japanese}"
+        );
     }
 }

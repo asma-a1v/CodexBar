@@ -29,6 +29,8 @@ function rateWindow(
     resetDescription?: string | null;
     reservePercent?: number | null;
     reserveDescription?: string | null;
+    reserveWillLastToReset?: boolean;
+    reserveEtaSeconds?: number | null;
     windowMinutes?: number | null;
     resetsAt?: string | null;
   } = {},
@@ -42,6 +44,8 @@ function rateWindow(
     isExhausted: opts.exhausted ?? false,
     reservePercent: opts.reservePercent ?? null,
     reserveDescription: opts.reserveDescription ?? null,
+    reserveWillLastToReset: opts.reserveWillLastToReset ?? false,
+    reserveEtaSeconds: opts.reserveEtaSeconds ?? null,
   };
 }
 
@@ -213,7 +217,7 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.primary = rateWindow(20, {
       reservePercent: 20,
-      reserveDescription: "Lasts until reset",
+      reserveWillLastToReset: true,
       windowMinutes: 7 * 24 * 60,
       resetsAt: resetAt.toISOString(),
     });
@@ -273,7 +277,7 @@ describe("MenuCard", () => {
     const snapshot = provider(null, 20);
     snapshot.primary = rateWindow(20, {
         reservePercent: 12,
-        reserveDescription: "Lasts until reset",
+        reserveWillLastToReset: true,
       });
 
     renderCard(snapshot);

@@ -272,13 +272,9 @@ fn valid_json_text(text: &str) -> Option<String> {
 
 fn window_from_remaining_percent(remaining: f64, reset_unix: Option<i64>) -> RateWindow {
     let resets_at = reset_unix.and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-    let description = resets_at.as_ref().and_then(format_reset_description);
-    RateWindow::with_details(
-        (100.0 - remaining).clamp(0.0, 100.0),
-        None,
-        resets_at,
-        description,
-    )
+    // ponytail: reset countdown is localized at render time from `resets_at`;
+    // do not bake a language-specific description into the cached snapshot.
+    RateWindow::with_details((100.0 - remaining).clamp(0.0, 100.0), None, resets_at, None)
 }
 
 fn usage_window(
@@ -313,48 +309,9 @@ fn with_identity(
     snapshot
 }
 
-fn format_reset_description(date: &DateTime<Utc>) -> Option<String> {
-    format_reset_description_for(date, Utc::now(), crate::locale::current_language())
-}
-
-fn format_reset_description_for(
-    date: &DateTime<Utc>,
-    now: DateTime<Utc>,
-    lang: crate::settings::Language,
-) -> Option<String> {
-    use crate::locale::{LocaleKey, format_locale, get_text};
-
-    if *date <= now {
-        return Some(get_text(lang, LocaleKey::ResetInProgress));
-    }
-    let duration = *date - now;
-    let hours = duration.num_hours();
-    let minutes = duration.num_minutes() % 60;
-    if hours > 24 {
-        Some(format_locale(
-            lang,
-            LocaleKey::ResetsInDaysHours,
-            &[&(hours / 24).to_string(), &(hours % 24).to_string()],
-        ))
-    } else if hours > 0 {
-        Some(format_locale(
-            lang,
-            LocaleKey::ResetsInHoursMinutes,
-            &[&hours.to_string(), &minutes.to_string()],
-        ))
-    } else {
-        Some(format_locale(
-            lang,
-            LocaleKey::TrayResetsInLabel,
-            &[&minutes.to_string()],
-        ))
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::settings::Language;
 
     #[test]
     fn builds_snapshot_from_quota_usage() {
@@ -397,20 +354,22 @@ mod tests {
     }
 
     #[test]
-    fn japanese_reset_description_is_localized() {
-        let now = Utc::now();
-        let future = now + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
-        let desc = format_reset_description_for(&future, now, Language::Japanese).unwrap();
-        assert!(desc.contains("リセットまで"), "{desc}");
-        assert!(desc.contains("時間"), "{desc}");
+    fn quota_window_with_resets_at_has_no_pre_localized_description() {
+        let future = Utc::now() + chrono::Duration::hours(4);
+        let window = window_from_remaining_percent(80.0, Some(future.timestamp()));
+
+        assert!(window.resets_at.is_some());
+        assert!(
+            window.reset_description.is_none(),
+            "reset_description should be None when resets_at is present, got {:?}",
+            window.reset_description
+        );
     }
 
     #[test]
-    fn reset_description_preserves_distinct_hours_and_minutes() {
-        let now = Utc::now();
-        let future = now + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
-        let desc = format_reset_description_for(&future, now, Language::English).unwrap();
-        assert!(desc.contains("4h 59m"), "{desc}");
-        assert!(!desc.contains("4h 4m"), "{desc}");
+    fn usage_window_keeps_raw_unit_description() {
+        let window = usage_window(Some(5), Some(5), Some(10), "messages").unwrap();
+
+        assert_eq!(window.reset_description.as_deref(), Some("5 / 10 messages"));
     }
 }

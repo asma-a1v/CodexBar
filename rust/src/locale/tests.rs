@@ -145,7 +145,10 @@ fn test_japanese_tray_panel_locale_values_are_translated() {
             LocaleKey::PanelReserveLastsUntilReset,
             "リセットまで持ちます",
         ),
-        (LocaleKey::PanelShowAllProviders, "すべてのプロバイダーを表示"),
+        (
+            LocaleKey::PanelShowAllProviders,
+            "すべてのプロバイダーを表示",
+        ),
         (LocaleKey::PanelShowFewerProviders, "表示を減らす"),
         (LocaleKey::PanelExpected, "予測"),
         (LocaleKey::PanelActual, "実績"),
@@ -256,8 +259,14 @@ fn test_spanish_tray_panel_locale_values_are_translated() {
             LocaleKey::PanelEstimatedFromLocalLogs,
             "Estimado desde logs locales; puede diferir de tu factura",
         ),
-        (LocaleKey::PanelShowAllProviders, "Mostrar todos los proveedores"),
-        (LocaleKey::PanelShowFewerProviders, "Mostrar menos proveedores"),
+        (
+            LocaleKey::PanelShowAllProviders,
+            "Mostrar todos los proveedores",
+        ),
+        (
+            LocaleKey::PanelShowFewerProviders,
+            "Mostrar menos proveedores",
+        ),
         (LocaleKey::PanelExpected, "Esperado"),
         (LocaleKey::PanelActual, "Real"),
     ];
