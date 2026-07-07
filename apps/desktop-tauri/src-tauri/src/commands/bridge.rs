@@ -335,14 +335,16 @@ fn format_compact_reset_countdown(
 fn normalize_reset_description(desc: &str, lang: codexbar::settings::Language) -> String {
     let trimmed = desc.trim();
     let lower = trimmed.to_ascii_lowercase();
-    if lower.starts_with("resets in ") || lower.starts_with("reset in ") {
-        trimmed.to_string()
-    } else {
-        format!(
-            "{} {trimmed}",
-            locale::get_text(lang, locale::LocaleKey::ResetsInShort)
-        )
-    }
+    let prefix_len = ["resets in ", "reset in ", "in "]
+        .iter()
+        .find(|&&p| lower.starts_with(p))
+        .map(|p| p.len())
+        .unwrap_or(0);
+    let body = trimmed[prefix_len..].trim_start();
+    format!(
+        "{} {body}",
+        locale::get_text(lang, locale::LocaleKey::ResetsInShort)
+    )
 }
 
 pub(crate) fn friendly_provider_error(id: ProviderId, error: &str) -> String {
@@ -663,5 +665,19 @@ mod tests {
         assert!(label.contains("リセットまで"), "{label}");
         assert!(!label.to_ascii_lowercase().contains("resets in"), "{label}");
         assert!(label.contains("13%"), "{label}");
+    }
+
+    #[test]
+    fn japanese_tray_status_strips_english_fallback_reset_prefix() {
+        use codexbar::settings::Language;
+
+        let window =
+            RateWindow::with_details(8.0, Some(300), None, Some("Resets in 2h 05m".to_string()));
+
+        let label = compact_tray_status_label(&window, window.used_percent, Language::Japanese);
+
+        assert!(label.contains("リセットまで"), "{label}");
+        assert!(!label.to_ascii_lowercase().contains("resets in"), "{label}");
+        assert!(label.contains("2h 05m"), "{label}");
     }
 }

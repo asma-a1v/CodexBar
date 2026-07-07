@@ -105,6 +105,25 @@ fn test_japanese_tray_panel_locale_values_are_translated() {
             LocaleKey::PanelEstimatedFromLocalLogs,
             "ローカルログから推定したもので、請求書と異なる場合があります",
         ),
+        (LocaleKey::TrayStatusError, " (エラー)"),
+        (LocaleKey::TrayStatusStale, " (古いデータ)"),
+        (LocaleKey::TrayStatusIncident, " (インシデント)"),
+        (LocaleKey::TrayStatusPartial, " (一部停止)"),
+        (LocaleKey::TrayLoading, "CodexBar - 読み込み中..."),
+        (LocaleKey::TrayStatusRowLoading, "読み込み中..."),
+        (LocaleKey::TrayStatusRowError, "エラー"),
+        (LocaleKey::TrayCreditsRemaining, "残りクレジット {}%"),
+        (LocaleKey::TrayCreditsRow, "クレジット {}%"),
+        (LocaleKey::ProviderStatusStale, "古い"),
+        (LocaleKey::ProviderStatusError, "エラー"),
+        (LocaleKey::ProviderStatusLoading, "読み込み中"),
+        (LocaleKey::TrayCardErrorBadge, "エラー"),
+        (LocaleKey::SummaryWithErrors, "エラーあり"),
+        (
+            LocaleKey::StateLoadingProviders,
+            "プロバイダーを読み込み中...",
+        ),
+        (LocaleKey::StateError, "エラー"),
     ];
 
     for (key, expected) in cases {

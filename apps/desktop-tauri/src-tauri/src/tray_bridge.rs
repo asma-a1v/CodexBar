@@ -455,7 +455,7 @@ pub fn update_tray_icon_and_tooltip(
     let _ = tray.set_icon(Some(icon));
 
     // ── Tooltip ───────────────────────────────────────────────────────────
-    let tooltip = build_tooltip(snapshots);
+    let tooltip = build_tooltip(snapshots, settings.ui_language);
     let _ = tray.set_tooltip(Some(tooltip));
 }
 
@@ -677,16 +677,22 @@ fn max_metric_percent<const N: usize>(values: [Option<f64>; N]) -> Option<f64> {
 }
 
 /// Build a compact multi-line tooltip string from provider snapshots.
-fn build_tooltip(snapshots: &[crate::commands::ProviderUsageSnapshot]) -> String {
+fn build_tooltip(
+    snapshots: &[crate::commands::ProviderUsageSnapshot],
+    lang: codexbar::settings::Language,
+) -> String {
+    use codexbar::locale::{LocaleKey, get_text};
+
     if snapshots.is_empty() {
         return "CodexBar Desktop".to_string();
     }
 
+    let error_label = get_text(lang, LocaleKey::TrayStatusRowError);
     let mut lines = Vec::with_capacity(snapshots.len() + 1);
     for s in snapshots {
         let status = if let Some(ref err) = s.error {
             let short = truncate_tooltip_text(err, 36);
-            format!("{}: error ({})", s.display_name, short)
+            format!("{}: {} ({})", s.display_name, error_label, short)
         } else {
             let label = s
                 .tray_status_label
@@ -1190,7 +1196,7 @@ mod tests {
         let mut codex = fake_snapshot("codex", "Codex", 8.0);
         codex.tray_status_label = Some("8% • resets in 4h 10m".to_string());
 
-        let tooltip = build_tooltip(&[claude, codex]);
+        let tooltip = build_tooltip(&[claude, codex], codexbar::settings::Language::English);
 
         assert_eq!(
             tooltip,
@@ -1204,12 +1210,23 @@ mod tests {
         claude.tray_status_label =
             Some("13% • resets in Jun 10 at 3:00PM with extra noisy suffix".to_string());
 
-        let tooltip = build_tooltip(&[claude]);
+        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::English);
 
         let line = tooltip.lines().nth(1).expect("provider tooltip line");
         assert!(line.starts_with("Claude: 13% • resets in Jun 10 at 3:00PM"));
         assert!(line.ends_with("..."));
         assert!(line.chars().count() <= 53);
+    }
+
+    #[test]
+    fn japanese_tooltip_localizes_error_status() {
+        let mut claude = fake_snapshot("claude", "Claude", 13.0);
+        claude.error = Some("network timeout".to_string());
+
+        let tooltip = build_tooltip(&[claude], codexbar::settings::Language::Japanese);
+
+        assert!(tooltip.contains("エラー"), "{tooltip}");
+        assert!(!tooltip.contains(": error ("), "{tooltip}");
     }
 
     #[test]
