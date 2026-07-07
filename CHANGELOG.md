@@ -6,7 +6,7 @@
 - Port scoped upstream CodexBar 0.41.0 Rust/provider updates into the Windows/Tauri app.
 
 ### Fixed
-- Add Antigravity API support for #129 and fix Kimi auth cookie fallback.
+- Fix the Windows tray/background launch auto-popup regression from #129 and fix Kimi auth cookie fallback.
 
 ---
 
