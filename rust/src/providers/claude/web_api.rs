@@ -358,7 +358,7 @@ impl ClaudeWebApiFetcher {
                 snapshot = snapshot.with_email(email.clone());
             }
             if let Some(ref tier) = acc.rate_limit_tier {
-                snapshot = snapshot.with_login_method(Self::tier_to_plan_name(tier));
+                snapshot = snapshot.with_login_method(super::claude_plan_label(tier));
             }
         }
 
@@ -594,14 +594,7 @@ impl ClaudeWebApiFetcher {
 
     /// Convert rate limit tier to plan name
     fn tier_to_plan_name(tier: &str) -> String {
-        match tier.to_lowercase().as_str() {
-            "free" => "Claude Free".to_string(),
-            "pro" | "claude_pro" => "Claude Pro".to_string(),
-            "max" | "claude_max_5" | "claude_max_20" => "Claude Max".to_string(),
-            "team" => "Claude Team".to_string(),
-            "enterprise" => "Claude Enterprise".to_string(),
-            _ => format!("Claude ({})", tier),
-        }
+        super::claude_plan_label(tier)
     }
 }
 
@@ -667,6 +660,18 @@ mod tests {
         let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
 
         assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn labels_max_5x_and_20x_plans() {
+        assert_eq!(
+            ClaudeWebApiFetcher::tier_to_plan_name("default_claude_max_5x"),
+            "Claude Max 5x"
+        );
+        assert_eq!(
+            ClaudeWebApiFetcher::tier_to_plan_name("v2_default_claude_max_20x"),
+            "Claude Max 20x"
+        );
     }
 
     #[test]

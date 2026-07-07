@@ -60,6 +60,10 @@ pub struct UsageArgs {
     /// Send Antigravity planInfo fields to stderr (debug)
     #[arg(long = "antigravity-plan-debug")]
     pub antigravity_plan_debug: bool,
+
+    /// Print one compact line per provider
+    #[arg(long)]
+    pub brief: bool,
 }
 
 /// Output format enum
@@ -148,6 +152,7 @@ struct UsageCommand {
     format: OutputFormat,
     providers: Vec<ProviderId>,
     use_color: bool,
+    brief: bool,
     fetch_status: bool,
     pretty: bool,
     ctx: FetchContext,
@@ -163,6 +168,7 @@ impl UsageCommand {
             format,
             providers,
             use_color: !args.no_color && is_terminal(),
+            brief: args.brief,
             fetch_status: args.status,
             pretty: args.pretty,
             ctx: build_usage_fetch_context(&args, source_mode),
@@ -234,7 +240,11 @@ async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
 async fn fetch_provider_text_output(provider_id: ProviderId, command: &UsageCommand) -> String {
     match fetch_provider_result(provider_id, command).await {
         Ok((result, status)) => {
-            render_text_with_status(provider_id, &result, status.as_ref(), command.use_color)
+            if command.brief {
+                render_brief_text(provider_id, &result)
+            } else {
+                render_text_with_status(provider_id, &result, status.as_ref(), command.use_color)
+            }
         }
         Err(e) => render_text_error(provider_id, &e.to_string(), command.use_color),
     }
@@ -429,10 +439,10 @@ fn append_window_line(lines: &mut Vec<String>, label: &str, window: &RateWindow,
         .map(|c| format!(" (resets in {})", c))
         .unwrap_or_default();
     lines.push(format!(
-        "  {:<8} {} {:.0}% used{}",
+        "  {:<8} {} {} used{}",
         format!("{}:", label),
         bar,
-        window.used_percent,
+        format_percent(window.used_percent),
         reset
     ));
 }
@@ -464,9 +474,46 @@ fn append_model_specific_line(
     if let Some(opus) = model_specific {
         let opus_bar = render_progress_bar(opus.used_percent, 20, use_color);
         lines.push(format!(
-            "  Opus:    {} {:.0}% used",
-            opus_bar, opus.used_percent
+            "  Opus:    {} {} used",
+            opus_bar,
+            format_percent(opus.used_percent)
         ));
+    }
+}
+
+pub fn render_brief_text(provider: ProviderId, result: &ProviderFetchResult) -> String {
+    let metadata = instantiate_provider(provider).metadata().clone();
+    let usage = &result.usage;
+    let reset = usage
+        .primary
+        .format_countdown()
+        .unwrap_or_else(|| "n/a".to_string());
+    let mut parts = vec![format!(
+        "{} {}",
+        metadata.session_label,
+        format_percent(usage.primary.used_percent)
+    )];
+    if let Some(secondary) = &usage.secondary {
+        parts.push(format!(
+            "{} {}",
+            metadata.weekly_label,
+            format_percent(secondary.used_percent)
+        ));
+    }
+    parts.push(format!("resets {reset}"));
+    if let Some(plan) = &usage.login_method {
+        parts.push(plan.clone());
+    }
+    format!("{}: {}", provider.display_name(), parts.join(", "))
+}
+
+fn format_percent(percent: f64) -> String {
+    if !percent.is_finite() {
+        "0%".to_string()
+    } else if percent > 0.0 && percent < 1.0 {
+        "<1%".to_string()
+    } else {
+        format!("{:.0}%", percent.clamp(0.0, 100.0))
     }
 }
 
@@ -498,6 +545,11 @@ pub fn render_text(provider: ProviderId, result: &ProviderFetchResult, use_color
 
 /// Render a text-based progress bar
 fn render_progress_bar(percent: f64, width: usize, use_color: bool) -> String {
+    let percent = if percent.is_finite() {
+        percent.clamp(0.0, 100.0)
+    } else {
+        0.0
+    };
     let filled = ((percent / 100.0) * width as f64).round() as usize;
     let empty = width.saturating_sub(filled);
 
@@ -514,5 +566,39 @@ fn render_progress_bar(percent: f64, width: usize, use_color: bool) -> String {
         format!("{}{}\x1b[0m", color, bar)
     } else {
         bar
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fetch_result(usage: UsageSnapshot) -> ProviderFetchResult {
+        ProviderFetchResult::new(usage, "test")
+    }
+
+    #[test]
+    fn text_rendering_shows_sub_one_percent_usage() {
+        let result = fetch_result(UsageSnapshot::new(RateWindow::new(0.4)));
+
+        let output = render_text_with_status(ProviderId::Codex, &result, None, false);
+
+        assert!(output.contains("<1% used"));
+    }
+
+    #[test]
+    fn brief_rendering_keeps_one_line_per_provider() {
+        let result = fetch_result(
+            UsageSnapshot::new(RateWindow::new(0.4))
+                .with_secondary(RateWindow::new(100.0))
+                .with_login_method("Pro"),
+        );
+
+        let output = render_brief_text(ProviderId::Claude, &result);
+
+        assert_eq!(
+            output,
+            "Claude: Session (5h) <1%, Weekly 100%, resets n/a, Pro"
+        );
     }
 }

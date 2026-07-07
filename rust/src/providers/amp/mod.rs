@@ -28,7 +28,7 @@ impl AmpProvider {
                 supports_credits: true,
                 default_enabled: false,
                 is_primary: false,
-                dashboard_url: Some("https://sourcegraph.com/cody/manage"),
+                dashboard_url: Some("https://ampcode.com/settings/usage"),
                 status_page_url: Some("https://sourcegraphstatus.com"),
             },
         }
@@ -257,5 +257,18 @@ impl Provider for AmpProvider {
 
     fn supports_cli(&self) -> bool {
         true
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn dashboard_points_to_current_usage_page() {
+        assert_eq!(
+            AmpProvider::new().metadata().dashboard_url,
+            Some("https://ampcode.com/settings/usage")
+        );
     }
 }

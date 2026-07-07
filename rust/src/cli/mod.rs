@@ -100,6 +100,10 @@ pub struct Cli {
     /// Send Antigravity planInfo fields to stderr (debug)
     #[arg(long = "antigravity-plan-debug")]
     pub antigravity_plan_debug: bool,
+
+    /// Print one compact usage line per provider
+    #[arg(long)]
+    pub brief: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -148,6 +152,7 @@ impl Cli {
             web_timeout: self.web_timeout,
             web_debug_dump_html: self.web_debug_dump_html,
             antigravity_plan_debug: self.antigravity_plan_debug,
+            brief: self.brief,
         }
     }
 }

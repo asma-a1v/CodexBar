@@ -3,8 +3,8 @@ use reqwest::{Client, Url};
 use serde_json::Value;
 
 use crate::core::{
-    FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
-    RateWindow, SourceMode, UsageSnapshot,
+    CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
 };
 
 const CREDENTIAL_TARGET: &str = "codexbar-devin";
@@ -95,10 +95,7 @@ impl Provider for DevinProvider {
                 let value: Value = response.json().await.map_err(|e| {
                     ProviderError::Parse(format!("Failed to parse Devin quota: {e}"))
                 })?;
-                Ok(ProviderFetchResult::new(
-                    snapshot_from_quota(&value, &org),
-                    "api",
-                ))
+                Ok(fetch_result_from_quota(&value, &org))
             }
             SourceMode::Web | SourceMode::Cli => {
                 Err(ProviderError::UnsupportedSource(ctx.source_mode))
@@ -138,10 +135,18 @@ fn snapshot_from_quota(value: &Value, org: &str) -> UsageSnapshot {
     snapshot
 }
 
+fn fetch_result_from_quota(value: &Value, org: &str) -> ProviderFetchResult {
+    let mut result = ProviderFetchResult::new(snapshot_from_quota(value, org), "api");
+    if let Some(balance) = extra_usage_balance(value) {
+        result = result.with_cost(CostSnapshot::new(balance, "USD", "Extra usage balance"));
+    }
+    result
+}
+
 fn percent(value: &Value, keys: &[&str]) -> Option<f64> {
     for key in keys {
         if let Some(v) = value.get(*key).and_then(Value::as_f64) {
-            return Some(if v <= 1.0 { v * 100.0 } else { v });
+            return Some(if v < 1.0 { v * 100.0 } else { v });
         }
     }
     let used = ["used", "usage", "used_count", "usedCount", "consumed"]
@@ -156,6 +161,25 @@ fn percent(value: &Value, keys: &[&str]) -> Option<f64> {
     }
 }
 
+fn extra_usage_balance(value: &Value) -> Option<f64> {
+    let dollars = [
+        "overage_balance",
+        "overageBalance",
+        "extra_usage_balance",
+        "extraUsageBalance",
+    ]
+    .iter()
+    .find_map(|key| value.get(*key).and_then(Value::as_f64))
+    .filter(|value| value.is_finite() && *value >= 0.0);
+    dollars.or_else(|| {
+        ["overage_balance_cents", "overageBalanceCents"]
+            .iter()
+            .find_map(|key| value.get(*key).and_then(Value::as_f64))
+            .filter(|value| value.is_finite() && *value >= 0.0)
+            .map(|cents| cents / 100.0)
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -165,5 +189,34 @@ mod tests {
         let snapshot =
             snapshot_from_quota(&serde_json::json!({"daily_percentage":0.25}), "org/demo");
         assert_eq!(snapshot.primary.used_percent, 25.0);
+    }
+
+    #[test]
+    fn parses_exact_one_as_one_percent() {
+        let snapshot =
+            snapshot_from_quota(&serde_json::json!({"daily_percentage":1.0}), "org/demo");
+        assert_eq!(snapshot.primary.used_percent, 1.0);
+    }
+
+    #[test]
+    fn parses_extra_usage_balance() {
+        let result = fetch_result_from_quota(
+            &serde_json::json!({"daily_percentage": 0.2, "overage_balance": 12.34}),
+            "org/demo",
+        );
+
+        let cost = result.cost.unwrap();
+        assert_eq!(cost.used, 12.34);
+        assert_eq!(cost.period, "Extra usage balance");
+    }
+
+    #[test]
+    fn parses_extra_usage_balance_cents() {
+        let result = fetch_result_from_quota(
+            &serde_json::json!({"daily_percentage": 0.2, "overage_balance_cents": 7087}),
+            "org/demo",
+        );
+
+        assert_eq!(result.cost.unwrap().used, 70.87);
     }
 }

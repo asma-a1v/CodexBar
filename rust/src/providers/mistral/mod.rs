@@ -281,6 +281,9 @@ impl MistralProvider {
                 let metric = price.billing_metric?;
                 let group = price.billing_group?;
                 let value = price.price?.parse::<f64>().ok()?;
+                if !value.is_finite() {
+                    return None;
+                }
                 Some((format!("{metric}::{group}"), value))
             })
             .collect()
@@ -311,7 +314,11 @@ impl MistralProvider {
             let paid = entry.value_paid.or(entry.value).unwrap_or(0);
             tokens += paid;
             if let (Some(metric), Some(group)) = (&entry.billing_metric, &entry.billing_group) {
-                cost += (paid as f64) * prices.get(&format!("{metric}::{group}")).unwrap_or(&0.0);
+                let entry_cost =
+                    (paid as f64) * prices.get(&format!("{metric}::{group}")).unwrap_or(&0.0);
+                if entry_cost.is_finite() {
+                    cost += entry_cost;
+                }
             }
         }
         (tokens, cost)
@@ -434,5 +441,28 @@ mod tests {
             MistralProvider::csrf_from_cookie_header("foo=bar; csrftoken=abc123; ory_session=x"),
             Some("abc123")
         );
+    }
+
+    #[test]
+    fn ignores_non_finite_prices() {
+        let billing: BillingResponse = serde_json::from_value(serde_json::json!({
+            "prices": [
+                { "billing_metric": "mistral-large", "billing_group": "input", "price": "1e309" }
+            ],
+            "completion": {
+                "models": {
+                    "mistral-large": {
+                        "input": [
+                            { "billing_metric": "mistral-large", "billing_group": "input", "value": 1000 }
+                        ]
+                    }
+                }
+            }
+        }))
+        .unwrap();
+
+        let summary = MistralProvider::summarize_billing(billing);
+
+        assert_eq!(summary.total_cost, 0.0);
     }
 }

@@ -6,7 +6,7 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use reqwest::Url;
+use reqwest::{Client, Url};
 use serde::Deserialize;
 
 use crate::browser::cookies::get_cookie_header;
@@ -15,8 +15,11 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-const KIMI_API_BASE: &str = "https://kimi.moonshot.cn";
-const KIMI_COOKIE_DOMAIN: &str = "kimi.moonshot.cn";
+const KIMI_WEB_USAGE_URL: &str =
+    "https://www.kimi.com/apiv2/kimi.gateway.billing.v1.BillingService/GetUsages";
+const KIMI_SUBSCRIPTION_STATS_URL: &str =
+    "https://www.kimi.com/apiv2/kimi.gateway.membership.v2.MembershipService/GetSubscriptionStats";
+const KIMI_COOKIE_DOMAINS: [&str; 2] = ["www.kimi.com", "kimi.moonshot.cn"];
 const KIMI_CODE_API_BASE: &str = "https://api.kimi.com";
 const KIMI_CODE_API_KEY_ENV: &str = "KIMI_CODE_API_KEY";
 const KIMI_CODE_BASE_URL_ENV: &str = "KIMI_CODE_BASE_URL";
@@ -26,6 +29,41 @@ struct KimiCodeApiUsageResponse {
     usage: KimiUsageDetail,
     #[serde(default)]
     limits: Option<Vec<KimiRateLimit>>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KimiWebUsageResponse {
+    usages: Vec<KimiUsage>,
+}
+
+#[derive(Debug, Deserialize)]
+struct KimiUsage {
+    scope: String,
+    detail: KimiUsageDetail,
+    #[serde(default)]
+    limits: Option<Vec<KimiRateLimit>>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KimiSubscriptionStatsResponse {
+    subscription_balance: Option<KimiSubscriptionBalance>,
+    ratelimit_code7d: Option<KimiSubscriptionRateLimit>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KimiSubscriptionBalance {
+    amount_used_ratio: Option<serde_json::Value>,
+    expire_time: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct KimiSubscriptionRateLimit {
+    ratio: Option<serde_json::Value>,
+    enabled: Option<bool>,
+    reset_time: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -84,37 +122,29 @@ impl KimiProvider {
 
     /// Extract JWT token from kimi-auth cookie
     fn get_auth_token(&self) -> Result<String, ProviderError> {
-        // Try to get cookies from browser
-        let cookies = get_cookie_header(KIMI_COOKIE_DOMAIN)
-            .map_err(|e| ProviderError::Other(format!("Failed to get cookies: {}", e)))?;
-
+        let mut cookies = String::new();
+        let mut last_error = None;
+        for domain in KIMI_COOKIE_DOMAINS {
+            match get_cookie_header(domain) {
+                Ok(header) if !header.is_empty() => {
+                    cookies = header;
+                    break;
+                }
+                Ok(_) => {}
+                Err(e) => last_error = Some(e),
+            }
+        }
         if cookies.is_empty() {
+            if let Some(e) = last_error {
+                return Err(ProviderError::Other(format!(
+                    "Failed to get cookies: {}",
+                    e
+                )));
+            }
             return Err(ProviderError::AuthRequired);
         }
 
-        // Look for the kimi-auth or authorization cookie
-        for cookie in cookies.split(';') {
-            let cookie = cookie.trim();
-            if cookie.starts_with("kimi-auth=") || cookie.starts_with("authorization=") {
-                let token = cookie.split('=').nth(1).unwrap_or("");
-                if !token.is_empty() {
-                    return Ok(token.to_string());
-                }
-            }
-        }
-
-        // Also check for access_token cookie
-        for cookie in cookies.split(';') {
-            let cookie = cookie.trim();
-            if cookie.starts_with("access_token=") {
-                let token = cookie.split('=').nth(1).unwrap_or("");
-                if !token.is_empty() {
-                    return Ok(token.to_string());
-                }
-            }
-        }
-
-        Err(ProviderError::AuthRequired)
+        Self::auth_token_from_cookie_header(&cookies)
     }
 
     fn auth_token_from_cookie_header(cookie_header: &str) -> Result<String, ProviderError> {
@@ -150,18 +180,13 @@ impl KimiProvider {
             .build()
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
-        // Fetch user profile/quota info
-        let resp = client
-            .get(format!("{}/api/user", KIMI_API_BASE))
-            .header("Authorization", format!("Bearer {}", token))
-            .header("Cookie", format!("kimi-auth={}", token))
-            .header("Accept", "application/json")
-            .header(
-                "User-Agent",
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-            )
-            .send()
-            .await?;
+        let resp = kimi_web_post(
+            &client,
+            KIMI_WEB_USAGE_URL,
+            &token,
+            serde_json::json!({ "scope": ["FEATURE_CODING"] }),
+        )
+        .await?;
 
         if !resp.status().is_success() {
             let status = resp.status();
@@ -171,12 +196,24 @@ impl KimiProvider {
             return Err(ProviderError::Other(format!("API error: {}", status)));
         }
 
-        let json: serde_json::Value = resp
+        let usage: KimiWebUsageResponse = resp
             .json()
             .await
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
-        self.parse_usage_response(&json)
+        let subscription = match kimi_web_post(
+            &client,
+            KIMI_SUBSCRIPTION_STATS_URL,
+            &token,
+            serde_json::json!({}),
+        )
+        .await
+        {
+            Ok(response) if response.status().is_success() => response.json().await.ok(),
+            _ => None,
+        };
+
+        Self::snapshot_from_web_usage_response(usage, subscription)
     }
 
     async fn fetch_via_code_api(
@@ -258,6 +295,61 @@ impl KimiProvider {
             let window_minutes = limit.window.as_ref().and_then(kimi_window_minutes);
             let rate_limit = Self::rate_window_from_usage_detail(&limit.detail, window_minutes)?;
             usage = usage.with_secondary(rate_limit);
+        }
+
+        Ok(usage)
+    }
+
+    fn snapshot_from_web_usage_response(
+        response: KimiWebUsageResponse,
+        subscription: Option<KimiSubscriptionStatsResponse>,
+    ) -> Result<UsageSnapshot, ProviderError> {
+        let coding = response
+            .usages
+            .into_iter()
+            .find(|usage| usage.scope == "FEATURE_CODING")
+            .ok_or_else(|| ProviderError::Parse("Kimi FEATURE_CODING usage missing".into()))?;
+        let primary = Self::rate_window_from_usage_detail(&coding.detail, Some(10080))?;
+        let mut usage = UsageSnapshot::new(primary).with_login_method("Kimi");
+
+        if let Some(limit) = coding.limits.unwrap_or_default().into_iter().next() {
+            let window_minutes = limit.window.as_ref().and_then(kimi_window_minutes);
+            let rate_limit = Self::rate_window_from_usage_detail(&limit.detail, window_minutes)?;
+            usage = usage.with_secondary(rate_limit);
+        }
+
+        if let Some(subscription) = subscription {
+            if let Some(balance) = subscription.subscription_balance
+                && let Some(ratio) =
+                    value_as_f64(balance.amount_used_ratio.as_ref()).filter(|v| v.is_finite())
+            {
+                usage = usage.with_extra_rate_window(
+                    "kimi-monthly",
+                    "Monthly",
+                    RateWindow::with_details(
+                        ratio * 100.0,
+                        None,
+                        balance.expire_time.as_ref().and_then(parse_kimi_timestamp),
+                        None,
+                    ),
+                );
+            }
+
+            if let Some(limit) = subscription.ratelimit_code7d
+                && limit.enabled.unwrap_or(true)
+                && let Some(ratio) = value_as_f64(limit.ratio.as_ref()).filter(|v| v.is_finite())
+            {
+                usage = usage.with_extra_rate_window(
+                    "kimi-code-7d",
+                    "Code 7-day",
+                    RateWindow::with_details(
+                        ratio * 100.0,
+                        Some(10080),
+                        limit.reset_time.as_ref().and_then(parse_kimi_timestamp),
+                        None,
+                    ),
+                );
+            }
         }
 
         Ok(usage)
@@ -481,6 +573,28 @@ fn kimi_window_minutes(window: &KimiWindow) -> Option<u32> {
     }
 }
 
+async fn kimi_web_post(
+    client: &Client,
+    url: &str,
+    token: &str,
+    body: serde_json::Value,
+) -> Result<reqwest::Response, ProviderError> {
+    client
+        .post(url)
+        .bearer_auth(token)
+        .header("Cookie", format!("kimi-auth={token}"))
+        .header("Accept", "application/json")
+        .header("Content-Type", "application/json")
+        .header(
+            "User-Agent",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+        )
+        .json(&body)
+        .send()
+        .await
+        .map_err(ProviderError::from)
+}
+
 fn value_as_f64(value: Option<&serde_json::Value>) -> Option<f64> {
     match value? {
         serde_json::Value::Number(number) => number.as_f64(),
@@ -597,5 +711,56 @@ mod tests {
         let snapshot = KimiProvider::snapshot_from_code_api_response(response).unwrap();
         assert!((snapshot.primary.used_percent - 12.5).abs() < f64::EPSILON);
         assert!(snapshot.secondary.is_none());
+    }
+
+    #[test]
+    fn parses_web_usage_with_subscription_windows() {
+        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
+            "usages": [{
+                "scope": "FEATURE_CODING",
+                "detail": { "limit": "2048", "used": "375", "resetTime": "2026-01-09T15:23:13Z" },
+                "limits": [{
+                    "window": { "duration": 300, "timeUnit": "TIME_UNIT_MINUTE" },
+                    "detail": { "limit": "100", "used": "25" }
+                }]
+            }]
+        }))
+        .unwrap();
+        let subscription: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
+            "subscriptionBalance": {
+                "amountUsedRatio": 0.7716,
+                "expireTime": "2026-07-23T00:00:00Z"
+            },
+            "ratelimitCode7d": {
+                "ratio": 0.0946,
+                "enabled": true,
+                "resetTime": "2026-07-13T15:28:00Z"
+            }
+        }))
+        .unwrap();
+
+        let snapshot =
+            KimiProvider::snapshot_from_web_usage_response(usage, Some(subscription)).unwrap();
+
+        assert!((snapshot.primary.used_percent - 18.310546875).abs() < f64::EPSILON);
+        assert_eq!(
+            snapshot.secondary.as_ref().unwrap().window_minutes,
+            Some(300)
+        );
+        let monthly = snapshot
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == "kimi-monthly")
+            .unwrap();
+        assert_eq!(monthly.title, "Monthly");
+        assert!((monthly.window.used_percent - 77.16).abs() < 0.0001);
+        let code_7d = snapshot
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == "kimi-code-7d")
+            .unwrap();
+        assert_eq!(code_7d.title, "Code 7-day");
+        assert_eq!(code_7d.window.window_minutes, Some(10080));
+        assert!((code_7d.window.used_percent - 9.46).abs() < 0.0001);
     }
 }

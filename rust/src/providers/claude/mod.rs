@@ -57,6 +57,24 @@ impl Default for ClaudeProvider {
     }
 }
 
+fn claude_plan_label(tier: &str) -> String {
+    let normalized = tier.to_lowercase();
+    if normalized.contains("claude_max_5x") || normalized.contains("claude_max_5") {
+        "Claude Max 5x".to_string()
+    } else if normalized.contains("claude_max_20x") || normalized.contains("claude_max_20") {
+        "Claude Max 20x".to_string()
+    } else {
+        match normalized.as_str() {
+            "free" => "Claude Free".to_string(),
+            "pro" | "claude_pro" => "Claude Pro".to_string(),
+            "max" => "Claude Max".to_string(),
+            "team" => "Claude Team".to_string(),
+            "enterprise" => "Claude Enterprise".to_string(),
+            _ => format!("Claude ({})", tier),
+        }
+    }
+}
+
 fn claude_usage_probe_dir() -> Result<std::path::PathBuf, ProviderError> {
     let base = dirs::data_local_dir()
         .or_else(dirs::home_dir)

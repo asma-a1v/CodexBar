@@ -200,7 +200,7 @@ impl CostSnapshot {
     /// Create a new cost snapshot
     pub fn new(used: f64, currency_code: impl Into<String>, period: impl Into<String>) -> Self {
         Self {
-            used,
+            used: finite_amount(used).unwrap_or(0.0),
             limit: None,
             currency_code: currency_code.into(),
             period: period.into(),
@@ -211,7 +211,7 @@ impl CostSnapshot {
 
     /// Builder pattern: set limit
     pub fn with_limit(mut self, limit: f64) -> Self {
-        self.limit = Some(limit);
+        self.limit = finite_amount(limit);
         self
     }
 
@@ -250,12 +250,17 @@ impl CostSnapshot {
 
 /// Format a value as currency
 fn format_currency(value: f64, currency_code: &str) -> String {
+    let value = finite_amount(value).unwrap_or(0.0);
     match currency_code.to_uppercase().as_str() {
         "USD" => format!("${:.2}", value),
         "EUR" => format!("€{:.2}", value),
         "GBP" => format!("£{:.2}", value),
         _ => format!("{:.2} {}", value, currency_code),
     }
+}
+
+fn finite_amount(value: f64) -> Option<f64> {
+    value.is_finite().then_some(value.max(0.0))
 }
 
 /// Combined fetch result containing usage and optional cost data
@@ -286,5 +291,20 @@ impl ProviderFetchResult {
     pub fn with_cost(mut self, cost: CostSnapshot) -> Self {
         self.cost = Some(cost);
         self
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cost_snapshot_ignores_non_finite_values() {
+        let cost = CostSnapshot::new(f64::NAN, "USD", "Monthly").with_limit(f64::INFINITY);
+
+        assert_eq!(cost.used, 0.0);
+        assert_eq!(cost.limit, None);
+        assert_eq!(cost.used_percent(), None);
+        assert_eq!(cost.format_used(), "$0.00");
     }
 }

@@ -26,7 +26,7 @@ impl RateWindow {
     /// Create a new rate window
     pub fn new(used_percent: f64) -> Self {
         Self {
-            used_percent: used_percent.clamp(0.0, 100.0),
+            used_percent: Self::finite_percent(used_percent),
             window_minutes: None,
             resets_at: None,
             reset_description: None,
@@ -41,7 +41,7 @@ impl RateWindow {
         reset_description: Option<String>,
     ) -> Self {
         Self {
-            used_percent: used_percent.clamp(0.0, 100.0),
+            used_percent: Self::finite_percent(used_percent),
             window_minutes,
             resets_at,
             reset_description,
@@ -74,7 +74,8 @@ impl RateWindow {
 
         let duration = resets_at - now;
         let hours = duration.num_hours();
-        let minutes = duration.num_minutes() % 60;
+        let total_minutes = ((duration.num_seconds() + 59) / 60).max(1);
+        let minutes = total_minutes % 60;
 
         if hours > 24 {
             let days = hours / 24;
@@ -83,6 +84,14 @@ impl RateWindow {
             Some(format!("{}h {}m", hours, minutes))
         } else {
             Some(format!("{}m", minutes))
+        }
+    }
+
+    fn finite_percent(value: f64) -> f64 {
+        if value.is_finite() {
+            value.clamp(0.0, 100.0)
+        } else {
+            0.0
         }
     }
 }
@@ -116,5 +125,17 @@ mod tests {
     fn test_exhausted() {
         assert!(RateWindow::new(100.0).is_exhausted());
         assert!(!RateWindow::new(99.0).is_exhausted());
+    }
+
+    #[test]
+    fn countdown_uses_one_minute_for_sub_minute_future_reset() {
+        let window = RateWindow::with_details(
+            10.0,
+            None,
+            Some(Utc::now() + chrono::Duration::seconds(30)),
+            None,
+        );
+
+        assert_eq!(window.format_countdown().as_deref(), Some("1m"));
     }
 }

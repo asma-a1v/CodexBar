@@ -164,21 +164,21 @@ impl KimiK2Provider {
         let available_balance = data
             .get("available_balance")
             .or_else(|| data.get("balance"))
-            .and_then(|v| v.as_f64())
+            .and_then(finite_json_f64)
             .unwrap_or(0.0);
 
         // Total credits (used + available)
         let total_credits = data
             .get("total_balance")
             .or_else(|| data.get("total"))
-            .and_then(|v| v.as_f64())
+            .and_then(finite_json_f64)
             .unwrap_or(available_balance.max(0.0));
 
         // Used credits
         let used_credits = data
             .get("used_balance")
             .or_else(|| data.get("used"))
-            .and_then(|v| v.as_f64())
+            .and_then(finite_json_f64)
             .unwrap_or(total_credits - available_balance);
 
         // Calculate percentage used
@@ -189,8 +189,8 @@ impl KimiK2Provider {
         };
 
         // Cash balance (if any)
-        let voucher_balance = data.get("voucher_balance").and_then(|v| v.as_f64());
-        let cash_balance = data.get("cash_balance").and_then(|v| v.as_f64());
+        let voucher_balance = data.get("voucher_balance").and_then(finite_json_f64);
+        let cash_balance = data.get("cash_balance").and_then(finite_json_f64);
 
         // Create primary rate window (credits used)
         let mut primary = RateWindow::new(used_percent);
@@ -201,6 +201,15 @@ impl KimiK2Provider {
             && cash < 0.0
         {
             login_method.push_str(&format!(" · ${:.2} in deficit", cash.abs()));
+        }
+
+        fn finite_json_f64(value: &serde_json::Value) -> Option<f64> {
+            match value {
+                serde_json::Value::Number(number) => number.as_f64(),
+                serde_json::Value::String(text) => text.trim().replace(',', "").parse().ok(),
+                _ => None,
+            }
+            .filter(|value: &f64| value.is_finite())
         }
 
         let mut usage = UsageSnapshot::new(primary).with_login_method(login_method);
@@ -300,5 +309,28 @@ mod tests {
             KimiK2Provider::api_bases_from_region(Some("china")),
             &[super::KIMIK2_API_BASE_CHINA]
         );
+    }
+
+    #[test]
+    fn parses_string_balances_and_ignores_non_finite_values() {
+        let usage = KimiK2Provider::new()
+            .parse_usage_response(&serde_json::json!({
+                "data": {
+                    "available_balance": "12.50",
+                    "total_balance": "50",
+                    "used_balance": "37.50",
+                    "voucher_balance": "Infinity",
+                    "cash_balance": "-5"
+                }
+            }))
+            .unwrap();
+
+        assert_eq!(
+            usage.primary.reset_description.as_deref(),
+            Some("Balance $12.50")
+        );
+        assert!((usage.primary.used_percent - 75.0).abs() < f64::EPSILON);
+        assert_eq!(usage.extra_rate_windows.len(), 1);
+        assert_eq!(usage.extra_rate_windows[0].id, "cash");
     }
 }

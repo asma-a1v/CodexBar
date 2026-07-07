@@ -158,7 +158,7 @@ impl OllamaProvider {
         match status {
             reqwest::StatusCode::OK => Self::parse_api_tags(&bytes),
             reqwest::StatusCode::UNAUTHORIZED | reqwest::StatusCode::FORBIDDEN => {
-                Err(ProviderError::AuthRequired)
+                Err(ollama_api_key_error())
             }
             _ => Err(ProviderError::Other(format!(
                 "Ollama API returned status {status}"
@@ -495,6 +495,10 @@ fn is_ollama_login_url(url: &Url) -> bool {
     path.contains("/login") || path.contains("/signin")
 }
 
+fn ollama_api_key_error() -> ProviderError {
+    ProviderError::Other("Ollama API key is invalid or revoked.".to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -565,6 +569,14 @@ mod tests {
             Some("2 cloud models available")
         );
         assert_eq!(snapshot.login_method.as_deref(), Some("API key"));
+    }
+
+    #[test]
+    fn api_auth_error_names_invalid_or_revoked_key() {
+        assert_eq!(
+            ollama_api_key_error().to_string(),
+            "Ollama API key is invalid or revoked."
+        );
     }
 
     #[test]
