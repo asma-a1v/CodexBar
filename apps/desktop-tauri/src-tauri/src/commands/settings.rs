@@ -61,7 +61,7 @@ impl SettingsUpdate {
     }
 
     fn rebuilds_tray_menu(&self) -> bool {
-        self.float_bar_enabled.is_some()
+        self.float_bar_enabled.is_some() || self.ui_language.is_some()
     }
 
     fn refreshes_tray_presentation(&self) -> bool {

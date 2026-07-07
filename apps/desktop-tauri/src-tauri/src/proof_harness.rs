@@ -789,7 +789,12 @@ mod tests {
         assert!(result.is_ok());
         let snapshot = menu_snapshot();
         assert_eq!(snapshot.menu_path.as_deref(), Some("tray"));
-        assert!(snapshot.menu_items.iter().any(|item| item == "About"));
+        assert!(
+            snapshot
+                .menu_items
+                .iter()
+                .any(|item| item == "About CodexBar")
+        );
     }
 
     #[test]

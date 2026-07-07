@@ -172,6 +172,7 @@ export const ALL_LOCALE_KEYS = [
   "StatusLabel",
   "TrayOpenCodexBar",
   "TrayPopOutDashboard",
+  "TrayShowFloatBar",
   "TrayRefreshAll",
   "TrayProviders",
   "TraySettings",

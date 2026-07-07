@@ -133,6 +133,7 @@ fn build_native_tray_menu(
         status_labels,
         &enabled,
         settings.float_bar_enabled,
+        settings.ui_language,
     );
     let entries = spec
         .iter()

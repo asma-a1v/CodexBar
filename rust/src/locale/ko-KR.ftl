@@ -165,6 +165,7 @@ Last30DaysCost = 최근 30일: ${ "{:.2}" }
 StatusLabel = 상태: { "{}" }
 TrayOpenCodexBar = 대시보드 띄우기
 TrayPopOutDashboard = 대시보드 띄우기
+TrayShowFloatBar = 플로트 바 표시
 TrayRefreshAll = 모두 새로고침
 TrayProviders = 제공업체
 TraySettings = 설정...
