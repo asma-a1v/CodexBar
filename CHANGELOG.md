@@ -1,5 +1,15 @@
 # Changelog
 
+## [Windows] 0.41.0 - 2026-07-07
+
+### Changed
+- Port scoped upstream CodexBar 0.41.0 Rust/provider updates into the Windows/Tauri app.
+
+### Fixed
+- Add Antigravity API support for #129 and fix Kimi auth cookie fallback.
+
+---
+
 ## [Windows] 0.38.3 - 2026-07-06
 
 ### Fixed
