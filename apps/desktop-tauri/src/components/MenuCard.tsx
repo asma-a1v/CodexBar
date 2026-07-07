@@ -449,7 +449,6 @@ export default function MenuCard({
         ) : (
           <div className="menu-card__subtitle-row">
             <span className="menu-card__subtitle">
-              {t("DetailUpdatedPrefix")}{" "}
               {Number.isNaN(Date.parse(provider.updatedAt))
                 ? provider.updatedAt
                 : formatRelativeUpdated(Date.parse(provider.updatedAt), t)}

@@ -314,16 +314,16 @@ fn with_identity(
 }
 
 fn format_reset_description(date: &DateTime<Utc>) -> Option<String> {
-    format_reset_description_for(date, crate::locale::current_language())
+    format_reset_description_for(date, Utc::now(), crate::locale::current_language())
 }
 
 fn format_reset_description_for(
     date: &DateTime<Utc>,
+    now: DateTime<Utc>,
     lang: crate::settings::Language,
 ) -> Option<String> {
-    use crate::locale::{LocaleKey, get_text};
+    use crate::locale::{LocaleKey, format_locale, get_text};
 
-    let now = Utc::now();
     if *date <= now {
         return Some(get_text(lang, LocaleKey::ResetInProgress));
     }
@@ -331,19 +331,23 @@ fn format_reset_description_for(
     let hours = duration.num_hours();
     let minutes = duration.num_minutes() % 60;
     if hours > 24 {
-        Some(
-            get_text(lang, LocaleKey::ResetsInDaysHours)
-                .replace("{}", &(hours / 24).to_string())
-                .replace("{}", &(hours % 24).to_string()),
-        )
+        Some(format_locale(
+            lang,
+            LocaleKey::ResetsInDaysHours,
+            &[&(hours / 24).to_string(), &(hours % 24).to_string()],
+        ))
     } else if hours > 0 {
-        Some(
-            get_text(lang, LocaleKey::ResetsInHoursMinutes)
-                .replace("{}", &hours.to_string())
-                .replace("{}", &minutes.to_string()),
-        )
+        Some(format_locale(
+            lang,
+            LocaleKey::ResetsInHoursMinutes,
+            &[&hours.to_string(), &minutes.to_string()],
+        ))
     } else {
-        Some(get_text(lang, LocaleKey::TrayResetsInLabel).replace("{}", &minutes.to_string()))
+        Some(format_locale(
+            lang,
+            LocaleKey::TrayResetsInLabel,
+            &[&minutes.to_string()],
+        ))
     }
 }
 
@@ -394,9 +398,19 @@ mod tests {
 
     #[test]
     fn japanese_reset_description_is_localized() {
-        let future = Utc::now() + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
-        let desc = format_reset_description_for(&future, Language::Japanese).unwrap();
+        let now = Utc::now();
+        let future = now + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
+        let desc = format_reset_description_for(&future, now, Language::Japanese).unwrap();
         assert!(desc.contains("リセットまで"), "{desc}");
         assert!(desc.contains("時間"), "{desc}");
+    }
+
+    #[test]
+    fn reset_description_preserves_distinct_hours_and_minutes() {
+        let now = Utc::now();
+        let future = now + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
+        let desc = format_reset_description_for(&future, now, Language::English).unwrap();
+        assert!(desc.contains("4h 59m"), "{desc}");
+        assert!(!desc.contains("4h 4m"), "{desc}");
     }
 }

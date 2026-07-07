@@ -309,7 +309,6 @@ describe("TrayPanel provider grid", () => {
       buildBundle(
         {
           ActionRefresh: "更新",
-          DetailUpdatedPrefix: "更新",
           MenuAbout: "CodexBar について",
           MenuQuit: "終了",
           MenuSettings: "設定...",
@@ -320,6 +319,7 @@ describe("TrayPanel provider grid", () => {
           PanelTopModelPrefix: "トップモデル",
           PanelEstimatedFromLocalLogs: "ローカルログから推定",
           PanelZoom: "ズーム",
+          UpdatedDaysAgo: "{}日前",
         },
         "japanese",
       ),
@@ -354,7 +354,7 @@ describe("TrayPanel provider grid", () => {
     expect(screen.getByText("CodexBar について")).toBeInTheDocument();
     expect(screen.getByText("終了")).toBeInTheDocument();
     expect(await screen.findByText("30日間のコスト")).toBeInTheDocument();
-    expect(container.querySelector(".menu-card__subtitle")?.textContent).toContain("更新");
+    expect(container.querySelector(".menu-card__subtitle")?.textContent).toContain("日前");
     expect(screen.getByText("最新トークン")).toBeInTheDocument();
     expect(screen.getByText("トップモデル: gpt-5.5")).toBeInTheDocument();
     expect(screen.getByText("ローカルログから推定")).toBeInTheDocument();

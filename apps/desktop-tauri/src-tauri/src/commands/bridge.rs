@@ -49,12 +49,17 @@ impl RateWindowSnapshot {
                 pace.eta_seconds.map(|s| {
                     let h = (s / 3600.0) as u64;
                     if h >= 24 {
-                        locale::get_text(lang, locale::LocaleKey::PanelReserveRunsOutInDaysHours)
-                            .replace("{}", &(h / 24).to_string())
-                            .replace("{}", &(h % 24).to_string())
+                        locale::format_locale(
+                            lang,
+                            locale::LocaleKey::PanelReserveRunsOutInDaysHours,
+                            &[&(h / 24).to_string(), &(h % 24).to_string()],
+                        )
                     } else {
-                        locale::get_text(lang, locale::LocaleKey::PanelReserveRunsOutInHours)
-                            .replace("{}", &h.to_string())
+                        locale::format_locale(
+                            lang,
+                            locale::LocaleKey::PanelReserveRunsOutInHours,
+                            &[&h.to_string()],
+                        )
                     }
                 })
             };
@@ -173,6 +178,7 @@ impl ProviderUsageSnapshot {
         let tray_status_label = Some(compact_tray_status_label(
             &usage.primary,
             usage.primary.used_percent,
+            lang,
         ));
 
         Self {
@@ -269,31 +275,41 @@ fn localize_weekly_label(raw: &str, lang: codexbar::settings::Language) -> Strin
     }
 }
 
-fn compact_tray_status_label(window: &RateWindow, used_percent: f64) -> String {
+fn compact_tray_status_label(
+    window: &RateWindow,
+    used_percent: f64,
+    lang: codexbar::settings::Language,
+) -> String {
     let pct = format!("{used_percent:.0}%");
-    if let Some(reset) = compact_reset_description(window) {
+    if let Some(reset) = compact_reset_description(window, lang) {
         format!("{pct} • {reset}")
     } else {
         pct
     }
 }
 
-fn compact_reset_description(window: &RateWindow) -> Option<String> {
+fn compact_reset_description(
+    window: &RateWindow,
+    lang: codexbar::settings::Language,
+) -> Option<String> {
     if let Some(resets_at) = window.resets_at {
-        return Some(format_compact_reset_countdown(resets_at));
+        return Some(format_compact_reset_countdown(resets_at, lang));
     }
 
     window
         .reset_description
         .as_deref()
-        .map(normalize_reset_description)
+        .map(|desc| normalize_reset_description(desc, lang))
         .filter(|desc| !desc.is_empty())
 }
 
-fn format_compact_reset_countdown(resets_at: chrono::DateTime<chrono::Utc>) -> String {
+fn format_compact_reset_countdown(
+    resets_at: chrono::DateTime<chrono::Utc>,
+    lang: codexbar::settings::Language,
+) -> String {
     let now = chrono::Utc::now();
     if resets_at <= now {
-        return "resets now".to_string();
+        return locale::get_text(lang, locale::LocaleKey::ResetInProgress);
     }
 
     let total_minutes = (resets_at - now).num_minutes().max(0);
@@ -302,21 +318,30 @@ fn format_compact_reset_countdown(resets_at: chrono::DateTime<chrono::Utc>) -> S
     let minutes = total_minutes % 60;
 
     if days > 0 {
-        format!("resets in {days}d {hours}h")
+        locale::format_locale(
+            lang,
+            locale::LocaleKey::ResetsInDaysHours,
+            &[&days.to_string(), &hours.to_string()],
+        )
     } else {
-        format!("resets in {hours}h {minutes:02}m")
+        locale::format_locale(
+            lang,
+            locale::LocaleKey::ResetsInHoursMinutes,
+            &[&hours.to_string(), &format!("{minutes:02}")],
+        )
     }
 }
 
-fn normalize_reset_description(desc: &str) -> String {
+fn normalize_reset_description(desc: &str, lang: codexbar::settings::Language) -> String {
     let trimmed = desc.trim();
     let lower = trimmed.to_ascii_lowercase();
     if lower.starts_with("resets in ") || lower.starts_with("reset in ") {
         trimmed.to_string()
-    } else if lower.starts_with("in ") {
-        format!("resets {trimmed}")
     } else {
-        format!("resets in {trimmed}")
+        format!(
+            "{} {trimmed}",
+            locale::get_text(lang, locale::LocaleKey::ResetsInShort)
+        )
     }
 }
 
@@ -605,9 +630,9 @@ mod tests {
             Some("Jun 10 at 3:00PM".to_string()),
         );
 
-        let label = compact_tray_status_label(&window, window.used_percent);
+        let label = compact_tray_status_label(&window, window.used_percent, Language::English);
 
-        assert!(label.starts_with("13% • resets in 2h "));
+        assert!(label.starts_with("13% • Resets in 2h "));
         assert!(label.ends_with('m'));
         assert!(!label.contains("Jun 10"));
     }
@@ -617,8 +642,26 @@ mod tests {
         let window = RateWindow::with_details(8.0, Some(300), None, Some("2h 05m".to_string()));
 
         assert_eq!(
-            compact_tray_status_label(&window, window.used_percent),
-            "8% • resets in 2h 05m"
+            compact_tray_status_label(&window, window.used_percent, Language::English),
+            "8% • Resets in 2h 05m"
         );
+    }
+
+    #[test]
+    fn japanese_tray_status_label_has_no_english_reset_text() {
+        use codexbar::settings::Language;
+
+        let window = RateWindow::with_details(
+            13.0,
+            Some(300),
+            Some(chrono::Utc::now() + chrono::Duration::minutes(125)),
+            None,
+        );
+
+        let label = compact_tray_status_label(&window, window.used_percent, Language::Japanese);
+
+        assert!(label.contains("リセットまで"), "{label}");
+        assert!(!label.to_ascii_lowercase().contains("resets in"), "{label}");
+        assert!(label.contains("13%"), "{label}");
     }
 }

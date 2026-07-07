@@ -24,6 +24,25 @@ pub fn get_text(lang: Language, key: LocaleKey) -> String {
         .unwrap_or_else(|| key.name().to_string())
 }
 
+/// Replace `{}` placeholders in a template sequentially.
+/// Safe for templates with multiple placeholders; each arg replaces the next occurrence.
+pub fn format_template(template: &str, args: &[&str]) -> String {
+    let mut result = template.to_string();
+    for arg in args {
+        if let Some(pos) = result.find("{}") {
+            result.replace_range(pos..pos + 2, arg);
+        } else {
+            break;
+        }
+    }
+    result
+}
+
+/// Get a localized string and replace `{}` placeholders sequentially.
+pub fn format_locale(lang: Language, key: LocaleKey, args: &[&str]) -> String {
+    format_template(&get_text(lang, key), args)
+}
+
 fn language_id(lang: Language) -> &'static LanguageIdentifier {
     static EN_US: LazyLock<LanguageIdentifier> = LazyLock::new(|| "en-US".parse().unwrap());
     static ZH_CN: LazyLock<LanguageIdentifier> = LazyLock::new(|| "zh-CN".parse().unwrap());
