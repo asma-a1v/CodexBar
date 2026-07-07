@@ -82,6 +82,37 @@ fn test_japanese_menu_card_locale_values_are_translated() {
 }
 
 #[test]
+fn test_japanese_tray_panel_locale_values_are_translated() {
+    // CUA-verified English strings that must not appear in the Japanese tray panel.
+    let cases = [
+        (LocaleKey::ProviderWeekly, "週間"),
+        (LocaleKey::TrayWeeklyPercent, "週間 {}%"),
+        (
+            LocaleKey::TrayWeeklyExhausted,
+            "週間の割り当てを使い切りました",
+        ),
+        (LocaleKey::ProviderWeeklyLabel, "週間"),
+        (LocaleKey::MetricResetsIn, "リセットまで"),
+        (LocaleKey::ResetsInShort, "リセットまで"),
+        (LocaleKey::ResetsInDaysHours, "リセットまで {}日 {}時間"),
+        (LocaleKey::ResetsInHoursMinutes, "リセットまで {}時間 {}分"),
+        (LocaleKey::TrayResetsInLabel, "リセットまで {}"),
+        (LocaleKey::UpdatedJustNow, "たった今"),
+        (LocaleKey::UpdatedMinutesAgo, "{}分前"),
+        (LocaleKey::UpdatedHoursAgo, "{}時間前"),
+        (LocaleKey::UpdatedDaysAgo, "{}日前"),
+        (
+            LocaleKey::PanelEstimatedFromLocalLogs,
+            "ローカルログから推定したもので、請求書と異なる場合があります",
+        ),
+    ];
+
+    for (key, expected) in cases {
+        assert_eq!(get_text(Language::Japanese, key), expected, "{key:?}");
+    }
+}
+
+#[test]
 fn test_locale_key_spanish() {
     assert_eq!(
         get_text(Language::Spanish, LocaleKey::TabGeneral),

@@ -314,25 +314,43 @@ fn with_identity(
 }
 
 fn format_reset_description(date: &DateTime<Utc>) -> Option<String> {
+    format_reset_description_for(date, crate::locale::current_language())
+}
+
+fn format_reset_description_for(
+    date: &DateTime<Utc>,
+    lang: crate::settings::Language,
+) -> Option<String> {
+    use crate::locale::{LocaleKey, get_text};
+
     let now = Utc::now();
     if *date <= now {
-        return Some("Expired".to_string());
+        return Some(get_text(lang, LocaleKey::ResetInProgress));
     }
     let duration = *date - now;
     let hours = duration.num_hours();
     let minutes = duration.num_minutes() % 60;
     if hours > 24 {
-        Some(format!("Resets in {}d {}h", hours / 24, hours % 24))
+        Some(
+            get_text(lang, LocaleKey::ResetsInDaysHours)
+                .replace("{}", &(hours / 24).to_string())
+                .replace("{}", &(hours % 24).to_string()),
+        )
     } else if hours > 0 {
-        Some(format!("Resets in {hours}h {minutes}m"))
+        Some(
+            get_text(lang, LocaleKey::ResetsInHoursMinutes)
+                .replace("{}", &hours.to_string())
+                .replace("{}", &minutes.to_string()),
+        )
     } else {
-        Some(format!("Resets in {minutes}m"))
+        Some(get_text(lang, LocaleKey::TrayResetsInLabel).replace("{}", &minutes.to_string()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::settings::Language;
 
     #[test]
     fn builds_snapshot_from_quota_usage() {
@@ -372,5 +390,13 @@ mod tests {
             decode_json_value(SqlValue::Text(json.to_string())).as_deref(),
             Some(json)
         );
+    }
+
+    #[test]
+    fn japanese_reset_description_is_localized() {
+        let future = Utc::now() + chrono::Duration::hours(4) + chrono::Duration::minutes(59);
+        let desc = format_reset_description_for(&future, Language::Japanese).unwrap();
+        assert!(desc.contains("リセットまで"), "{desc}");
+        assert!(desc.contains("時間"), "{desc}");
     }
 }

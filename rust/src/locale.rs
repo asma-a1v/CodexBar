@@ -660,6 +660,7 @@ locale_keys! {
     PanelThirtyDayCostHistogram,
     PanelTopModelPrefix,
     PanelEstimatedFromLocalLogs,
+    PanelEstimatedFromLocalLogsClaude,
     PanelExpected,
     PanelActual,
     PanelUsedSuffix,
@@ -670,6 +671,9 @@ locale_keys! {
     PanelFiveHours,
     PanelTodayBudget,
     PanelReserveSuffix,
+    PanelReserveLastsUntilReset,
+    PanelReserveRunsOutInDaysHours,
+    PanelReserveRunsOutInHours,
 
     // Tauri desktop shell — update banner
     BannerCheckingForUpdates,

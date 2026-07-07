@@ -281,4 +281,23 @@ describe("MenuCard", () => {
     expect(await screen.findByText("12% in reserve")).toBeInTheDocument();
     expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
   });
+
+  it("localizes the relative updated-at time in Japanese", async () => {
+    tauriMocks.getLocaleStrings.mockResolvedValue(
+      buildBundle({
+        DetailUpdatedPrefix: "更新",
+        UpdatedJustNow: "たった今",
+        UpdatedMinutesAgo: "{}分前",
+        UpdatedHoursAgo: "{}時間前",
+        UpdatedDaysAgo: "{}日前",
+      }),
+    );
+
+    const snapshot = provider(null, 20);
+    snapshot.updatedAt = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+    renderCard(snapshot);
+
+    expect(await screen.findByText(/更新/)).toBeInTheDocument();
+    expect(screen.getByText(/3分前/)).toBeInTheDocument();
+  });
 });

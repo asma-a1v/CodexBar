@@ -682,7 +682,12 @@ fn provider_cache_upsert_replaces_existing_provider() {
         cost: None,
         source_label: "CLI".to_string(),
     };
-    let mut first = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+    let mut first = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Codex,
+        &metadata,
+        &result,
+        Language::English,
+    );
     let mut second = first.clone();
     first.error = Some("old".to_string());
     second.error = Some("new".to_string());
@@ -703,7 +708,12 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         cost: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        Language::English,
+    );
     let error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -730,7 +740,12 @@ fn claude_repeated_auth_failure_surfaces_error() {
         cost: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        Language::English,
+    );
     let first_error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -857,6 +872,64 @@ fn chart_data_for_unknown_provider_is_empty() {
     assert_eq!(data.provider_id, "this-provider-definitely-does-not-exist");
     assert!(data.credits_history.is_empty());
     assert!(data.usage_breakdown.is_empty());
+}
+
+#[test]
+fn japanese_provider_snapshot_localizes_weekly_label() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let usage = codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0))
+        .with_secondary(codexbar::core::RateWindow::new(20.0));
+    let result = ProviderFetchResult {
+        usage,
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        Language::Japanese,
+    );
+
+    assert_eq!(snapshot.secondary_label, Some("週間".to_string()));
+}
+
+#[test]
+fn japanese_provider_snapshot_localizes_pace_reserve_description() {
+    use chrono::{Duration, Utc};
+
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let now = Utc::now();
+    // 7-day window, half elapsed, 40% used → 10% ahead of pace, will last to reset.
+    let secondary = codexbar::core::RateWindow::with_details(
+        40.0,
+        Some(7 * 24 * 60),
+        Some(now + Duration::minutes(7 * 24 * 60 / 2)),
+        None,
+    );
+    let usage = codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(10.0))
+        .with_secondary(secondary);
+    let result = ProviderFetchResult {
+        usage,
+        cost: None,
+        source_label: "OAuth".to_string(),
+    };
+
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(
+        ProviderId::Claude,
+        &metadata,
+        &result,
+        Language::Japanese,
+    );
+
+    assert_eq!(
+        snapshot
+            .secondary
+            .as_ref()
+            .and_then(|s| s.reserve_description.as_deref()),
+        Some("リセットまで持ちます")
+    );
 }
 
 #[test]

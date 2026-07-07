@@ -10,6 +10,7 @@ import type {
 import { getProviderChartData } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
+import { formatRelativeUpdated } from "../lib/relativeTime";
 import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
@@ -147,25 +148,6 @@ function LocalUsageBlock({
       </div>
     </section>
   );
-}
-
-/**
- * Format a backend `updatedAt` timestamp as a short relative string
- * ("just now", "2m ago", "3h ago", "5d ago"). If the value isn't a parseable
- * ISO datetime, return it unchanged so manual / preformatted strings still
- * render verbatim.
- */
-function formatRelative(updatedAt: string): string {
-  const ts = Date.parse(updatedAt);
-  if (Number.isNaN(ts)) return updatedAt;
-  const diffSec = Math.max(0, Math.round((Date.now() - ts) / 1000));
-  if (diffSec < 60) return "just now";
-  const diffMin = Math.round(diffSec / 60);
-  if (diffMin < 60) return `${diffMin}m ago`;
-  const diffHr = Math.round(diffMin / 60);
-  if (diffHr < 24) return `${diffHr}h ago`;
-  const diffDay = Math.round(diffHr / 24);
-  return `${diffDay}d ago`;
 }
 
 function displayPlanName(planName: string | null): string | null {
@@ -467,7 +449,10 @@ export default function MenuCard({
         ) : (
           <div className="menu-card__subtitle-row">
             <span className="menu-card__subtitle">
-              {t("DetailUpdatedPrefix")} {formatRelative(provider.updatedAt)}
+              {t("DetailUpdatedPrefix")}{" "}
+              {Number.isNaN(Date.parse(provider.updatedAt))
+                ? provider.updatedAt
+                : formatRelativeUpdated(Date.parse(provider.updatedAt), t)}
             </span>
             {planName && (
               <span className="menu-card__plan-badge">{planName}</span>

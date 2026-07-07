@@ -339,7 +339,12 @@ async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderU
         match tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
             .await
         {
-            Ok(Ok(result)) => ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result),
+            Ok(Ok(result)) => ProviderUsageSnapshot::from_fetch_result(
+                id,
+                &metadata,
+                &result,
+                locale::current_language(),
+            ),
             Ok(Err(e)) => ProviderUsageSnapshot::from_error(
                 id,
                 &metadata,

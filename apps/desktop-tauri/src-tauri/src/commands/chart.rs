@@ -7,6 +7,7 @@
 
 use codexbar::core::OpenAIDashboardCacheStore;
 use codexbar::cost_scanner::{CostScanner, CostSummary, get_daily_cost_history};
+use codexbar::locale::{self, LocaleKey};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{
@@ -163,18 +164,22 @@ fn load_local_usage_summary(
         return None;
     }
 
+    let lang = locale::current_language();
     Some(ProviderLocalUsageSummary {
         today_cost: non_zero_f64(today.total_cost_usd),
         thirty_day_cost: non_zero_f64(thirty_day.total_cost_usd),
         thirty_day_tokens: non_zero_u64(thirty_day_tokens),
         latest_tokens: non_zero_u64(latest_tokens),
         top_model: top_model(&thirty_day),
-        estimate_note: match provider_id {
-            "claude" => "Estimated from local Claude logs at API rates; token totals may differ from your bill",
-            _ => "Estimated from local logs; may differ from your bill",
-        }
-        .to_string(),
+        estimate_note: localized_estimate_note(provider_id, lang),
     })
+}
+
+fn localized_estimate_note(provider_id: &str, lang: codexbar::settings::Language) -> String {
+    match provider_id {
+        "claude" => locale::get_text(lang, LocaleKey::PanelEstimatedFromLocalLogsClaude),
+        _ => locale::get_text(lang, LocaleKey::PanelEstimatedFromLocalLogs),
+    }
 }
 
 fn scan_local_cost(
@@ -273,4 +278,34 @@ fn load_openai_dashboard_chart_data(
         .collect();
 
     (credits_history, usage_breakdown)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::localized_estimate_note;
+    use codexbar::settings::Language;
+
+    #[test]
+    fn japanese_estimate_note_is_localized() {
+        assert_eq!(
+            localized_estimate_note("codex", Language::Japanese),
+            "ローカルログから推定したもので、請求書と異なる場合があります"
+        );
+        assert_eq!(
+            localized_estimate_note("claude", Language::Japanese),
+            "ClaudeのローカルログからAPIレートで推定したもので、トークン総数が請求書と異なる場合があります"
+        );
+    }
+
+    #[test]
+    fn english_estimate_note_is_localized() {
+        assert_eq!(
+            localized_estimate_note("codex", Language::English),
+            "Estimated from local logs; may differ from your bill"
+        );
+        assert_eq!(
+            localized_estimate_note("claude", Language::English),
+            "Estimated from local Claude logs at API rates; token totals may differ from your bill"
+        );
+    }
 }

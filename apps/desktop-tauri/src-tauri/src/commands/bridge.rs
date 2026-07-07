@@ -32,19 +32,29 @@ impl RateWindowSnapshot {
     /// Enrich with reserve info derived from pace analysis.
     /// delta_percent = actual - expected; negative means ahead (in reserve).
     /// Only meaningful for longer windows (weekly); skip if reserve rounds to 0.
-    fn with_pace_reserve(mut self, pace: &codexbar::core::UsagePace) -> Self {
+    fn with_pace_reserve(
+        mut self,
+        pace: &codexbar::core::UsagePace,
+        lang: codexbar::settings::Language,
+    ) -> Self {
         let reserve = pace.delta_percent.abs().round();
         if pace.delta_percent < 0.0 && reserve > 0.0 {
             self.reserve_percent = Some(reserve);
             self.reserve_description = if pace.will_last_to_reset {
-                Some("Lasts until reset".to_string())
+                Some(locale::get_text(
+                    lang,
+                    locale::LocaleKey::PanelReserveLastsUntilReset,
+                ))
             } else {
                 pace.eta_seconds.map(|s| {
                     let h = (s / 3600.0) as u64;
                     if h >= 24 {
-                        format!("Runs out in {}d {}h", h / 24, h % 24)
+                        locale::get_text(lang, locale::LocaleKey::PanelReserveRunsOutInDaysHours)
+                            .replace("{}", &(h / 24).to_string())
+                            .replace("{}", &(h % 24).to_string())
                     } else {
-                        format!("Runs out in {}h", h)
+                        locale::get_text(lang, locale::LocaleKey::PanelReserveRunsOutInHours)
+                            .replace("{}", &h.to_string())
                     }
                 })
             };
@@ -129,6 +139,7 @@ impl ProviderUsageSnapshot {
         id: ProviderId,
         metadata: &ProviderMetadata,
         result: &ProviderFetchResult,
+        lang: Language,
     ) -> Self {
         let usage = &result.usage;
 
@@ -154,7 +165,7 @@ impl ProviderUsageSnapshot {
         let secondary_snap = usage.secondary.as_ref().map(|sw| {
             let mut s = RateWindowSnapshot::from_rate_window(sw);
             if let Some(ref p) = secondary_pace {
-                s = s.with_pace_reserve(p);
+                s = s.with_pace_reserve(p, lang);
             }
             s
         });
@@ -173,7 +184,7 @@ impl ProviderUsageSnapshot {
             secondary_label: usage
                 .secondary
                 .as_ref()
-                .map(|_| metadata.weekly_label.to_string()),
+                .map(|_| localize_weekly_label(metadata.weekly_label, lang)),
             model_specific: usage
                 .model_specific
                 .as_ref()
@@ -245,6 +256,16 @@ impl ProviderUsageSnapshot {
             tray_status_label: None,
             fetch_duration_ms: None,
         }
+    }
+}
+
+/// Localize generic provider window labels that are static UI copy.
+/// Product-specific labels (e.g. "Cash", "DIEM") are passed through unchanged.
+fn localize_weekly_label(raw: &str, lang: codexbar::settings::Language) -> String {
+    if raw.eq_ignore_ascii_case("weekly") {
+        locale::get_text(lang, locale::LocaleKey::ProviderWeeklyLabel)
+    } else {
+        raw.to_string()
     }
 }
 
