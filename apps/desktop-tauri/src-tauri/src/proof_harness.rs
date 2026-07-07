@@ -21,7 +21,7 @@ use std::sync::{LazyLock, Mutex};
 use serde::Serialize;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
-use crate::commands::get_provider_catalog;
+use crate::commands::{ProviderCatalogEntry, get_provider_catalog};
 use crate::events;
 use crate::shell;
 use crate::state::AppState;
@@ -542,18 +542,38 @@ fn current_proof_state_override() -> Option<ProofStateOverride> {
 
 fn native_menu_snapshot_for_path(menu_path: &str) -> (String, Vec<String>) {
     let providers = get_provider_catalog();
-    let enabled = codexbar::settings::Settings::load().enabled_providers;
-    let entries = tray_menu::build_tray_menu(&providers, &[], &enabled);
-    let menu_items = tray_menu::proof_menu_items(&entries, menu_path).unwrap_or_default();
-    (menu_path.to_string(), menu_items)
+    let settings = codexbar::settings::Settings::load();
+    native_menu_snapshot_for_settings(&providers, &settings, menu_path)
 }
 
 fn native_menu_context_for_item(item_id: &str) -> Result<(String, Vec<String>), String> {
     let providers = get_provider_catalog();
-    let enabled = codexbar::settings::Settings::load().enabled_providers;
-    let entries = tray_menu::build_tray_menu(&providers, &[], &enabled);
+    let settings = codexbar::settings::Settings::load();
+    let entries = tray_menu::build_tray_menu_with(
+        &providers,
+        &[],
+        &settings.enabled_providers,
+        settings.float_bar_enabled,
+        settings.ui_language,
+    );
     tray_menu::proof_menu_context_for_item(&entries, item_id)
         .ok_or_else(|| format!("proof menu context missing tray item: {item_id}"))
+}
+
+fn native_menu_snapshot_for_settings(
+    providers: &[ProviderCatalogEntry],
+    settings: &codexbar::settings::Settings,
+    menu_path: &str,
+) -> (String, Vec<String>) {
+    let entries = tray_menu::build_tray_menu_with(
+        providers,
+        &[],
+        &settings.enabled_providers,
+        settings.float_bar_enabled,
+        settings.ui_language,
+    );
+    let menu_items = tray_menu::proof_menu_items(&entries, menu_path).unwrap_or_default();
+    (menu_path.to_string(), menu_items)
 }
 
 fn proof_payload_is_supported(surface_mode: SurfaceMode, payload: Option<&str>) -> bool {
@@ -789,7 +809,27 @@ mod tests {
         assert!(result.is_ok());
         let snapshot = menu_snapshot();
         assert_eq!(snapshot.menu_path.as_deref(), Some("tray"));
-        assert!(snapshot.menu_items.iter().any(|item| item == "About"));
+        assert!(
+            snapshot
+                .menu_items
+                .iter()
+                .any(|item| item == "About CodexBar")
+        );
+    }
+
+    #[test]
+    fn native_menu_snapshot_uses_settings_language() {
+        let providers = Vec::new();
+        let settings = codexbar::settings::Settings {
+            ui_language: codexbar::settings::Language::Japanese,
+            ..Default::default()
+        };
+
+        let (_, items) = native_menu_snapshot_for_settings(&providers, &settings, "tray");
+
+        assert!(items.iter().any(|item| item == "すべて更新"));
+        assert!(items.iter().any(|item| item == "ウィンドウを表示"));
+        assert!(!items.iter().any(|item| item == "Refresh All"));
     }
 
     #[test]

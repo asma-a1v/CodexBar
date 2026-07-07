@@ -682,12 +682,7 @@ fn provider_cache_upsert_replaces_existing_provider() {
         cost: None,
         source_label: "CLI".to_string(),
     };
-    let mut first = ProviderUsageSnapshot::from_fetch_result(
-        ProviderId::Codex,
-        &metadata,
-        &result,
-        Language::English,
-    );
+    let mut first = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
     let mut second = first.clone();
     first.error = Some("old".to_string());
     second.error = Some("new".to_string());
@@ -708,12 +703,7 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         cost: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(
-        ProviderId::Claude,
-        &metadata,
-        &result,
-        Language::English,
-    );
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
     let error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -740,12 +730,7 @@ fn claude_repeated_auth_failure_surfaces_error() {
         cost: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(
-        ProviderId::Claude,
-        &metadata,
-        &result,
-        Language::English,
-    );
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
     let first_error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -885,14 +870,10 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
         source_label: "OAuth".to_string(),
     };
 
-    let snapshot = ProviderUsageSnapshot::from_fetch_result(
-        ProviderId::Claude,
-        &metadata,
-        &result,
-        Language::Japanese,
-    );
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
 
-    assert_eq!(snapshot.secondary_label, Some("週間".to_string()));
+    // Secondary label stays raw; localization happens at render time.
+    assert_eq!(snapshot.secondary_label, Some("Weekly".to_string()));
 }
 
 #[test]
@@ -916,20 +897,13 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
         source_label: "OAuth".to_string(),
     };
 
-    let snapshot = ProviderUsageSnapshot::from_fetch_result(
-        ProviderId::Claude,
-        &metadata,
-        &result,
-        Language::Japanese,
-    );
+    let snapshot = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
 
-    assert_eq!(
-        snapshot
-            .secondary
-            .as_ref()
-            .and_then(|s| s.reserve_description.as_deref()),
-        Some("リセットまで持ちます")
-    );
+    // Reserve data stays raw; localization happens at render time.
+    let secondary = snapshot.secondary.as_ref().expect("secondary window");
+    assert!(secondary.reserve_percent.is_some());
+    assert!(secondary.reserve_will_last_to_reset);
+    assert!(secondary.reserve_description.is_none());
 }
 
 #[test]

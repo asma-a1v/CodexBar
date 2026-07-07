@@ -1,6 +1,8 @@
 use std::collections::HashSet;
 
 use crate::commands::ProviderCatalogEntry;
+use codexbar::locale::{self, LocaleKey};
+use codexbar::settings::Language;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct TrayMenuEntry {
@@ -38,9 +40,9 @@ impl TrayMenuEntry {
         }
     }
 
-    fn submenu(label: impl Into<String>, children: Vec<Self>) -> Self {
+    fn submenu(id: impl Into<String>, label: impl Into<String>, children: Vec<Self>) -> Self {
         Self {
-            id: None,
+            id: Some(id.into()),
             label: label.into(),
             children,
             is_separator: false,
@@ -89,7 +91,13 @@ pub(crate) fn build_tray_menu(
     status_labels: &[(String, String)],
     enabled_providers: &HashSet<String>,
 ) -> Vec<TrayMenuEntry> {
-    build_tray_menu_with(providers, status_labels, enabled_providers, false)
+    build_tray_menu_with(
+        providers,
+        status_labels,
+        enabled_providers,
+        false,
+        Language::English,
+    )
 }
 
 pub(crate) fn build_tray_menu_with(
@@ -97,8 +105,10 @@ pub(crate) fn build_tray_menu_with(
     status_labels: &[(String, String)],
     enabled_providers: &HashSet<String>,
     float_bar_enabled: bool,
+    lang: Language,
 ) -> Vec<TrayMenuEntry> {
     let mut menu: Vec<TrayMenuEntry> = Vec::new();
+    let text = |key| locale::get_text(lang, key);
 
     // Status rows (one per enabled provider with live usage).
     for (id, label) in status_labels {
@@ -108,19 +118,29 @@ pub(crate) fn build_tray_menu_with(
         menu.push(TrayMenuEntry::separator());
     }
 
-    menu.push(TrayMenuEntry::item("refresh", "Refresh All"));
-    menu.push(TrayMenuEntry::item("pop_out", "Pop Out Dashboard"));
-    menu.push(TrayMenuEntry::item("show_panel", "Show Window"));
+    menu.push(TrayMenuEntry::item(
+        "refresh",
+        text(LocaleKey::TrayRefreshAll),
+    ));
+    menu.push(TrayMenuEntry::item(
+        "pop_out",
+        text(LocaleKey::TrayPopOutDashboard),
+    ));
+    menu.push(TrayMenuEntry::item(
+        "show_panel",
+        text(LocaleKey::TrayShowWindow),
+    ));
     menu.push(TrayMenuEntry::check_item(
         "toggle_float_bar",
-        "Show Float Bar",
+        text(LocaleKey::TrayShowFloatBar),
         float_bar_enabled,
     ));
     menu.push(TrayMenuEntry::separator());
 
     if !providers.is_empty() {
         menu.push(TrayMenuEntry::submenu(
-            "Providers",
+            "providers",
+            text(LocaleKey::TrayProviders),
             providers
                 .iter()
                 .map(|provider| {
@@ -136,14 +156,17 @@ pub(crate) fn build_tray_menu_with(
         menu.push(TrayMenuEntry::separator());
     }
 
-    menu.push(TrayMenuEntry::item("settings", "Settings"));
+    menu.push(TrayMenuEntry::item(
+        "settings",
+        text(LocaleKey::TraySettings),
+    ));
     menu.push(TrayMenuEntry::item(
         "check_for_updates",
-        "Check for Updates",
+        text(LocaleKey::TrayCheckForUpdates),
     ));
-    menu.push(TrayMenuEntry::item("about", "About"));
+    menu.push(TrayMenuEntry::item("about", text(LocaleKey::MenuAbout)));
     menu.push(TrayMenuEntry::separator());
-    menu.push(TrayMenuEntry::item("quit", "Quit CodexBar"));
+    menu.push(TrayMenuEntry::item("quit", text(LocaleKey::MenuQuit)));
 
     menu
 }
@@ -265,10 +288,10 @@ mod tests {
                 "Show Window",
                 "Show Float Bar",
                 "Providers",
-                "Settings",
+                "Settings...",
                 "Check for Updates",
-                "About",
-                "Quit CodexBar",
+                "About CodexBar",
+                "Quit",
             ]
         );
     }
@@ -293,7 +316,7 @@ mod tests {
         .unwrap();
 
         assert_eq!(menu_path, "tray");
-        assert!(items.iter().any(|item| item == "About"));
+        assert!(items.iter().any(|item| item == "About CodexBar"));
     }
 
     #[test]
@@ -311,7 +334,7 @@ mod tests {
         );
         let providers_submenu = menu
             .iter()
-            .find(|e| e.label == "Providers")
+            .find(|e| e.id.as_deref() == Some("providers"))
             .expect("providers submenu");
 
         let claude_item = providers_submenu
@@ -336,6 +359,7 @@ mod tests {
             &[],
             &both_enabled(),
             /* float_bar_enabled = */ true,
+            Language::English,
         );
         let toggle = menu_on
             .iter()
@@ -349,12 +373,35 @@ mod tests {
             &[],
             &both_enabled(),
             /* float_bar_enabled = */ false,
+            Language::English,
         );
         let toggle = menu_off
             .iter()
             .find(|e| e.id.as_deref() == Some("toggle_float_bar"))
             .expect("float bar toggle present");
         assert_eq!(toggle.checked, Some(false));
+    }
+
+    #[test]
+    fn tray_menu_static_labels_follow_language_but_provider_names_stay_raw() {
+        let menu = build_tray_menu_with(
+            &sample_provider_catalog(),
+            &[],
+            &both_enabled(),
+            false,
+            Language::Japanese,
+        );
+        let items = proof_menu_items(&menu, "tray").unwrap();
+
+        assert!(items.iter().any(|item| item == "すべて更新"));
+        assert!(items.iter().any(|item| item == "ウィンドウを表示"));
+        assert!(items.iter().any(|item| item == "設定..."));
+        assert!(items.iter().any(|item| item == "終了"));
+        assert!(!items.iter().any(|item| item == "Refresh All"));
+        assert!(!items.iter().any(|item| item == "Settings"));
+
+        let providers = proof_menu_items(&menu, "tray/providers").unwrap();
+        assert_eq!(providers, vec!["Codex", "Claude"]);
     }
 
     #[test]

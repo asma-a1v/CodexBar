@@ -271,6 +271,8 @@ export interface RateWindowSnapshot {
   isExhausted: boolean;
   reservePercent: number | null;
   reserveDescription: string | null;
+  reserveWillLastToReset?: boolean;
+  reserveEtaSeconds?: number | null;
 }
 
 export interface CostSnapshotBridge {

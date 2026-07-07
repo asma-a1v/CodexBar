@@ -133,6 +133,7 @@ fn build_native_tray_menu(
         status_labels,
         &enabled,
         settings.float_bar_enabled,
+        settings.ui_language,
     );
     let entries = spec
         .iter()
@@ -366,9 +367,10 @@ fn handle_menu_event(app: &AppHandle, id: &str) {
 /// Rebuild the native tray menu from current provider + settings state.
 pub(crate) fn rebuild_tray_menu(app: &AppHandle) {
     let catalog = crate::commands::get_provider_catalog();
+    let settings = Settings::load();
     let status_labels = if let Some(st) = app.try_state::<Mutex<AppState>>() {
         let guard = st.lock().unwrap();
-        status_labels_for_settings(&Settings::load(), &guard.provider_cache)
+        status_labels_for_settings(&settings, &guard.provider_cache, settings.ui_language)
     } else {
         vec![]
     };
@@ -385,7 +387,8 @@ pub fn update_tray_status_items(
     snapshots: &[crate::commands::ProviderUsageSnapshot],
 ) {
     let catalog = crate::commands::get_provider_catalog();
-    let status_labels = status_labels_for_settings(&Settings::load(), snapshots);
+    let settings = Settings::load();
+    let status_labels = status_labels_for_settings(&settings, snapshots, settings.ui_language);
 
     if let Ok(menu) = build_native_tray_menu(app, &catalog, &status_labels)
         && let Some(tray) = app.tray_by_id("codexbar-main")
@@ -462,6 +465,7 @@ pub fn update_tray_icon_and_tooltip(
 fn status_labels_for_settings(
     settings: &Settings,
     snapshots: &[crate::commands::ProviderUsageSnapshot],
+    lang: codexbar::settings::Language,
 ) -> Vec<(String, String)> {
     let ordered_snapshots = ordered_snapshot_refs(settings, snapshots);
     let healthy: Vec<_> = ordered_snapshots
@@ -471,7 +475,7 @@ fn status_labels_for_settings(
     if settings.tray_icon_mode == TrayIconMode::PerProvider {
         return healthy
             .into_iter()
-            .map(provider_status_label)
+            .map(|s| provider_status_label(s, lang))
             .collect::<Vec<_>>();
     }
 
@@ -482,7 +486,7 @@ fn status_labels_for_settings(
         return vec![];
     };
 
-    let (_, label) = provider_status_label(selected);
+    let (_, label) = provider_status_label(selected, lang);
     vec![("status_summary".to_string(), label)]
 }
 
@@ -510,11 +514,11 @@ fn ordered_snapshot_refs<'a>(
     ordered
 }
 
-fn provider_status_label(snapshot: &crate::commands::ProviderUsageSnapshot) -> (String, String) {
-    let label = snapshot
-        .tray_status_label
-        .clone()
-        .unwrap_or_else(|| format!("{:.0}%", snapshot.primary.used_percent));
+fn provider_status_label(
+    snapshot: &crate::commands::ProviderUsageSnapshot,
+    lang: codexbar::settings::Language,
+) -> (String, String) {
+    let label = crate::commands::compact_tray_status_label(&snapshot.primary, lang);
     (
         snapshot.provider_id.clone(),
         format!("{} {}", snapshot.display_name, label),
@@ -694,10 +698,7 @@ fn build_tooltip(
             let short = truncate_tooltip_text(err, 36);
             format!("{}: {} ({})", s.display_name, error_label, short)
         } else {
-            let label = s
-                .tray_status_label
-                .clone()
-                .unwrap_or_else(|| format!("{:.0}%", s.primary.used_percent));
+            let label = crate::commands::compact_tray_status_label(&s.primary, lang);
             format!("{}: {}", s.display_name, truncate_tooltip_text(&label, 42))
         };
         lines.push(status);
@@ -1021,6 +1022,8 @@ mod tests {
                 is_exhausted: false,
                 reserve_percent: None,
                 reserve_description: None,
+                reserve_will_last_to_reset: false,
+                reserve_eta_seconds: None,
             },
             primary_label: None,
             secondary: secondary_percent.map(|pct| crate::commands::RateWindowSnapshot {
@@ -1032,6 +1035,8 @@ mod tests {
                 is_exhausted: false,
                 reserve_percent: None,
                 reserve_description: None,
+                reserve_will_last_to_reset: false,
+                reserve_eta_seconds: None,
             }),
             secondary_label: None,
             model_specific: None,
@@ -1044,6 +1049,8 @@ mod tests {
                 is_exhausted: false,
                 reserve_percent: None,
                 reserve_description: None,
+                reserve_will_last_to_reset: false,
+                reserve_eta_seconds: None,
             }),
             extra_rate_windows: Vec::new(),
             cost: cost.map(|(used, limit)| crate::commands::CostSnapshotBridge {
@@ -1089,6 +1096,8 @@ mod tests {
                 is_exhausted: false,
                 reserve_percent: None,
                 reserve_description: None,
+                reserve_will_last_to_reset: false,
+                reserve_eta_seconds: None,
             },
         }
     }
@@ -1138,7 +1147,11 @@ mod tests {
             fake_snapshot("claude", "Claude", 72.0),
         ];
 
-        let labels = status_labels_for_settings(&settings, &snapshots);
+        let labels = status_labels_for_settings(
+            &settings,
+            &snapshots,
+            codexbar::settings::Language::English,
+        );
 
         assert_eq!(
             labels,
@@ -1161,7 +1174,11 @@ mod tests {
             fake_snapshot("claude", "Claude", 72.0),
         ];
 
-        let labels = status_labels_for_settings(&settings, &snapshots);
+        let labels = status_labels_for_settings(
+            &settings,
+            &snapshots,
+            codexbar::settings::Language::English,
+        );
 
         assert_eq!(
             labels,
@@ -1192,28 +1209,28 @@ mod tests {
     #[test]
     fn tooltip_uses_compact_status_labels() {
         let mut claude = fake_snapshot("claude", "Claude", 13.0);
-        claude.tray_status_label = Some("13% • resets in 2h 05m".to_string());
+        claude.primary.reset_description = Some("2h 05m".to_string());
         let mut codex = fake_snapshot("codex", "Codex", 8.0);
-        codex.tray_status_label = Some("8% • resets in 4h 10m".to_string());
+        codex.primary.reset_description = Some("4h 10m".to_string());
 
         let tooltip = build_tooltip(&[claude, codex], codexbar::settings::Language::English);
 
         assert_eq!(
             tooltip,
-            "CodexBar\nClaude: 13% • resets in 2h 05m\nCodex: 8% • resets in 4h 10m"
+            "CodexBar\nClaude: 13% • Resets in 2h 05m\nCodex: 8% • Resets in 4h 10m"
         );
     }
 
     #[test]
     fn tooltip_truncates_long_provider_lines() {
         let mut claude = fake_snapshot("claude", "Claude", 13.0);
-        claude.tray_status_label =
-            Some("13% • resets in Jun 10 at 3:00PM with extra noisy suffix".to_string());
+        claude.primary.reset_description =
+            Some("resets in Jun 10 at 3:00PM with extra noisy suffix".to_string());
 
         let tooltip = build_tooltip(&[claude], codexbar::settings::Language::English);
 
         let line = tooltip.lines().nth(1).expect("provider tooltip line");
-        assert!(line.starts_with("Claude: 13% • resets in Jun 10 at 3:00PM"));
+        assert!(line.starts_with("Claude: 13% • Resets in Jun 10 at 3:00PM"));
         assert!(line.ends_with("..."));
         assert!(line.chars().count() <= 53);
     }
@@ -1227,6 +1244,35 @@ mod tests {
 
         assert!(tooltip.contains("エラー"), "{tooltip}");
         assert!(!tooltip.contains(": error ("), "{tooltip}");
+    }
+
+    #[test]
+    fn tray_labels_relocalize_on_language_change_without_refetch() {
+        let mut claude = fake_snapshot("claude", "Claude", 13.0);
+        claude.primary.resets_at =
+            Some((chrono::Utc::now() + chrono::Duration::hours(2)).to_rfc3339());
+
+        let english_tooltip =
+            build_tooltip(&[claude.clone()], codexbar::settings::Language::English);
+        let japanese_tooltip =
+            build_tooltip(&[claude.clone()], codexbar::settings::Language::Japanese);
+
+        assert!(english_tooltip.contains("Resets in"), "{english_tooltip}");
+        assert!(
+            japanese_tooltip.contains("リセットまで"),
+            "{japanese_tooltip}"
+        );
+        assert!(
+            !japanese_tooltip.to_ascii_lowercase().contains("resets in"),
+            "{japanese_tooltip}"
+        );
+
+        let (_, english_label) =
+            provider_status_label(&claude, codexbar::settings::Language::English);
+        let (_, japanese_label) =
+            provider_status_label(&claude, codexbar::settings::Language::Japanese);
+        assert!(english_label.contains("Resets in"), "{english_label}");
+        assert!(japanese_label.contains("リセットまで"), "{japanese_label}");
     }
 
     #[test]
