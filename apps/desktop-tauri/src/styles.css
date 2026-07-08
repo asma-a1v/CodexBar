@@ -1097,28 +1097,26 @@ body:has(.tray-panel-reveal) {
 }
 
 /* Side-by-side provider cards once the user has widened the flyout enough to
-   fit two columns — mirrors the PopOut window's `.menu-surface--popout
-   .menu-stack` row layout (styles.css ~3223), but scoped to the tray's
-   usersized state only so the auto-fit (content-hugging) path never sees it.
-   Unlike PopOut, tray cards KEEP their visual chrome (background/border on
-   `.menu-stack__item--selected`, card padding, etc.) — only the separators
-   between stacked cards are hidden, since they read as noise once cards sit
-   side by side instead of one on top of the other. */
+   fit two columns. The columns are independent so a tall card in one column
+   doesn't force empty space under the shorter card beside it. */
 @media (min-width: 640px) {
   .tray-panel-reveal--usersized .menu-surface--tray .menu-stack {
     display: flex;
     flex-direction: row;
-    flex-wrap: wrap;
     align-content: flex-start;
     align-items: flex-start;
     gap: 12px 16px;
     width: 100%;
   }
-  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__item {
+
+  .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__column {
     flex: 1 1 0;
     min-width: min(300px, 100%);
-    width: auto;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
   }
+
   .tray-panel-reveal--usersized .menu-surface--tray .menu-stack__sep {
     display: none;
   }

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const tauriMocks = vi.hoisted(() => ({
   getCachedProviders: vi.fn(),
@@ -181,6 +181,7 @@ describe("TrayPanel provider grid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     eventMocks.listeners.clear();
+    tauriMocks.flyoutStoredSize.mockResolvedValue(null);
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);
@@ -237,6 +238,9 @@ describe("TrayPanel provider grid", () => {
         return Promise.resolve(() => {});
       },
     );
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
   it("reveals regardless of the shared surface-mode snapshot (TrayPanel now runs in its own dedicated window)", async () => {
@@ -484,6 +488,37 @@ describe("TrayPanel provider grid", () => {
         (node) => node.textContent,
       ),
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
+  });
+
+  it("uses independent columns for a wide user-sized overview", async () => {
+    vi.spyOn(window, "innerWidth", "get").mockReturnValue(700);
+    tauriMocks.flyoutStoredSize.mockResolvedValue([700, 700]);
+    const providers = [
+      provider("codex", "Codex"),
+      provider("claude", "Claude"),
+      provider("antigravity", "Antigravity"),
+      provider("copilot", "GitHub Copilot"),
+    ];
+
+    const { container } = renderTrayPanel(providers, {
+      enabledProviders: providers.map((snapshot) => snapshot.providerId),
+    });
+
+    await waitFor(() => {
+      expect(container.querySelector(".tray-panel-reveal--usersized")).not.toBeNull();
+    });
+
+    expect(
+      Array.from(container.querySelectorAll(".menu-stack__column")).map((column) =>
+        Array.from(column.querySelectorAll(".menu-stack__item")).map(
+          (item) => item.id,
+        ),
+      ),
+    ).toEqual([
+      ["card-codex", "card-antigravity"],
+      ["card-claude", "card-copilot"],
+    ]);
+    expect(container.querySelector(".menu-stack__sep")).toBeNull();
   });
 
   it("collapses and expands the full provider catalog in the dense tray grid", async () => {

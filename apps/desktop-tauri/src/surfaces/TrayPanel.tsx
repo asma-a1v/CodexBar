@@ -309,6 +309,21 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   // reveal itself. Hardcoded true: being mounted IS "the flyout is open".
   const isFlyoutOpen = true;
   const fixedFlyoutSize = Array.isArray(flyoutSize) ? flyoutSize : null;
+  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth);
+  useEffect(() => {
+    const updateViewportWidth = () => setViewportWidth(window.innerWidth);
+    window.addEventListener("resize", updateViewportWidth);
+    return () => window.removeEventListener("resize", updateViewportWidth);
+  }, []);
+  const useWideColumns =
+    selectedProviderId === null && fixedFlyoutSize !== null && viewportWidth >= 640;
+  const wideColumns = useMemo(() => {
+    const columns: ProviderUsageSnapshot[][] = [[], []];
+    visibleProviders.forEach((provider, index) => {
+      columns[index % 2].push(provider);
+    });
+    return columns;
+  }, [visibleProviders]);
   const { layoutReady, requestLayout } = useTrayPanelLayout({
     canMeasure: hasLoadedCache || sorted.length > 0,
     denseOverview: expectsDenseOverview,
@@ -408,6 +423,26 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     />
   );
   const revealClassName = `tray-panel-reveal${layoutReady ? " tray-panel-reveal--ready" : ""}${expectsDenseOverview ? " tray-panel-reveal--dense" : ""}${fixedFlyoutSize ? " tray-panel-reveal--usersized" : ""}`;
+  const renderProviderCard = (p: ProviderUsageSnapshot) => {
+    const isSelected =
+      selectedProviderId !== null && p.providerId === selectedProviderId;
+    return (
+      <div
+        className={`menu-stack__item${isSelected ? " menu-stack__item--selected" : ""}`}
+        id={`card-${p.providerId}`}
+        key={p.providerId}
+      >
+        <MenuCard
+          provider={p}
+          hideEmail={settings.hidePersonalInfo}
+          resetTimeRelative={settings.resetTimeRelative}
+          showAsUsed={settings.showAsUsed}
+          compactMetrics={selectedProviderId === null}
+          onLayoutChange={requestLayout}
+        />
+      </div>
+    );
+  };
 
   if (sorted.length === 0) {
     return (
@@ -458,28 +493,18 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         />
         <div className="provider-grid__divider" />
         <div className="menu-stack">
-          {visibleProviders.map((p, idx) => {
-            const isSelected =
-              selectedProviderId !== null && p.providerId === selectedProviderId;
-            return (
-              <Fragment key={p.providerId}>
-                {idx > 0 && <div className="menu-stack__sep" />}
-                <div
-                  className={`menu-stack__item${isSelected ? " menu-stack__item--selected" : ""}`}
-                  id={`card-${p.providerId}`}
-                >
-                  <MenuCard
-                    provider={p}
-                    hideEmail={settings.hidePersonalInfo}
-                    resetTimeRelative={settings.resetTimeRelative}
-                    showAsUsed={settings.showAsUsed}
-                    compactMetrics={selectedProviderId === null}
-                    onLayoutChange={requestLayout}
-                  />
+          {useWideColumns
+            ? wideColumns.map((column, index) => (
+                <div className="menu-stack__column" key={index}>
+                  {column.map(renderProviderCard)}
                 </div>
-              </Fragment>
-            );
-          })}
+              ))
+            : visibleProviders.map((p, idx) => (
+                <Fragment key={p.providerId}>
+                  {idx > 0 && <div className="menu-stack__sep" />}
+                  {renderProviderCard(p)}
+                </Fragment>
+              ))}
         </div>
         {/* Context actions — detail mode only, matches macOS actionsSection */}
         {selectedProviderId && (HAS_DASHBOARD.has(selectedProviderId) || HAS_STATUS_PAGE.has(selectedProviderId)) && (
