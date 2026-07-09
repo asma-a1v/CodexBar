@@ -10,12 +10,18 @@ import {
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
+import { useLocale } from "../hooks/useLocale";
 import { useProviders } from "../hooks/useProviders";
-import { getSettingsSnapshot, refreshProvidersIfStale } from "../lib/tauri";
+import {
+  getProviderLocalUsageSummary,
+  getSettingsSnapshot,
+  refreshProvidersIfStale,
+} from "../lib/tauri";
 import { ProviderIcon } from "../components/providers/ProviderIcon";
 import { getProviderIcon } from "../components/providers/providerIcons";
 import type {
   BootstrapState,
+  ProviderLocalUsageSummary,
   ProviderUsageSnapshot,
   SettingsSnapshot,
 } from "../types/bridge";
@@ -60,6 +66,90 @@ function inlineResetTime(resetText: string): string {
     .trim();
 }
 
+type FloatBarCostSummary = {
+  key: string;
+  providerId: string;
+  displayName: string;
+  todayCost: number | null;
+  thirtyDayCost: number | null;
+};
+
+type FloatBarCostTarget = {
+  key: string;
+  providerId: string;
+  displayName: string;
+};
+
+function providerCostKey(provider: ProviderUsageSnapshot): string {
+  return `${provider.providerId}:${provider.accountEmail ?? ""}`;
+}
+
+function hasLocalCost(summary: ProviderLocalUsageSummary | null): summary is ProviderLocalUsageSummary {
+  return summary?.todayCost != null || summary?.thirtyDayCost != null;
+}
+
+function formatUsd(value: number | null): string | null {
+  if (value == null || !Number.isFinite(value)) return null;
+  return `$${value.toFixed(2)}`;
+}
+
+function CostPill({
+  summary,
+  scale,
+  todayLabel,
+  thirtyDayLabel,
+}: {
+  summary: FloatBarCostSummary;
+  scale: number;
+  todayLabel: string;
+  thirtyDayLabel: string;
+}) {
+  const today = formatUsd(summary.todayCost);
+  const thirtyDay = formatUsd(summary.thirtyDayCost);
+  const iconSize = Math.round(10 * scale);
+  const brand = getProviderIcon(summary.providerId).brandColor;
+  const title = [
+    today ? `${todayLabel} ${today}` : null,
+    thirtyDay ? `${thirtyDayLabel} ${thirtyDay}` : null,
+  ]
+    .filter(Boolean)
+    .join(" / ");
+
+  return (
+    <div
+      className="floatbar__cost-pill"
+      title={`${summary.displayName}: ${title}`}
+      data-tauri-drag-region
+      style={{ "--brand": brand } as CSSProperties}
+    >
+      <span className="floatbar__provider-icon" data-tauri-drag-region>
+        <ProviderIcon providerId={summary.providerId} size={iconSize} />
+      </span>
+      <span className="floatbar__cost-items" data-tauri-drag-region>
+        {today && (
+          <span className="floatbar__cost-item" data-tauri-drag-region>
+            <span className="floatbar__cost-label" data-tauri-drag-region>
+              {todayLabel}
+            </span>
+            <span className="floatbar__cost-value" data-tauri-drag-region>
+              {today}
+            </span>
+          </span>
+        )}
+        {thirtyDay && (
+          <span className="floatbar__cost-item" data-tauri-drag-region>
+            <span className="floatbar__cost-label" data-tauri-drag-region>
+              {thirtyDayLabel}
+            </span>
+            <span className="floatbar__cost-value" data-tauri-drag-region>
+              {thirtyDay}
+            </span>
+          </span>
+        )}
+      </span>
+    </div>
+  );
+}
 /**
  * The capacity pill shown for a single provider.
  *
@@ -75,6 +165,8 @@ function ProviderPill({
   scale,
   showResetInline,
   resetRelative,
+  usedSuffix,
+  remainingSuffix,
 }: {
   provider: ProviderUsageSnapshot;
   highRemaining: number;
@@ -83,11 +175,13 @@ function ProviderPill({
   scale: number;
   showResetInline: boolean;
   resetRelative: boolean;
+  usedSuffix: string;
+  remainingSuffix: string;
 }) {
   const remaining = Math.max(0, Math.min(100, provider.primary.remainingPercent));
   const used = Math.max(0, Math.min(100, provider.primary.usedPercent));
   const displayPercent = showAsUsed ? used : remaining;
-  const displaySuffix = showAsUsed ? "used" : "remaining";
+  const displaySuffix = showAsUsed ? usedSuffix : remainingSuffix;
   const exhausted = provider.primary.isExhausted || provider.error;
   let tone: "ok" | "warn" | "crit" = "ok";
   if (exhausted || remaining <= critRemaining) tone = "crit";
@@ -145,7 +239,10 @@ function ProviderPill({
  * setting changes (filter list, orientation) live without a reload.
  */
 export default function FloatBar({ state }: { state: BootstrapState }) {
-  const { providers } = useProviders({ refreshOnMount: false });
+  const { t } = useLocale();
+  const { providers } = useProviders({
+    refreshOnMount: false,
+  });
   const startDrag = useCallback((event: MouseEvent<HTMLElement>) => {
     if (event.button !== 0) return;
     void getCurrentWindow().startDragging().catch(() => {});
@@ -164,12 +261,11 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   // with the Settings tab. Listen for the Rust-side config-changed event
   // and re-pull the snapshot when fired.
   const [settings, setSettings] = useState<SettingsSnapshot>(state.settings);
+  const [localCosts, setLocalCosts] = useState<Record<string, FloatBarCostSummary>>({});
 
-  // The Tauri shell has no global refresh timer — providers only update
-  // when something explicitly asks for it. Drive our own tick here so the
-  // bar reflects fresh data even when the tray panel is closed.
-  // `refreshProvidersIfStale` is a no-op when the backend cache is fresh,
-  // so this is safe to call frequently.
+  // The detached floatbar should keep usage fresh, but it must not open or
+  // focus any other surface. Refresh data only; provider-updated events feed
+  // this window when the backend completes.
   useEffect(() => {
     const intervalMs = Math.max(60_000, settings.refreshIntervalSecs * 1000);
     const tick = () => {
@@ -179,6 +275,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
   }, [settings.refreshIntervalSecs]);
+
   useEffect(() => {
     const unlisten = listen(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
       void getSettingsSnapshot().then(setSettings).catch(() => {});
@@ -205,6 +302,68 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
+  const visibleCostTargetKey = visible
+    .map((p) => `${providerCostKey(p)}:${p.providerId}:${p.displayName}`)
+    .join("|");
+  const visibleCostTargets = useMemo<FloatBarCostTarget[]>(
+    () =>
+      visible.map((provider) => ({
+        key: providerCostKey(provider),
+        providerId: provider.providerId,
+        displayName: provider.displayName,
+      })),
+    [visibleCostTargetKey],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    const targets = visibleCostTargets;
+
+    if (targets.length === 0) {
+      setLocalCosts({});
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    Promise.allSettled(
+      targets.map(async (target) => {
+        const localUsage = await getProviderLocalUsageSummary(target.providerId);
+        if (!hasLocalCost(localUsage)) return null;
+        return {
+          key: target.key,
+          providerId: target.providerId,
+          displayName: target.displayName,
+          todayCost: localUsage.todayCost,
+          thirtyDayCost: localUsage.thirtyDayCost,
+        } satisfies FloatBarCostSummary;
+      }),
+    )
+      .then((results) => {
+        if (cancelled) return;
+        const next: Record<string, FloatBarCostSummary> = {};
+        for (const result of results) {
+          if (result.status === "fulfilled" && result.value) {
+            next[result.value.key] = result.value;
+          }
+        }
+        setLocalCosts(next);
+      })
+      .catch(() => {
+        if (!cancelled) setLocalCosts({});
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [visibleCostTargets]);
+
+  const visibleCosts = visible
+    .map((provider) => localCosts[providerCostKey(provider)])
+    .filter((summary): summary is FloatBarCostSummary => Boolean(summary));
+  const visibleCostValuesKey = visibleCosts
+    .map((summary) => `${summary.key}:${summary.todayCost ?? ""}:${summary.thirtyDayCost ?? ""}`)
+    .join("|");
   // Keep the native floatbar window fitted when late data/fonts/icons change layout.
   const lastResizeRef = useRef<{ w: number; h: number } | null>(null);
   const resizeRafRef = useRef<number | null>(null);
@@ -232,6 +391,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   }, [
     resizeToContent,
     visible.length,
+    visibleCostValuesKey,
     orientation,
     style,
     scale,
@@ -275,21 +435,34 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       <div className="floatbar__handle" data-tauri-drag-region aria-hidden />
       {visible.length === 0 ? (
         <div className="floatbar__empty" data-tauri-drag-region>
-          No providers
+          {t("FloatBarNoProviders")}
         </div>
       ) : (
-        visible.map((p) => (
-          <ProviderPill
-            key={p.providerId}
-            provider={p}
-            highRemaining={highRemaining}
-            critRemaining={critRemaining}
-            showAsUsed={settings.showAsUsed}
-            scale={scale}
-            showResetInline={showResetInline}
-            resetRelative={settings.resetTimeRelative}
-          />
-        ))
+        <>
+          {visible.map((p) => (
+            <ProviderPill
+              key={providerCostKey(p)}
+              provider={p}
+              highRemaining={highRemaining}
+              critRemaining={critRemaining}
+              showAsUsed={settings.showAsUsed}
+              scale={scale}
+              showResetInline={showResetInline}
+              resetRelative={settings.resetTimeRelative}
+              usedSuffix={t("PanelUsedSuffix")}
+              remainingSuffix={t("FloatBarRemainingSuffix")}
+            />
+          ))}
+          {visibleCosts.map((summary) => (
+            <CostPill
+              key={`cost:${summary.key}`}
+              summary={summary}
+              scale={scale}
+              todayLabel={t("PanelToday")}
+              thirtyDayLabel={t("FloatBarThirtyDayShort")}
+            />
+          ))}
+        </>
       )}
     </div>
   );

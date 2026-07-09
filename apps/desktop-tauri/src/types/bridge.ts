@@ -190,6 +190,8 @@ export interface SettingsSnapshot {
   autoDownloadUpdates: boolean;
   installUpdatesOnQuit: boolean;
   globalShortcut: string;
+  /** Extra Codex home or sessions directories scanned for local cost estimates. */
+  codexCustomSessionsDirs: string[];
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -241,6 +243,7 @@ export interface SettingsUpdate {
   autoDownloadUpdates?: boolean;
   installUpdatesOnQuit?: boolean;
   globalShortcut?: string;
+  codexCustomSessionsDirs?: string[];
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;

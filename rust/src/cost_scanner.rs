@@ -10,7 +10,14 @@ use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(test)]
+use crate::codex_costs::scan_codex_file_cost;
+use crate::codex_costs::{
+    add_codex_days_to_summary, codex_period_start, codex_scan_dates, scan_codex_file_cost_for_range,
+};
+use crate::codex_sessions::{codex_sessions_dir_candidates, default_wsl_roots};
 use crate::core::{CostUsageDayRange, CostUsagePricing, JsonlScanner};
+use crate::settings::Settings;
 
 /// Cost summary from scanning local logs
 #[derive(Debug, Clone, Default)]
@@ -59,50 +66,8 @@ impl CostSummary {
     }
 }
 
-fn codex_speed_bucket(model: &str) -> &'static str {
-    let normalized = model.to_ascii_lowercase();
-    if normalized.contains("fast")
-        || normalized.contains("priority")
-        || normalized.contains("spark")
-        || normalized.contains("smoke")
-    {
-        "fast"
-    } else {
-        "standard"
-    }
-}
-
 fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
     cancel.is_some_and(|flag| flag.load(Ordering::Relaxed))
-}
-
-/// Codex token pricing (per 1M tokens, as of 2024)
-struct CodexPricing;
-
-impl CodexPricing {
-    fn cost_usd(model: &str, input: u64, cached: u64, output: u64) -> f64 {
-        if let Some(cost) = CostUsagePricing::codex_cost_usd(model, input, cached, output) {
-            return cost;
-        }
-
-        let (input_price, cached_price, output_price) = match model.to_lowercase().as_str() {
-            m if m.contains("gpt-4o-mini") => (0.15, 0.075, 0.60),
-            m if m.contains("gpt-4o") => (2.50, 1.25, 10.00),
-            m if m.contains("gpt-4-turbo") => (10.00, 5.00, 30.00),
-            m if m.contains("gpt-4") => (30.00, 15.00, 60.00),
-            m if m.contains("o1-mini") => (3.00, 1.50, 12.00),
-            m if m.contains("o1") => (15.00, 7.50, 60.00),
-            _ => (2.50, 1.25, 10.00), // Default to GPT-4o
-        };
-
-        let cached = cached.min(input);
-        let non_cached = input.saturating_sub(cached);
-        let input_cost = (non_cached as f64 / 1_000_000.0) * input_price;
-        let cached_cost = (cached as f64 / 1_000_000.0) * cached_price;
-        let output_cost = (output as f64 / 1_000_000.0) * output_price;
-
-        input_cost + cached_cost + output_cost
-    }
 }
 
 /// Fallback Claude model used when a scanned model isn't in the canonical
@@ -264,43 +229,20 @@ impl CostScanner {
 
     /// Scan Codex local logs, stopping early when the caller cancels the scan.
     pub fn scan_codex_with_cancel(&self, cancel: Option<&AtomicBool>) -> CostSummary {
-        let sessions_dir = self.get_codex_sessions_dir();
-        if !sessions_dir.exists() {
-            return CostSummary::default();
-        }
-
         let mut summary = CostSummary::default();
-        let today = Utc::now().date_naive();
-        let start_date = today - Duration::days(self.days as i64);
+        let today = Local::now().date_naive();
+        let start_date = codex_period_start(today, self.days);
+        let range = CostUsageDayRange::new(start_date, today);
 
         summary.period_start = Some(start_date);
         summary.period_end = Some(today);
 
-        // Iterate through date-based directory structure
-        for days_ago in 0..self.days {
+        for sessions_dir in self.get_codex_sessions_dirs() {
             if is_cancelled(cancel) {
                 break;
             }
-            let date = today - Duration::days(days_ago as i64);
-            let year = date.format("%Y").to_string();
-            let month = date.format("%m").to_string();
-            let day = date.format("%d").to_string();
-
-            let day_dir = sessions_dir.join(&year).join(&month).join(&day);
-            if !day_dir.exists() {
-                continue;
-            }
-
-            if let Ok(entries) = fs::read_dir(&day_dir) {
-                for entry in entries.flatten() {
-                    if is_cancelled(cancel) {
-                        break;
-                    }
-                    let path = entry.path();
-                    if path.extension().is_some_and(|e| e == "jsonl") {
-                        self.parse_codex_file(&path, &mut summary, cancel);
-                    }
-                }
+            if sessions_dir.exists() {
+                self.scan_codex_sessions_dir(&sessions_dir, &range, &mut summary, cancel);
             }
         }
 
@@ -344,18 +286,52 @@ impl CostScanner {
         summary
     }
 
-    fn get_codex_sessions_dir(&self) -> PathBuf {
-        if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-            let trimmed = codex_home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("sessions");
+    fn get_codex_sessions_dirs(&self) -> Vec<PathBuf> {
+        let settings = Settings::load();
+        let codex_home = std::env::var("CODEX_HOME").ok();
+        codex_sessions_dir_candidates(
+            dirs::home_dir(),
+            codex_home,
+            &settings.codex_custom_sessions_dirs,
+            &default_wsl_roots(),
+        )
+    }
+
+    fn scan_codex_sessions_dir(
+        &self,
+        sessions_dir: &Path,
+        range: &CostUsageDayRange,
+        summary: &mut CostSummary,
+        cancel: Option<&AtomicBool>,
+    ) {
+        // Iterate through the date-based directory structure with one day of
+        // padding on each side. Codex JSONL timestamps are UTC, while the tray
+        // presents local calendar days; the parser filters back to `range`.
+        for date in codex_scan_dates(range) {
+            if is_cancelled(cancel) {
+                break;
+            }
+            let year = date.format("%Y").to_string();
+            let month = date.format("%m").to_string();
+            let day = date.format("%d").to_string();
+
+            let day_dir = sessions_dir.join(&year).join(&month).join(&day);
+            if !day_dir.exists() {
+                continue;
+            }
+
+            if let Ok(entries) = fs::read_dir(&day_dir) {
+                for entry in entries.flatten() {
+                    if is_cancelled(cancel) {
+                        break;
+                    }
+                    let path = entry.path();
+                    if path.extension().is_some_and(|e| e == "jsonl") {
+                        self.parse_codex_file(&path, summary, cancel);
+                    }
+                }
             }
         }
-
-        dirs::home_dir()
-            .unwrap_or_else(|| PathBuf::from("."))
-            .join(".codex")
-            .join("sessions")
     }
 
     fn get_claude_projects_dir(&self) -> PathBuf {
@@ -386,15 +362,16 @@ impl CostScanner {
         if is_cancelled(cancel) {
             return;
         }
-        let today = Utc::now().date_naive();
-        let start_date = today - Duration::days(self.days as i64);
+        let today = Local::now().date_naive();
+        let start_date = codex_period_start(today, self.days);
         let range = CostUsageDayRange::new(start_date, today);
         let parse_result = match JsonlScanner::parse_codex_file(path, &range, 0, None, None) {
             Ok(result) => result,
             Err(_) => return,
         };
 
-        let (session_cost, has_tokens) = add_codex_days_to_summary(summary, &parse_result.days);
+        let (session_cost, has_tokens) =
+            add_codex_days_to_summary(summary, &parse_result.days, &range);
 
         if has_tokens {
             summary.total_cost_usd += session_cost;
@@ -582,80 +559,15 @@ fn add_claude_record_to_daily_costs(
     }
 }
 
-type CodexDays = HashMap<String, HashMap<String, Vec<i32>>>;
-
-fn add_codex_days_to_summary(summary: &mut CostSummary, days: &CodexDays) -> (f64, bool) {
-    let mut total_cost = 0.0;
-    let mut has_tokens = false;
-
-    for models in days.values() {
-        for (model, packed) in models {
-            let input = packed.first().copied().unwrap_or(0).max(0) as u64;
-            let cached = (packed.get(1).copied().unwrap_or(0).max(0) as u64).min(input);
-            let output = packed.get(2).copied().unwrap_or(0).max(0) as u64;
-
-            if input == 0 && cached == 0 && output == 0 {
-                continue;
-            }
-
-            let cost = CodexPricing::cost_usd(model, input, cached, output);
-            total_cost += cost;
-            has_tokens = true;
-
-            summary.input_tokens += input;
-            summary.cached_tokens += cached;
-            summary.output_tokens += output;
-            *summary.by_model.entry(model.clone()).or_insert(0.0) += cost;
-
-            let speed_bucket = codex_speed_bucket(model);
-            *summary
-                .by_speed
-                .entry(speed_bucket.to_string())
-                .or_insert(0.0) += cost;
-
-            let model_tokens = summary.by_model_tokens.entry(model.clone()).or_default();
-            model_tokens.input_tokens += input;
-            model_tokens.output_tokens += output;
-            model_tokens.cached_tokens += cached;
-
-            let speed_tokens = summary
-                .by_speed_tokens
-                .entry(speed_bucket.to_string())
-                .or_default();
-            speed_tokens.input_tokens += input;
-            speed_tokens.output_tokens += output;
-            speed_tokens.cached_tokens += cached;
-        }
-    }
-
-    (total_cost, has_tokens)
-}
-
-fn codex_days_cost(days: &CodexDays) -> f64 {
-    let mut total_cost = 0.0;
-
-    for models in days.values() {
-        for (model, packed) in models {
-            let input = packed.first().copied().unwrap_or(0).max(0) as u64;
-            let cached = (packed.get(1).copied().unwrap_or(0).max(0) as u64).min(input);
-            let output = packed.get(2).copied().unwrap_or(0).max(0) as u64;
-
-            if input == 0 && cached == 0 && output == 0 {
-                continue;
-            }
-
-            total_cost += CodexPricing::cost_usd(model, input, cached, output);
-        }
-    }
-
-    total_cost
-}
-
 /// Check if any cost usage sources are available
 #[allow(dead_code)]
 pub fn has_cost_usage_sources() -> bool {
     let scanner = CostScanner::new(1);
-    scanner.get_codex_sessions_dir().exists() || scanner.get_claude_projects_dir().exists()
+    scanner
+        .get_codex_sessions_dirs()
+        .iter()
+        .any(|dir| dir.exists())
+        || scanner.get_claude_projects_dir().exists()
 }
 
 /// Get daily cost history for the last N days
@@ -674,31 +586,34 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
 
     match provider {
         "codex" => {
-            // Scan Codex logs by day
-            let sessions_dir = scanner.get_codex_sessions_dir();
-            if sessions_dir.exists() {
-                for days_ago in 0..days {
-                    let date = today - Duration::days(days_ago as i64);
-                    let date_str = date.format("%Y-%m-%d").to_string();
-                    let year = date.format("%Y").to_string();
-                    let month = date.format("%m").to_string();
-                    let day = date.format("%d").to_string();
+            // Scan Codex logs by day across Windows and WSL session roots.
+            let sessions_dirs = scanner.get_codex_sessions_dirs();
+            for days_ago in 0..days {
+                let date = today - Duration::days(days_ago as i64);
+                let date_str = date.format("%Y-%m-%d").to_string();
+                let range = CostUsageDayRange::new(date, date);
+                let mut day_cost = 0.0;
 
-                    let day_dir = sessions_dir.join(&year).join(&month).join(&day);
-                    if day_dir.exists() {
-                        let mut day_cost = 0.0;
+                for sessions_dir in sessions_dirs.iter().filter(|dir| dir.exists()) {
+                    for scan_date in codex_scan_dates(&range) {
+                        let year = scan_date.format("%Y").to_string();
+                        let month = scan_date.format("%m").to_string();
+                        let day = scan_date.format("%d").to_string();
+                        let day_dir = sessions_dir.join(&year).join(&month).join(&day);
+                        if !day_dir.exists() {
+                            continue;
+                        }
                         if let Ok(entries) = fs::read_dir(&day_dir) {
                             for entry in entries.flatten() {
                                 let path = entry.path();
                                 if path.extension().is_some_and(|e| e == "jsonl") {
-                                    let range = CostUsageDayRange::new(date, date);
                                     day_cost += scan_codex_file_cost_for_range(&path, &range);
                                 }
                             }
                         }
-                        daily_costs.insert(date_str, day_cost);
                     }
                 }
+                daily_costs.insert(date_str, day_cost);
             }
         }
         "claude" => {
@@ -725,44 +640,10 @@ pub fn get_daily_cost_history(provider: &str, days: u32) -> Vec<(String, f64)> {
     result
 }
 
-/// Scan a single Codex file and return its cost
-#[cfg(test)]
-fn scan_codex_file_cost(path: &Path) -> f64 {
-    let today = Utc::now().date_naive();
-    let range = CostUsageDayRange::new(today - Duration::days(30), today);
-    scan_codex_file_cost_for_range(path, &range)
-}
-
-fn scan_codex_file_cost_for_range(path: &Path, range: &CostUsageDayRange) -> f64 {
-    let parse_result = match JsonlScanner::parse_codex_file(path, range, 0, None, None) {
-        Ok(result) => result,
-        Err(_) => return 0.0,
-    };
-
-    codex_days_cost(&parse_result.days)
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::io::Write;
-
-    #[test]
-    fn test_codex_pricing() {
-        // Test GPT-4o pricing: $2.50/1M input, $10/1M output
-        let cost = CodexPricing::cost_usd("gpt-4o", 1_000_000, 0, 1_000_000);
-        assert!((cost - 12.50).abs() < 0.01);
-    }
-
-    #[test]
-    fn test_codex_pricing_uses_gpt55_standard_short_context_rates() {
-        let cost = CodexPricing::cost_usd("gpt-5.5", 1_000_000, 400_000, 1_000_000);
-
-        // GPT-5.5 standard short-context pricing:
-        // 600k non-cached input at $5/M, 400k cached input at $0.50/M,
-        // and 1M output at $30/M.
-        assert!((cost - 33.20).abs() < 0.01);
-    }
 
     #[test]
     fn test_unknown_model_falls_back_to_sonnet() {
@@ -854,13 +735,6 @@ mod tests {
             (cost - 6.00).abs() < 0.001,
             "haiku-4-5 should bill $6 ($1 in + $5 out), got {cost}"
         );
-    }
-
-    #[test]
-    fn test_codex_speed_bucket() {
-        assert_eq!(codex_speed_bucket("gpt-5.5-fast"), "fast");
-        assert_eq!(codex_speed_bucket("gpt-5.3-codex-spark"), "fast");
-        assert_eq!(codex_speed_bucket("gpt-5-codex"), "standard");
     }
 
     #[test]

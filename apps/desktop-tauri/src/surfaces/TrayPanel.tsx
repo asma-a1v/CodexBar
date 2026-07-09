@@ -101,6 +101,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
   });
   const { updateState, checkNow, download, apply, dismiss, openRelease } =
     useUpdateState();
+
   const { t } = useLocale();
   const surfaceTarget = useSurfaceTarget("trayPanel");
 

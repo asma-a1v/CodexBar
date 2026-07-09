@@ -611,6 +611,10 @@ locale_keys! {
     // Tauri desktop shell — Advanced tab fields
     UpdateChannelStableOption,
     UpdateChannelBetaOption,
+    CodexLocalLogsTitle,
+    CodexLocalLogsCaption,
+    CodexLogPathsLabel,
+    CodexLogPathsHelper,
     AvoidKeychainPromptsLabel,
     AvoidKeychainPromptsHelper,
     DisableAllKeychainLabel,
@@ -698,6 +702,9 @@ locale_keys! {
     PanelReserveLastsUntilReset,
     PanelReserveRunsOutInDaysHours,
     PanelReserveRunsOutInHours,
+    FloatBarThirtyDayShort,
+    FloatBarNoProviders,
+    FloatBarRemainingSuffix,
 
     // Tauri desktop shell — update banner
     BannerCheckingForUpdates,
