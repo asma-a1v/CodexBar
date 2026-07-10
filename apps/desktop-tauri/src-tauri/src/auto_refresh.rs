@@ -13,13 +13,12 @@ const AUTO_REFRESH_POLL_INTERVAL: Duration = Duration::from_secs(15);
 pub fn install(app: tauri::AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
-            if should_refresh(&app) {
-                if crate::commands::do_refresh_providers_if_stale(&app)
+            if should_refresh(&app)
+                && crate::commands::do_refresh_providers_if_stale(&app)
                     .await
                     .is_ok()
-                {
-                    refresh_powertoys_local_usage_cache().await;
-                }
+            {
+                refresh_powertoys_local_usage_cache().await;
             }
             tokio::time::sleep(AUTO_REFRESH_POLL_INTERVAL).await;
         }

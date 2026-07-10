@@ -86,6 +86,7 @@ impl TrayMenuEntry {
     }
 }
 
+#[cfg(test)]
 pub(crate) fn build_tray_menu(
     providers: &[ProviderCatalogEntry],
     status_labels: &[(String, String)],

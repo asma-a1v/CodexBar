@@ -137,7 +137,7 @@ mod tests {
         fs::create_dir_all(&user_sessions).unwrap();
         fs::create_dir_all(&root_sessions).unwrap();
 
-        let dirs = discover_wsl_codex_sessions_dirs(&[base.clone()]);
+        let dirs = discover_wsl_codex_sessions_dirs(std::slice::from_ref(&base));
 
         assert!(dirs.contains(&user_sessions));
         assert!(dirs.contains(&root_sessions));

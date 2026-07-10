@@ -1,5 +1,20 @@
 # Changelog
 
+## [Windows] 0.41.3 - 2026-07-11
+
+### Added
+- Add local cost summaries to FloatBar.
+- Add a PowerToys Command Palette status pipe.
+
+### Fixed
+- Keep FloatBar topmost without repeatedly stealing focus.
+- Preserve the OpenCode Go workspace override during authentication.
+- Open Cursor's usage dashboard at the correct URL.
+- Align the popup correctly with a side-mounted Windows taskbar (#159).
+- Correct Codex daily usage reporting (#153, thanks @0reki).
+
+---
+
 ## [Windows] 0.41.2 - 2026-07-08
 
 ### Added
