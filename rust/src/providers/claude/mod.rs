@@ -1,10 +1,12 @@
 //! Claude provider implementation
 
 mod admin_api;
+mod cli_reset;
 mod oauth;
 mod web_api;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use regex_lite::Regex;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
@@ -18,6 +20,12 @@ use crate::core::{
 };
 
 use admin_api::ClaudeAdminApiFetcher;
+#[cfg(test)]
+use cli_reset::parse_claude_reset_date_in_system_zone;
+use cli_reset::{
+    extract_cli_scoped_weekly_limits, normalized_for_label_search, parse_claude_reset_date,
+    parse_percent_line, starts_next_usage_section,
+};
 pub use oauth::ClaudeOAuthFetcher;
 pub use web_api::ClaudeWebApiFetcher;
 
@@ -444,7 +452,6 @@ impl ClaudeProvider {
         // Parse session percent: "X% used" or "X% left"
         let mut session_percent: Option<f64> = None;
         let mut weekly_percent: Option<f64> = None;
-        let mut opus_percent: Option<f64> = None;
 
         // Look for "Current session" section
         if let Some(session_pct) = extract_percent_near_label(&clean, "current session") {
@@ -458,13 +465,6 @@ impl ClaudeProvider {
             weekly_percent = Some(weekly_pct);
         }
 
-        // Look for Opus/Sonnet specific
-        if let Some(opus_pct) = extract_percent_near_label(&clean, "opus") {
-            opus_percent = Some(opus_pct);
-        } else if let Some(sonnet_pct) = extract_percent_near_label(&clean, "sonnet") {
-            opus_percent = Some(sonnet_pct);
-        }
-
         // Fallback: collect all percentages in order
         if session_percent.is_none() {
             let all_percents = extract_all_percents(&clean);
@@ -474,14 +474,10 @@ impl ClaudeProvider {
             if all_percents.len() > 1 && weekly_percent.is_none() {
                 weekly_percent = Some(all_percents[1]);
             }
-            if all_percents.len() > 2 && opus_percent.is_none() {
-                opus_percent = Some(all_percents[2]);
-            }
         }
 
         if session_percent.is_none()
             && weekly_percent.is_none()
-            && opus_percent.is_none()
             && !is_exhausted_short_form(&clean_lower)
         {
             return Err(ProviderError::Parse(
@@ -503,6 +499,8 @@ impl ClaudeProvider {
             None
         };
         let session_reset = session_reset.or(short_form_reset);
+        let now = Utc::now();
+        let scoped_weekly_limits = extract_cli_scoped_weekly_limits(&clean, now);
 
         if session_percent.is_none() && is_exhausted_short_form(&clean_lower) {
             session_percent = Some(100.0);
@@ -513,7 +511,9 @@ impl ClaudeProvider {
         let primary = RateWindow::with_details(
             session_used,
             Some(300), // 5 hour session window
-            None,      // Could parse reset time
+            session_reset
+                .as_deref()
+                .and_then(|reset| parse_claude_reset_date(reset, now, Some(300))),
             session_reset,
         );
 
@@ -523,15 +523,16 @@ impl ClaudeProvider {
             let secondary = RateWindow::with_details(
                 weekly_used,
                 Some(10080), // weekly (7 * 24 * 60)
-                None,
+                weekly_reset
+                    .as_deref()
+                    .and_then(|reset| parse_claude_reset_date(reset, now, Some(10080))),
                 weekly_reset,
             );
             usage = usage.with_secondary(secondary);
         }
 
-        if let Some(opus_used) = opus_percent {
-            let model_specific = RateWindow::with_details(opus_used, Some(10080), None, None);
-            usage = usage.with_model_specific(model_specific);
+        for limit in scoped_weekly_limits {
+            usage.extra_rate_windows.push(limit);
         }
 
         if let Some(method) = login_method {
@@ -784,32 +785,6 @@ fn extract_percent_near_label(text: &str, label: &str) -> Option<f64> {
     None
 }
 
-/// Parse a line containing "X% used", "X% left", "X% remaining", etc.
-/// Returns the percentage as used (converts "left" to used)
-fn parse_percent_line(line: &str) -> Option<f64> {
-    // Match patterns like "45% used", "55% left", "55% remaining", or "12.5% available".
-    let re =
-        Regex::new(r"(\d{1,3}(?:\.\d+)?)\s*%\s*(used|spent|consumed|left|remaining|available)")
-            .ok()?;
-
-    if let Some(caps) = re.captures(&line.to_lowercase())
-        && let Some(value_match) = caps.get(1)
-        && let Some(kind_match) = caps.get(2)
-    {
-        let value: f64 = value_match.as_str().parse().ok()?;
-        let kind = kind_match.as_str();
-
-        // Convert to "used" percentage
-        if matches!(kind, "left" | "remaining" | "available") {
-            Some((100.0 - value).max(0.0))
-        } else {
-            Some(value.min(100.0))
-        }
-    } else {
-        None
-    }
-}
-
 /// Extract all percentages from text in order
 fn extract_all_percents(text: &str) -> Vec<f64> {
     let re = match Regex::new(
@@ -837,18 +812,6 @@ fn extract_all_percents(text: &str) -> Vec<f64> {
     }
 
     results
-}
-
-fn normalized_for_label_search(text: &str) -> String {
-    text.chars()
-        .filter(|c| c.is_alphanumeric())
-        .flat_map(|c| c.to_lowercase())
-        .collect()
-}
-
-fn starts_next_usage_section(line: &str, current_label: &str) -> bool {
-    let normalized = normalized_for_label_search(line);
-    normalized.starts_with("current") && !normalized.contains(current_label)
 }
 
 fn is_exhausted_short_form(clean_lower: &str) -> bool {
@@ -948,6 +911,8 @@ fn clean_plan_name(text: &str) -> String {
 
 #[cfg(test)]
 mod tests {
+    use chrono::{DateTime, Utc};
+
     use super::*;
 
     #[test]
@@ -1055,9 +1020,110 @@ Status   Config   Usage
 
         let sonnet = result
             .usage
-            .model_specific
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == "claude-weekly-scoped-sonnet")
             .expect("sonnet usage should be present");
-        assert_eq!(sonnet.used_percent, 1.0);
+        assert_eq!(sonnet.window.used_percent, 1.0);
+    }
+
+    #[test]
+    fn parses_all_cli_model_scoped_weekly_limits() {
+        let provider = ClaudeProvider::new();
+        let output = r#"
+Current session
+10% used
+Resets 12pm (America/Bogota)
+
+Current week (all models)
+20% used
+Resets Apr 3, 2pm (America/Bogota)
+
+Current week (Sonnet only)
+30% used
+Resets Apr 4, 2pm (America/Bogota)
+
+Current week (Opus only)
+40% used
+Resets Apr 5, 2pm (America/Bogota)
+"#;
+
+        let result = provider.parse_cli_output(output).expect("should parse");
+
+        assert_eq!(result.usage.extra_rate_windows.len(), 2);
+        assert_eq!(
+            result.usage.extra_rate_windows[0].id,
+            "claude-weekly-scoped-sonnet"
+        );
+        assert_eq!(result.usage.extra_rate_windows[0].title, "Sonnet only");
+        assert_eq!(result.usage.extra_rate_windows[0].window.used_percent, 30.0);
+        assert_eq!(
+            result.usage.extra_rate_windows[1].id,
+            "claude-weekly-scoped-opus"
+        );
+        assert!(result.usage.model_specific.is_none());
+    }
+
+    #[test]
+    fn scoped_weekly_parser_handles_non_ascii_labels_and_reset_prefixes() {
+        let now = "2026-04-02T18:00:00Z".parse::<DateTime<Utc>>().unwrap();
+        let limits = extract_cli_scoped_weekly_limits(
+            "Current week (A€€)\n10% used\nİResets Apr 3 at 2pm (America/Bogota)",
+            now,
+        );
+
+        assert_eq!(limits.len(), 1);
+        assert_eq!(limits[0].title, "A€€");
+        assert_eq!(
+            limits[0].window.resets_at,
+            Some("2026-04-03T19:00:00Z".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn resolves_cli_reset_occurrences_in_the_reported_timezone() {
+        let now = "2026-04-02T18:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(
+            parse_claude_reset_date("Resets Apr 3, 2027, 2pm (America/Bogota)", now, None),
+            Some("2027-04-03T19:00:00Z".parse().unwrap())
+        );
+        assert_eq!(
+            parse_claude_reset_date("Resets Apr 3, 2pm (America/Bogota)", now, None),
+            Some("2026-04-03T19:00:00Z".parse().unwrap())
+        );
+        assert_eq!(
+            parse_claude_reset_date("Resets 12pm (America/Bogota)", now, None),
+            Some("2026-04-03T17:00:00Z".parse().unwrap())
+        );
+        assert_eq!(
+            parse_claude_reset_date("ResetsApr3at2pm(America/Bogota)", now, None),
+            Some("2026-04-03T19:00:00Z".parse().unwrap())
+        );
+    }
+
+    #[test]
+    fn timezone_less_resets_use_the_supplied_system_zone() {
+        let now = "2026-03-07T18:00:00Z".parse::<DateTime<Utc>>().unwrap();
+
+        assert_eq!(
+            parse_claude_reset_date_in_system_zone(
+                "Resets Mar 8 at 3:30am",
+                now,
+                None,
+                "America/New_York".parse().unwrap(),
+            ),
+            Some("2026-03-08T07:30:00Z".parse().unwrap())
+        );
+        assert_eq!(
+            parse_claude_reset_date_in_system_zone(
+                "Resets Mar 8 at 3:30am (America/Los_Angeles)",
+                now,
+                None,
+                "America/New_York".parse().unwrap(),
+            ),
+            Some("2026-03-08T10:30:00Z".parse().unwrap())
+        );
     }
 
     #[test]
@@ -1092,14 +1158,15 @@ ResetsFeb12at1:29pm(Asia/Calcutta)
                 .used_percent,
             4.0
         );
-        assert_eq!(
-            result
-                .usage
-                .model_specific
-                .expect("sonnet usage should be present")
-                .used_percent,
-            1.0
-        );
+        let sonnet = result
+            .usage
+            .extra_rate_windows
+            .iter()
+            .find(|window| window.id == "claude-weekly-scoped-sonnet")
+            .expect("sonnet usage should be present");
+        assert_eq!(result.usage.extra_rate_windows.len(), 1);
+        assert_eq!(sonnet.title, "Sonnet only");
+        assert_eq!(sonnet.window.used_percent, 1.0);
     }
 
     #[test]

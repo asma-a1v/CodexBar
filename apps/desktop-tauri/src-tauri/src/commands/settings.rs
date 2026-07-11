@@ -38,6 +38,7 @@ pub struct SettingsUpdate {
     pub tray_scale_percent: Option<u16>,
     pub powertoys_status_pipe_enabled: Option<bool>,
     pub claude_avoid_keychain_prompts: Option<bool>,
+    pub codex_spark_usage_visible: Option<bool>,
     pub disable_keychain_access: Option<bool>,
     /// Map of provider CLI name → metric preference label.
     pub provider_metrics: Option<std::collections::HashMap<String, String>>,
@@ -76,6 +77,7 @@ impl SettingsUpdate {
             || self.reset_time_relative.is_some()
             || self.menu_bar_display_mode.is_some()
             || self.provider_metrics.is_some()
+            || self.codex_spark_usage_visible.is_some()
             || self.enabled_providers.is_some()
             || self.ui_language.is_some()
     }
@@ -219,6 +221,9 @@ impl SettingsUpdate {
         if let Some(v) = self.claude_avoid_keychain_prompts {
             settings.set_claude_avoid_keychain_prompts(v);
         }
+        if let Some(v) = self.codex_spark_usage_visible {
+            settings.set_codex_spark_usage_visible(v);
+        }
         if let Some(v) = self.disable_keychain_access {
             settings.disable_keychain_access = v;
             if v {
@@ -334,7 +339,6 @@ pub async fn update_settings(
     if refresh_tray_presentation {
         crate::tray_bridge::refresh_tray_presentation(&app);
     }
-
     // Notify other windows (PopOut dashboard, tray, float bar) so they re-read
     // settings live — e.g. the Display tab's window-scale slider takes effect
     // immediately instead of only after the PopOut is reopened.

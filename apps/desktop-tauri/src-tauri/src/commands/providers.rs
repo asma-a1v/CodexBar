@@ -268,14 +268,14 @@ async fn refresh_provider(app: tauri::AppHandle, id: ProviderId, ctx: FetchConte
     let snapshot = fetch_provider_snapshot(id, ctx).await;
 
     let state = app.state::<Mutex<AppState>>();
-    if let Ok(mut guard) = state.lock() {
+    let snapshot = if let Ok(mut guard) = state.lock() {
         let snapshot = preserve_last_good_transient_failure(&mut guard, id, snapshot);
         upsert_provider_cache(&mut guard.provider_cache, snapshot.clone());
-        drop(guard);
-        events::emit_provider_updated(&app, &snapshot);
+        snapshot
     } else {
-        events::emit_provider_updated(&app, &snapshot);
-    }
+        snapshot
+    };
+    events::emit_provider_updated(&app, &snapshot);
 }
 
 pub(super) fn preserve_last_good_transient_failure(
@@ -441,8 +441,13 @@ pub async fn refresh_providers_if_stale(app: tauri::AppHandle) -> Result<(), Str
 pub fn get_cached_providers(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Vec<ProviderUsageSnapshot> {
-    state
+    let mut snapshots = state
         .lock()
         .map(|guard| guard.provider_cache.clone())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    let spark_usage_visible = Settings::load().codex_spark_usage_visible();
+    for snapshot in &mut snapshots {
+        super::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
+    }
+    snapshots
 }
