@@ -9,6 +9,22 @@ fn test_settings_default() {
     assert!(settings.show_notifications);
     assert_eq!(settings.high_usage_threshold, 70.0);
     assert_eq!(settings.critical_usage_threshold, 90.0);
+    assert!(!settings.show_reset_when_exhausted);
+    assert!(!settings.predictive_pace_warning_enabled);
+}
+
+#[test]
+fn new_warning_and_reset_settings_are_backward_compatible() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300
+        }"#,
+    )
+    .expect("parse legacy settings");
+
+    assert!(!loaded.show_reset_when_exhausted);
+    assert!(!loaded.predictive_pace_warning_enabled);
 }
 
 #[test]
@@ -192,6 +208,27 @@ fn test_settings_provider_enabled() {
     assert!(settings.is_provider_enabled(ProviderId::Claude));
     assert!(settings.is_provider_enabled(ProviderId::Codex));
     assert!(!settings.is_provider_enabled(ProviderId::Gemini));
+    assert!(!settings.is_provider_enabled(ProviderId::Wayfinder));
+    assert_eq!(
+        settings.gateway_url(ProviderId::Wayfinder),
+        "http://127.0.0.1:8088"
+    );
+}
+
+#[test]
+fn wayfinder_gateway_round_trips_without_changing_settings_paths() {
+    let mut settings = Settings::default();
+    settings.set_gateway_url(
+        ProviderId::Wayfinder,
+        "https://gateway.example.test/wayfinder/",
+    );
+
+    let json = serde_json::to_string(&settings).expect("serialize settings");
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize settings");
+    assert_eq!(
+        loaded.gateway_url(ProviderId::Wayfinder),
+        "https://gateway.example.test/wayfinder/"
+    );
 }
 
 #[test]

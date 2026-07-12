@@ -104,6 +104,7 @@ pub struct ProviderUsageSnapshot {
     pub account_organization: Option<String>,
     pub tray_status_label: Option<String>,
     pub fetch_duration_ms: Option<u128>,
+    pub wayfinder_usage: Option<codexbar::core::WayfinderUsageSnapshot>,
 }
 
 pub(crate) fn filter_hidden_codex_spark_rows(
@@ -211,6 +212,7 @@ impl ProviderUsageSnapshot {
             account_organization: usage.account_organization.clone(),
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: result.wayfinder_usage.clone(),
         }
     }
 
@@ -247,6 +249,7 @@ impl ProviderUsageSnapshot {
             account_organization: None,
             tray_status_label: None,
             fetch_duration_ms: None,
+            wayfinder_usage: None,
         }
     }
 }
@@ -410,6 +413,7 @@ pub struct SettingsSnapshot {
     sound_volume: u8,
     high_usage_threshold: f64,
     critical_usage_threshold: f64,
+    predictive_pace_warning_enabled: bool,
     tray_icon_mode: &'static str,
     switcher_shows_icons: bool,
     menu_bar_shows_highest_usage: bool,
@@ -418,6 +422,7 @@ pub struct SettingsSnapshot {
     show_all_token_accounts_in_menu: bool,
     enable_animations: bool,
     reset_time_relative: bool,
+    show_reset_when_exhausted: bool,
     menu_bar_display_mode: String,
     hide_personal_info: bool,
     update_channel: &'static str,
@@ -433,6 +438,7 @@ pub struct SettingsSnapshot {
     claude_avoid_keychain_prompts: bool,
     codex_spark_usage_visible: bool,
     disable_keychain_access: bool,
+    wayfinder_gateway_url: String,
     provider_metrics: std::collections::HashMap<String, &'static str>,
     float_bar_enabled: bool,
     float_bar_opacity: u8,
@@ -469,6 +475,7 @@ impl From<Settings> for SettingsSnapshot {
     fn from(settings: Settings) -> Self {
         let avoid_keychain_prompts = settings.claude_avoid_keychain_prompts();
         let codex_spark_usage_visible = settings.codex_spark_usage_visible();
+        let wayfinder_gateway_url = settings.gateway_url(ProviderId::Wayfinder).to_string();
 
         let provider_order = settings.provider_display_order_names();
         let enabled_providers = provider_order
@@ -495,6 +502,7 @@ impl From<Settings> for SettingsSnapshot {
             sound_volume: settings.sound_volume,
             high_usage_threshold: settings.high_usage_threshold,
             critical_usage_threshold: settings.critical_usage_threshold,
+            predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
             tray_icon_mode: tray_icon_mode_label(settings.tray_icon_mode),
             switcher_shows_icons: settings.switcher_shows_icons,
             menu_bar_shows_highest_usage: settings.menu_bar_shows_highest_usage,
@@ -503,6 +511,7 @@ impl From<Settings> for SettingsSnapshot {
             show_all_token_accounts_in_menu: settings.show_all_token_accounts_in_menu,
             enable_animations: settings.enable_animations,
             reset_time_relative: settings.reset_time_relative,
+            show_reset_when_exhausted: settings.show_reset_when_exhausted,
             menu_bar_display_mode: settings.menu_bar_display_mode,
             hide_personal_info: settings.hide_personal_info,
             update_channel: update_channel_label(settings.update_channel),
@@ -518,6 +527,7 @@ impl From<Settings> for SettingsSnapshot {
             claude_avoid_keychain_prompts: avoid_keychain_prompts,
             codex_spark_usage_visible,
             disable_keychain_access: settings.disable_keychain_access,
+            wayfinder_gateway_url,
             provider_metrics,
             float_bar_enabled: settings.float_bar_enabled,
             float_bar_opacity: settings.float_bar_opacity,
