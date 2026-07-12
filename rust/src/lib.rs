@@ -3,6 +3,7 @@
 //! This keeps the current Rust implementation usable from the existing CLI/bin
 //! while giving the rewrite a stable crate dependency for future shells.
 
+pub mod agent_sessions;
 pub mod browser;
 pub mod cli;
 pub mod core;

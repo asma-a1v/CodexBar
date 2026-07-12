@@ -11,7 +11,8 @@ use std::io::{BufRead, BufReader};
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::PathBuf;
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, ChildStderr, ChildStdout, Command, Stdio};
+use std::sync::mpsc::{self, RecvTimeoutError};
 use std::time::{Duration, Instant};
 
 /// Command runner configuration
@@ -108,6 +109,7 @@ pub struct CommandRunner {
 }
 
 impl CommandRunner {
+    const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
     pub fn new() -> Self {
         Self {
             env_additions: HashMap::new(),
@@ -143,13 +145,12 @@ impl CommandRunner {
         let start = Instant::now();
         let deadline = start + options.timeout;
 
-        Self::send_initial_input(&mut child, input, options.initial_delay);
+        Self::send_initial_input(&mut child, input, options.initial_delay, deadline);
 
         // Capture output
-        let output = self.capture_output(&mut child, options, deadline)?;
+        let (output, timed_out) = self.capture_output(&mut child, options, deadline)?;
 
         let exit_code = Self::finish_child(&mut child);
-        let timed_out = Instant::now() >= deadline && output.is_empty();
 
         Ok(CommandResult {
             text: output,
@@ -222,7 +223,12 @@ impl CommandRunner {
     #[cfg(not(windows))]
     fn hide_windows_console(_cmd: &mut Command) {}
 
-    fn send_initial_input(child: &mut Child, input: Option<&str>, initial_delay: Duration) {
+    fn send_initial_input(
+        child: &mut Child,
+        input: Option<&str>,
+        initial_delay: Duration,
+        deadline: Instant,
+    ) {
         let Some(input_text) = input else {
             return;
         };
@@ -231,7 +237,10 @@ impl CommandRunner {
         };
 
         use std::io::Write;
-        std::thread::sleep(initial_delay);
+        std::thread::sleep(initial_delay.min(deadline.saturating_duration_since(Instant::now())));
+        if Self::past_deadline(deadline) {
+            return;
+        }
         let _ = stdin.write_all(input_text.as_bytes());
         let _ = stdin.write_all(b"\n");
         let _ = stdin.flush();
@@ -255,39 +264,54 @@ impl CommandRunner {
         child: &mut Child,
         options: &CommandOptions,
         deadline: Instant,
-    ) -> Result<String, CommandError> {
+    ) -> Result<(String, bool), CommandError> {
         let mut output = String::new();
-        #[allow(unused_assignments)]
         let mut last_output_time = Instant::now();
-        let reader = Self::stdout_reader(child)?;
+        let (sender, receiver) = mpsc::channel();
+        Self::read_stream(Self::stdout_reader(child)?, sender.clone(), true);
+        Self::read_stream(Self::stderr_reader(child)?, sender, false);
+        let mut closed_streams = 0;
 
-        for line_result in reader.lines() {
+        loop {
             if Self::past_deadline(deadline) {
-                break;
+                return Ok((output, true));
             }
-
-            match line_result {
-                Ok(line) => {
-                    Self::append_output_line(&mut output, &line);
-                    last_output_time = Instant::now();
-
-                    if Self::should_stop_after_line(&line, options) {
-                        std::thread::sleep(options.settle_after_stop);
-                        break;
-                    }
-                }
-                Err(_) => break,
-            }
-
             if Self::idle_timed_out(options.idle_timeout, last_output_time) {
                 break;
             }
+
+            let wait = Self::next_wait(deadline, options.idle_timeout, last_output_time);
+            match receiver.recv_timeout(wait) {
+                Ok(StreamEvent::Line { text, capture }) => {
+                    last_output_time = Instant::now();
+                    if !capture {
+                        continue;
+                    }
+                    Self::append_output_line(&mut output, &text);
+                    if Self::should_stop_after_line(&text, options) {
+                        std::thread::sleep(
+                            options
+                                .settle_after_stop
+                                .min(deadline.saturating_duration_since(Instant::now())),
+                        );
+                        break;
+                    }
+                }
+                Ok(StreamEvent::Closed) => {
+                    closed_streams += 1;
+                    if closed_streams == 2 {
+                        break;
+                    }
+                }
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break,
+            }
         }
 
-        Ok(output)
+        Ok((output, false))
     }
 
-    fn stdout_reader(child: &mut Child) -> Result<BufReader<impl std::io::Read>, CommandError> {
+    fn stdout_reader(child: &mut Child) -> Result<BufReader<ChildStdout>, CommandError> {
         let stdout = child
             .stdout
             .take()
@@ -296,12 +320,67 @@ impl CommandRunner {
         Ok(BufReader::new(stdout))
     }
 
+    fn stderr_reader(child: &mut Child) -> Result<BufReader<ChildStderr>, CommandError> {
+        let stderr = child
+            .stderr
+            .take()
+            .ok_or_else(|| CommandError::IoError("Failed to capture stderr".to_string()))?;
+
+        Ok(BufReader::new(stderr))
+    }
+
+    fn read_stream(
+        reader: BufReader<impl std::io::Read + Send + 'static>,
+        sender: mpsc::Sender<StreamEvent>,
+        capture: bool,
+    ) {
+        std::thread::spawn(move || {
+            for line in reader.lines().map_while(Result::ok) {
+                if sender
+                    .send(StreamEvent::Line {
+                        text: line,
+                        capture,
+                    })
+                    .is_err()
+                {
+                    return;
+                }
+            }
+            let _ = sender.send(StreamEvent::Closed);
+        });
+    }
+
+    fn next_wait(
+        deadline: Instant,
+        idle_timeout: Option<Duration>,
+        last_output_time: Instant,
+    ) -> Duration {
+        let deadline_wait = deadline.saturating_duration_since(Instant::now());
+        let idle_wait = idle_timeout
+            .map(|timeout| timeout.saturating_sub(last_output_time.elapsed()))
+            .unwrap_or(deadline_wait);
+        deadline_wait.min(idle_wait).min(Duration::from_millis(25))
+    }
+
     fn past_deadline(deadline: Instant) -> bool {
         Instant::now() >= deadline
     }
 
     fn append_output_line(output: &mut String, line: &str) {
-        output.push_str(line);
+        if output.len() >= Self::MAX_CAPTURE_BYTES {
+            return;
+        }
+        let remaining = Self::MAX_CAPTURE_BYTES - output.len();
+        let end = line
+            .char_indices()
+            .take_while(|(index, _)| *index < remaining)
+            .map(|(index, character)| index + character.len_utf8())
+            .last()
+            .unwrap_or(0);
+        output.push_str(&line[..end]);
+        if output.len() >= Self::MAX_CAPTURE_BYTES {
+            return;
+        }
         output.push('\n');
     }
 
@@ -349,6 +428,11 @@ impl Default for CommandRunner {
     fn default() -> Self {
         Self::new()
     }
+}
+
+enum StreamEvent {
+    Line { text: String, capture: bool },
+    Closed,
 }
 
 /// Rolling buffer for substring matching across chunk boundaries
@@ -429,6 +513,41 @@ mod tests {
 
         assert_eq!(runner.env_additions.get("FOO"), Some(&"bar".to_string()));
         assert_eq!(runner.env_additions.get("BAZ"), Some(&"qux".to_string()));
+    }
+
+    #[test]
+    fn captured_output_is_bounded() {
+        let mut output = String::new();
+        let line = "x".repeat(CommandRunner::MAX_CAPTURE_BYTES + 10);
+        CommandRunner::append_output_line(&mut output, &line);
+        assert_eq!(output.len(), CommandRunner::MAX_CAPTURE_BYTES);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn command_timeout_is_a_wall_clock_bound_even_without_output() {
+        let runner = CommandRunner::new();
+        let options = CommandOptions {
+            timeout: Duration::from_millis(100),
+            initial_delay: Duration::ZERO,
+            extra_args: vec![
+                "-NoProfile".to_string(),
+                "-NonInteractive".to_string(),
+                "-Command".to_string(),
+                "Start-Sleep -Seconds 5".to_string(),
+            ],
+            ..CommandOptions::default()
+        };
+        let started = Instant::now();
+
+        let result = runner.run("powershell.exe", None, &options).unwrap();
+
+        assert!(result.timed_out);
+        assert!(
+            started.elapsed() < Duration::from_secs(2),
+            "timeout took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

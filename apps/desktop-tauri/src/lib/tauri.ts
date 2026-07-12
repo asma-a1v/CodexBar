@@ -30,6 +30,9 @@ import type {
   SafeDiagnostics,
   CredentialStorageStatus,
   WorkAreaRect,
+  AgentSession,
+  AgentSessionDiscoveryResult,
+  SessionFocusResult,
 } from "../types/bridge";
 
 export function getBootstrapState(): Promise<BootstrapState> {
@@ -52,6 +55,16 @@ export function updateSettings(
   patch: SettingsUpdate,
 ): Promise<SettingsSnapshot> {
   return invoke<SettingsSnapshot>("update_settings", { patch });
+}
+
+export function listAgentSessions(): Promise<AgentSessionDiscoveryResult> {
+  return invoke<AgentSessionDiscoveryResult>("list_agent_sessions");
+}
+
+export function focusAgentSession(
+  session: AgentSession,
+): Promise<SessionFocusResult> {
+  return invoke<SessionFocusResult>("focus_agent_session", { session });
 }
 
 export function setSurfaceMode<M extends VisibleSurfaceMode>(

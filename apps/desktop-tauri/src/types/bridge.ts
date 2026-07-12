@@ -126,6 +126,43 @@ export interface CurrentSurfaceState {
   target: SurfaceTarget;
 }
 
+export interface AgentSession {
+  id: string;
+  provider: "codex" | "claude";
+  source: "cli" | "desktopApp" | "ide" | "unknown";
+  state: "active" | "idle";
+  pid: number | null;
+  transcriptPath: string | null;
+  host: string;
+  workspace: {
+    cwd: string | null;
+    projectName: string | null;
+  };
+  activity: {
+    startedAt: string | null;
+    lastActivityAt: string | null;
+  };
+  focusTarget:
+    | { kind: "process"; pid: number }
+    | { kind: "transcript"; transcriptPath: string }
+    | { kind: "none" };
+}
+
+export interface AgentSessionHostResult {
+  host: string;
+  sessions: AgentSession[];
+  error: string | null;
+}
+
+export type AgentSessionDiscoveryResult =
+  | { status: "disabled" }
+  | { status: "hosts"; hosts: AgentSessionHostResult[] };
+
+export type SessionFocusResult =
+  | { status: "focused" }
+  | { status: "unsupported"; message: string }
+  | { status: "failed"; message: string };
+
 export interface ProofRect {
   x: number;
   y: number;
@@ -195,6 +232,8 @@ export interface SettingsSnapshot {
   globalShortcut: string;
   /** Extra Codex home or sessions directories scanned for local cost estimates. */
   codexCustomSessionsDirs: string[];
+  agentSessionsEnabled?: boolean;
+  agentSessionSshHosts?: string[];
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -252,6 +291,8 @@ export interface SettingsUpdate {
   installUpdatesOnQuit?: boolean;
   globalShortcut?: string;
   codexCustomSessionsDirs?: string[];
+  agentSessionsEnabled?: boolean;
+  agentSessionSshHosts?: string[];
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;
