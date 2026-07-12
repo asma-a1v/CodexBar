@@ -9,6 +9,78 @@ fn test_settings_default() {
     assert!(settings.show_notifications);
     assert_eq!(settings.high_usage_threshold, 70.0);
     assert_eq!(settings.critical_usage_threshold, 90.0);
+    assert!(!settings.show_reset_when_exhausted);
+    assert!(!settings.predictive_pace_warning_enabled);
+    assert!(!settings.float_bar_show_cost);
+}
+
+#[test]
+fn new_warning_and_reset_settings_are_backward_compatible() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "enabled_providers": ["claude", "codex"],
+            "refresh_interval_secs": 300
+        }"#,
+    )
+    .expect("parse legacy settings");
+
+    assert!(!loaded.show_reset_when_exhausted);
+    assert!(!loaded.predictive_pace_warning_enabled);
+}
+
+#[test]
+fn usage_thresholds_inherit_from_window_provider_and_global_levels() {
+    let mut settings = Settings::default();
+    settings.provider_usage_thresholds.insert(
+        "codex".into(),
+        UsageThresholdOverride {
+            high: Some(75.0),
+            critical: None,
+        },
+    );
+    settings.provider_usage_thresholds.insert(
+        "codex:weekly".into(),
+        UsageThresholdOverride {
+            high: None,
+            critical: Some(95.0),
+        },
+    );
+
+    assert_eq!(
+        settings.usage_thresholds(ProviderId::Codex, "weekly"),
+        UsageThresholds {
+            high: 75.0,
+            critical: 95.0,
+        }
+    );
+    assert_eq!(
+        settings.usage_thresholds(ProviderId::Claude, "session"),
+        UsageThresholds {
+            high: 70.0,
+            critical: 90.0,
+        }
+    );
+}
+
+#[test]
+fn empty_and_out_of_range_threshold_overrides_are_normalized_on_load() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "provider_usage_thresholds": {
+                "codex": {"high": 120.0},
+                "claude": {},
+                "codex:weekly": {"critical": -10.0}
+            }
+        }"#,
+    )
+    .expect("parse settings");
+
+    assert_eq!(loaded.provider_usage_thresholds.len(), 2);
+    assert_eq!(loaded.provider_usage_thresholds["codex"].high, Some(100.0));
+    assert_eq!(
+        loaded.provider_usage_thresholds["codex:weekly"].critical,
+        Some(0.0)
+    );
 }
 
 #[test]
@@ -195,6 +267,27 @@ fn test_settings_provider_enabled() {
     assert!(settings.is_provider_enabled(ProviderId::Claude));
     assert!(settings.is_provider_enabled(ProviderId::Codex));
     assert!(!settings.is_provider_enabled(ProviderId::Gemini));
+    assert!(!settings.is_provider_enabled(ProviderId::Wayfinder));
+    assert_eq!(
+        settings.gateway_url(ProviderId::Wayfinder),
+        "http://127.0.0.1:8088"
+    );
+}
+
+#[test]
+fn wayfinder_gateway_round_trips_without_changing_settings_paths() {
+    let mut settings = Settings::default();
+    settings.set_gateway_url(
+        ProviderId::Wayfinder,
+        "https://gateway.example.test/wayfinder/",
+    );
+
+    let json = serde_json::to_string(&settings).expect("serialize settings");
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize settings");
+    assert_eq!(
+        loaded.gateway_url(ProviderId::Wayfinder),
+        "https://gateway.example.test/wayfinder/"
+    );
 }
 
 #[test]

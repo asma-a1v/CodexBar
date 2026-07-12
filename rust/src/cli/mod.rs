@@ -14,6 +14,7 @@ pub mod config;
 pub mod cost;
 pub mod diagnose;
 pub mod serve;
+pub mod sessions;
 pub mod tty_runner;
 pub mod usage;
 
@@ -116,6 +117,9 @@ pub enum Commands {
 
     /// Export safe provider diagnostics as JSON
     Diagnose(diagnose::DiagnoseArgs),
+
+    /// List or focus local and configured remote agent sessions
+    Sessions(sessions::SessionsArgs),
 
     /// Serve usage and cost JSON on 127.0.0.1
     Serve(serve::ServeArgs),

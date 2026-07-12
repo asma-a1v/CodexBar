@@ -25,7 +25,7 @@ export function useFormattedResetTime(
   const [now, setNow] = useState(() => Date.now());
 
   useEffect(() => {
-    if (!resetsAt || !relative) return;
+    if (!resetsAt) return;
     const id = window.setInterval(() => setNow(Date.now()), 30_000);
     return () => window.clearInterval(id);
   }, [resetsAt, relative]);
@@ -49,6 +49,9 @@ export function useFormattedResetTime(
       return t("ResetsInDaysHours")
         .replace("{}", String(days))
         .replace("{}", String(hours));
+    }
+    if (hours === 0) {
+      return t("ResetsInMinutes").replace("{}", String(minutes));
     }
     return t("ResetsInHoursMinutes")
       .replace("{}", String(hours))

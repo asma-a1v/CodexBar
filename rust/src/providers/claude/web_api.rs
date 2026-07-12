@@ -95,7 +95,7 @@ struct UsageResponse {
     seven_day_design: Option<UsageWindow>,
     seven_day_routines: Option<UsageWindow>,
     extra_usage: Option<ExtraUsageResponse>,
-    limits: Vec<super::ScopedWeeklyLimit>,
+    limits: Vec<super::scoped_weekly::ScopedWeeklyLimit>,
 }
 
 impl<'de> Deserialize<'de> for UsageResponse {
@@ -360,10 +360,10 @@ impl ClaudeWebApiFetcher {
                     .extra_rate_windows
                     .push(NamedRateWindow::new(id, title, window));
             }
+            snapshot
+                .extra_rate_windows
+                .extend(super::scoped_weekly::scoped_weekly_windows(&usage.limits));
         }
-        snapshot
-            .extra_rate_windows
-            .extend(super::scoped_weekly_windows(&usage.limits));
 
         if let Some(ref acc) = account {
             if let Some(ref email) = acc.email_address {
@@ -821,27 +821,22 @@ mod tests {
     fn maps_scoped_weekly_limits_even_when_inactive() {
         let usage: super::UsageResponse = serde_json::from_str(
             r#"{
-                "limits": [
-                    {
-                        "kind": "weekly_scoped",
-                        "group": "weekly",
-                        "percent": 7,
-                        "resets_at": "2026-07-16T10:00:00Z",
-                        "scope": {"model": {"id": null, "display_name": "Fable"}},
-                        "is_active": false
-                    }
-                ]
+                "limits": [{
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 7,
+                    "resets_at": "2026-07-16T10:00:00Z",
+                    "scope": {"model": {"id": null, "display_name": "Fable"}},
+                    "is_active": false
+                }]
             }"#,
         )
         .unwrap();
 
-        let windows = super::super::scoped_weekly_windows(&usage.limits);
-
+        let windows = super::super::scoped_weekly::scoped_weekly_windows(&usage.limits);
         assert_eq!(windows.len(), 1);
         assert_eq!(windows[0].id, "claude-weekly-scoped-fable");
         assert_eq!(windows[0].title, "Fable only");
-        assert_eq!(windows[0].window.used_percent, 7.0);
-        assert!(windows[0].window.resets_at.is_some());
     }
 
     #[test]

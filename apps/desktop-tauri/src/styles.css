@@ -5557,3 +5557,32 @@ html:has(.menu-surface--tray) {
     padding-bottom: 3px;
   }
 }
+.agent-sessions {
+  display: grid;
+  gap: 6px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--panel-border);
+  font-size: 12px;
+}
+
+.agent-sessions__header,
+.agent-sessions__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.agent-sessions__row {
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 6px;
+  color: inherit;
+  background: var(--surface-elevated);
+  cursor: pointer;
+}
+
+.agent-sessions__error {
+  color: var(--provider-status-error);
+}

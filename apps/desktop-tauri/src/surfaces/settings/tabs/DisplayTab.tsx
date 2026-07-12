@@ -9,7 +9,12 @@ function clampWindowScalePercent(value: number): number {
   return Math.min(250, Math.max(100, Number.isFinite(value) ? value : 100));
 }
 
-export default function DisplayTab({ settings, set, saving }: TabProps) {
+export default function DisplayTab({
+  mode = "menu",
+  settings,
+  set,
+  saving,
+}: TabProps & { mode?: "menuBar" | "menu" }) {
   const { t } = useLocale();
   const [windowScaleDraft, setWindowScaleDraft] = useState(() =>
     clampWindowScalePercent(settings.windowScalePercent),
@@ -28,7 +33,7 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
   return (
     <>
       {/* ── Menu bar ─────────────────────────────────────────────── */}
-      <section className="settings-section">
+      {mode === "menuBar" && <section className="settings-section">
         <h3 className="settings-section__title">{t("MenuBar")}</h3>
         <div className="settings-section__group">
           <Field
@@ -96,11 +101,11 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
             />
           </Field>
         </div>
-      </section>
+      </section>}
 
       {/* ── Menu content ─────────────────────────────────────────── */}
-      <section className="settings-section">
-        <h3 className="settings-section__title">Menu Content</h3>
+      {mode === "menu" && <section className="settings-section">
+        <h3 className="settings-section__title">{t("TabMenu")}</h3>
         <div className="settings-section__group">
           <Field
             label={`${t("WindowScaleLabel")} (${windowScaleDraft}%)`}
@@ -158,10 +163,24 @@ export default function DisplayTab({ settings, set, saving }: TabProps) {
               onChange={(v) => set({ resetTimeRelative: v })}
             />
           </Field>
+          <Field
+            label={t("ShowResetWhenExhausted")}
+            description={t("ShowResetWhenExhaustedHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.showResetWhenExhausted}
+              ariaLabel={t("ShowResetWhenExhausted")}
+              disabled={saving}
+              onChange={(v) => set({ showResetWhenExhausted: v })}
+            />
+          </Field>
         </div>
-      </section>
+      </section>}
 
-      <FloatBarSettingsSection settings={settings} saving={saving} set={set} />
+      {mode === "menu" && (
+        <FloatBarSettingsSection settings={settings} saving={saving} set={set} />
+      )}
     </>
   );
 }

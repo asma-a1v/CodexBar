@@ -17,6 +17,9 @@ pub struct SettingsUpdate {
     pub sound_volume: Option<u8>,
     pub high_usage_threshold: Option<f64>,
     pub critical_usage_threshold: Option<f64>,
+    pub provider_usage_thresholds:
+        Option<std::collections::HashMap<String, codexbar::settings::UsageThresholdOverride>>,
+    pub predictive_pace_warning_enabled: Option<bool>,
     pub tray_icon_mode: Option<String>,
     pub switcher_shows_icons: Option<bool>,
     pub menu_bar_shows_highest_usage: Option<bool>,
@@ -25,6 +28,7 @@ pub struct SettingsUpdate {
     pub show_all_token_accounts_in_menu: Option<bool>,
     pub enable_animations: Option<bool>,
     pub reset_time_relative: Option<bool>,
+    pub show_reset_when_exhausted: Option<bool>,
     pub menu_bar_display_mode: Option<String>,
     pub hide_personal_info: Option<bool>,
     pub update_channel: Option<String>,
@@ -32,6 +36,8 @@ pub struct SettingsUpdate {
     pub install_updates_on_quit: Option<bool>,
     pub global_shortcut: Option<String>,
     pub codex_custom_sessions_dirs: Option<Vec<String>>,
+    pub agent_sessions_enabled: Option<bool>,
+    pub agent_session_ssh_hosts: Option<Vec<String>>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
@@ -55,14 +61,20 @@ pub struct SettingsUpdate {
 }
 
 impl SettingsUpdate {
+    fn refreshes_provider_data(&self) -> bool {
+        self.enabled_providers.is_some()
+    }
+
     fn notifies_float_bar(&self) -> bool {
         self.enabled_providers.is_some()
             || self.refresh_interval_secs.is_some()
             || self.codex_custom_sessions_dirs.is_some()
             || self.high_usage_threshold.is_some()
             || self.critical_usage_threshold.is_some()
+            || self.provider_usage_thresholds.is_some()
             || self.show_as_used.is_some()
             || self.reset_time_relative.is_some()
+            || self.show_reset_when_exhausted.is_some()
     }
 
     fn rebuilds_tray_menu(&self) -> bool {
@@ -150,6 +162,9 @@ impl SettingsUpdate {
         if let Some(v) = self.reset_time_relative {
             settings.reset_time_relative = v;
         }
+        if let Some(v) = self.show_reset_when_exhausted {
+            settings.show_reset_when_exhausted = v;
+        }
         if let Some(v) = self.menu_bar_display_mode.clone() {
             settings.menu_bar_display_mode = v;
         }
@@ -190,6 +205,13 @@ impl SettingsUpdate {
         if let Some(v) = self.critical_usage_threshold {
             settings.critical_usage_threshold = v.clamp(0.0, 100.0);
         }
+        if let Some(values) = self.provider_usage_thresholds.clone() {
+            settings.provider_usage_thresholds =
+                codexbar::settings::normalize_usage_threshold_overrides(values);
+        }
+        if let Some(v) = self.predictive_pace_warning_enabled {
+            settings.predictive_pace_warning_enabled = v;
+        }
         self
     }
 
@@ -212,6 +234,13 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.codex_custom_sessions_dirs.clone() {
             settings.codex_custom_sessions_dirs = normalize_custom_sessions_dirs(v);
+        }
+        if let Some(v) = self.agent_sessions_enabled {
+            settings.agent_sessions_enabled = v;
+        }
+        if let Some(v) = self.agent_session_ssh_hosts.clone() {
+            settings.agent_session_ssh_hosts =
+                codexbar::agent_sessions::RemoteSessionFetcher::sanitized_hosts(&v);
         }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;
@@ -317,6 +346,7 @@ pub async fn update_settings(
 ) -> Result<SettingsSnapshot, String> {
     let mut settings = Settings::load();
     let notify_float_bar = patch.notifies_float_bar();
+    let refresh_provider_data = patch.refreshes_provider_data();
     let clear_local_usage_cache = patch.codex_custom_sessions_dirs.is_some();
     let rebuild_tray_menu = patch.rebuilds_tray_menu();
     let refresh_tray_presentation = patch.refreshes_tray_presentation();
@@ -345,6 +375,12 @@ pub async fn update_settings(
     // settings live — e.g. the Display tab's window-scale slider takes effect
     // immediately instead of only after the PopOut is reopened.
     events::emit_settings_changed(&app);
+    if refresh_provider_data {
+        let app = app.clone();
+        tauri::async_runtime::spawn(async move {
+            let _ = crate::commands::do_refresh_providers(&app).await;
+        });
+    }
 
     Ok(SettingsSnapshot::from(settings))
 }
@@ -352,6 +388,25 @@ pub async fn update_settings(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_data_affecting_settings_refresh_providers() {
+        assert!(
+            SettingsUpdate {
+                enabled_providers: Some(vec!["codex".to_string()]),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
+        assert!(
+            !SettingsUpdate {
+                provider_metrics: Some(Default::default()),
+                tray_icon_mode: Some("single".to_string()),
+                ..Default::default()
+            }
+            .refreshes_provider_data()
+        );
+    }
 
     #[test]
     fn display_settings_that_affect_tray_trigger_presentation_refresh() {

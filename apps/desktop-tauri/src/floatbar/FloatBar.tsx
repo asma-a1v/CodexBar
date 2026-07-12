@@ -292,7 +292,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
   const filterIds = settings.floatBarProviderIds;
   const scale = Math.max(0.75, Math.min(2, settings.floatBarScale / 100));
   const showResetInline = settings.floatBarShowResetInline;
-  const showCost = settings.floatBarShowCost === true;
+  const showCost = settings.floatBarShowCost;
   const visible = useMemo(() => {
     const enabled = new Set(settings.enabledProviders);
     let list = providers.filter((p) => enabled.has(p.providerId));

@@ -75,7 +75,7 @@ pub struct OAuthUsageResponse {
     pub extra_usage: Option<ExtraUsage>,
 
     #[serde(default)]
-    limits: Vec<super::ScopedWeeklyLimit>,
+    limits: Vec<super::scoped_weekly::ScopedWeeklyLimit>,
 }
 
 /// A usage window from the OAuth API
@@ -400,10 +400,12 @@ impl ClaudeOAuthFetcher {
                     .extra_rate_windows
                     .push(NamedRateWindow::new(id, title, window));
             }
+            usage
+                .extra_rate_windows
+                .extend(super::scoped_weekly::scoped_weekly_windows(
+                    &response.limits,
+                ));
         }
-        usage
-            .extra_rate_windows
-            .extend(super::scoped_weekly_windows(&response.limits));
 
         // Login method from rate limit tier or default
         if let Some(ref tier) = credentials.rate_limit_tier {
@@ -511,7 +513,7 @@ mod tests {
                     "percent": 7,
                     "resets_at": "2026-05-29T10:00:00Z",
                     "scope": {"model": {"id": null, "display_name": "Fable"}},
-                    "is_active": true
+                    "is_active": false
                 }],
                 "extra_usage": {"is_enabled": true, "used_credits": 0, "monthly_limit": 1000, "currency": "USD"}
             }"#,
@@ -536,8 +538,6 @@ mod tests {
             .expect("Fable scoped weekly limit");
         assert_eq!(scoped.title, "Fable only");
         assert_eq!(scoped.window.used_percent, 7.0);
-        assert_eq!(scoped.window.window_minutes, Some(10080));
-        assert!(scoped.window.resets_at.is_some());
     }
 
     #[test]

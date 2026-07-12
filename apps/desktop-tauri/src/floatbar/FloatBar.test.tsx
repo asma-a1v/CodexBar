@@ -100,6 +100,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     soundVolume: 100,
     highUsageThreshold: 70,
     criticalUsageThreshold: 90,
+    predictivePaceWarningEnabled: false,
     trayIconMode: "single",
     switcherShowsIcons: true,
     menuBarShowsHighestUsage: false,
@@ -108,6 +109,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     showAllTokenAccountsInMenu: false,
     enableAnimations: true,
     resetTimeRelative: true,
+    showResetWhenExhausted: false,
     menuBarDisplayMode: "detailed",
     hidePersonalInfo: false,
     updateChannel: "stable",
@@ -180,7 +182,9 @@ describe("FloatBar", () => {
       snapshot("claude", "Claude", 20),
       snapshot("codex", "Codex", 75),
     ]);
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(
+      settings({ floatBarShowCost: true }),
+    );
 
     const { container } = renderFloatBar(bootstrap());
     await waitFor(() => {
@@ -200,7 +204,7 @@ describe("FloatBar", () => {
     tauriMocks.getCachedProviders.mockResolvedValue([
       snapshot("codex", "Codex", 75),
     ]);
-    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings({ floatBarShowCost: true }));
+    tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
     tauriMocks.getProviderLocalUsageSummary.mockResolvedValue({
       todayCost: 1.25,
       thirtyDayCost: 12.5,
@@ -208,6 +212,7 @@ describe("FloatBar", () => {
       latestTokens: 200,
       topModel: "gpt-5",
       estimateNote: "Estimated from local logs",
+      tokenCostUpdatedAtMs: 1234,
     });
 
     renderFloatBar(bootstrap({ floatBarShowCost: true }));
@@ -219,7 +224,9 @@ describe("FloatBar", () => {
   });
 
   it("does not scan local costs by default", async () => {
-    tauriMocks.getCachedProviders.mockResolvedValue([snapshot("codex", "Codex", 75)]);
+    tauriMocks.getCachedProviders.mockResolvedValue([
+      snapshot("codex", "Codex", 75),
+    ]);
     tauriMocks.getSettingsSnapshot.mockResolvedValue(settings());
 
     renderFloatBar(bootstrap());

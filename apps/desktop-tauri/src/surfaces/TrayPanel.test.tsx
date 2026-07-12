@@ -112,6 +112,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     soundVolume: 100,
     highUsageThreshold: 70,
     criticalUsageThreshold: 90,
+    predictivePaceWarningEnabled: false,
     trayIconMode: "single",
     switcherShowsIcons: true,
     menuBarShowsHighestUsage: false,
@@ -120,6 +121,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     showAllTokenAccountsInMenu: false,
     enableAnimations: true,
     resetTimeRelative: true,
+    showResetWhenExhausted: false,
     menuBarDisplayMode: "detailed",
     hidePersonalInfo: false,
     updateChannel: "stable",
@@ -145,6 +147,7 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     floatBarProviderIds: [],
     floatBarDarkText: false,
     floatBarShowResetInline: false,
+    floatBarShowCost: false,
     ...overrides,
   };
 }
@@ -343,6 +346,7 @@ describe("TrayPanel provider grid", () => {
         latestTokens: 1200,
         topModel: "gpt-5.5",
         estimateNote: "Estimated from local logs",
+        tokenCostUpdatedAtMs: 1234,
       },
     });
 

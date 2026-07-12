@@ -1,5 +1,60 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct UsageThresholdOverride {
+    pub high: Option<f64>,
+    pub critical: Option<f64>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct UsageThresholds {
+    pub high: f64,
+    pub critical: f64,
+}
+
+pub fn normalize_usage_threshold_overrides(
+    values: HashMap<String, UsageThresholdOverride>,
+) -> HashMap<String, UsageThresholdOverride> {
+    let known = crate::core::cli_name_map();
+    values
+        .into_iter()
+        .filter_map(|(key, mut value)| {
+            let (provider, window) = key
+                .split_once(':')
+                .map_or((key.as_str(), None), |(provider, window)| {
+                    (provider, Some(window))
+                });
+            if !known.contains_key(provider)
+                || window.is_some_and(|window| !matches!(window, "session" | "weekly"))
+            {
+                return None;
+            }
+            value.high = value.high.map(|number| number.clamp(0.0, 100.0));
+            value.critical = value.critical.map(|number| number.clamp(0.0, 100.0));
+            (value.high.is_some() || value.critical.is_some()).then_some((key, value))
+        })
+        .collect()
+}
+
+impl Settings {
+    pub fn usage_thresholds(&self, provider: ProviderId, window: &str) -> UsageThresholds {
+        let provider_key = provider.cli_name();
+        let window_key = format!("{provider_key}:{window}");
+        let provider_override = self.provider_usage_thresholds.get(provider_key);
+        let window_override = self.provider_usage_thresholds.get(&window_key);
+        UsageThresholds {
+            high: window_override
+                .and_then(|value| value.high)
+                .or_else(|| provider_override.and_then(|value| value.high))
+                .unwrap_or(self.high_usage_threshold),
+            critical: window_override
+                .and_then(|value| value.critical)
+                .or_else(|| provider_override.and_then(|value| value.critical))
+                .unwrap_or(self.critical_usage_threshold),
+        }
+    }
+}
+
 /// UI language for the application
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
@@ -257,6 +312,9 @@ pub struct ProviderConfig {
     pub api_token: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// Wayfinder gateway URL override.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gateway_url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ide_base_path: Option<String>,
     /// Codex-only: opt out of OpenAI web "extras" surfaces.

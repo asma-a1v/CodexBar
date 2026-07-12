@@ -49,8 +49,10 @@ interface MenuCardProps {
   provider: ProviderUsageSnapshot;
   hideEmail: boolean;
   resetTimeRelative: boolean;
+  showResetWhenExhausted?: boolean;
   showAsUsed?: boolean;
   compactMetrics?: boolean;
+  isRefreshing?: boolean;
   onLayoutChange?: () => void;
 }
 
@@ -181,6 +183,51 @@ function LocalUsageBlock({
   );
 }
 
+function WayfinderUsageBlock({
+  usage,
+}: {
+  usage: NonNullable<ProviderUsageSnapshot["wayfinderUsage"]>;
+}) {
+  const { t } = useLocale();
+  const formatAmount = (value: number) =>
+    usage.priced ? `${value.toFixed(4)} ${usage.unit.toUpperCase()}` : "—";
+
+  return (
+    <section className="menu-card__group">
+      <div className="menu-card__local-grid">
+        <div>
+          <span className="menu-card__local-label">{t("WayfinderGatewayStatus")}</span>
+          <strong>{usage.gatewayStatus}</strong>
+        </div>
+        <div>
+          <span className="menu-card__local-label">{t("WayfinderModels")}</span>
+          <strong>{usage.modelCount}</strong>
+        </div>
+        <div>
+          <span className="menu-card__local-label">{t("WayfinderRequests")}</span>
+          <strong>{formatCompactCount(usage.requests)}</strong>
+        </div>
+        <div>
+          <span className="menu-card__local-label">{t("WayfinderTokens")}</span>
+          <strong>{formatCompactCount(usage.tokens)}</strong>
+        </div>
+      </div>
+      <div className="menu-card__cost-line">
+        {t("WayfinderSaved")}: {formatAmount(usage.saved)} ({usage.savedPercent.toFixed(1)}%)
+      </div>
+      {(usage.offline || usage.dryRun || usage.missingKeys.length > 0) && (
+        <div className="menu-card__local-note">
+          {usage.offline && <span>{t("WayfinderOffline")}</span>}
+          {usage.dryRun && <span>{t("WayfinderDryRun")}</span>}
+          {usage.missingKeys.length > 0 && (
+            <span>{t("WayfinderMissingKeys")}: {usage.missingKeys.join(", ")}</span>
+          )}
+        </div>
+      )}
+    </section>
+  );
+}
+
 function displayPlanName(planName: string | null): string | null {
   if (!planName) return null;
   const normalized = planName.trim().toLowerCase();
@@ -256,6 +303,7 @@ function MetricRow({
   snap,
   exhaustedLabel,
   resetTimeRelative,
+  showResetWhenExhausted,
   showAsUsed,
   expanded,
   onToggleExpanded,
@@ -264,6 +312,7 @@ function MetricRow({
   snap: RateWindowSnapshot;
   exhaustedLabel: string;
   resetTimeRelative: boolean;
+  showResetWhenExhausted: boolean;
   showAsUsed: boolean;
   expanded: boolean;
   onToggleExpanded: () => void;
@@ -281,6 +330,13 @@ function MetricRow({
     snap.resetDescription,
     resetTimeRelative,
   );
+  const resetTarget = snap.resetsAt ? Date.parse(snap.resetsAt) : Number.NaN;
+  const replacesPercent =
+    showResetWhenExhausted &&
+    snap.isExhausted &&
+    Number.isFinite(resetTarget) &&
+    resetTarget > Date.now() &&
+    resetText !== null;
   const paceView = getMetricPaceView(snap);
   const reserveDescription = formatReserveDescription(snap, t);
   const formatBudget = (value: number) =>
@@ -292,8 +348,10 @@ function MetricRow({
         <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
       </div>
       <div className="menu-metric__row">
-        <span className="menu-metric__pct">{Math.round(displayPct)}% {displayLabel}</span>
-        {resetText && (
+        <span className="menu-metric__pct">
+          {replacesPercent ? resetText : `${Math.round(displayPct)}% ${displayLabel}`}
+        </span>
+        {resetText && !replacesPercent && (
           <span className="menu-metric__reset">{resetText}</span>
         )}
       </div>
@@ -359,8 +417,10 @@ export default function MenuCard({
   provider,
   hideEmail,
   resetTimeRelative,
+  showResetWhenExhausted = false,
   showAsUsed = false,
   compactMetrics = false,
+  isRefreshing = false,
   onLayoutChange,
 }: MenuCardProps) {
   const { t } = useLocale();
@@ -397,19 +457,24 @@ export default function MenuCard({
     };
   }, [provider.providerId, provider.accountEmail, onLayoutChange]);
 
-  const email = provider.accountEmail
+  const isWayfinder = provider.providerId === "wayfinder";
+  const email = !isWayfinder && provider.accountEmail
     ? hideEmail
       ? maskEmail(provider.accountEmail)
       : provider.accountEmail
     : null;
-  const planName = displayPlanName(provider.planName);
+  const planName = !isWayfinder ? displayPlanName(provider.planName) : null;
 
   const metrics: MetricEntry[] = [
-    {
-      id: "primary",
-      label: provider.primaryLabel ?? t("DetailWindowPrimary"),
-      snap: provider.primary,
-    },
+    ...(isWayfinder
+      ? []
+      : [
+          {
+            id: "primary",
+            label: provider.primaryLabel ?? t("DetailWindowPrimary"),
+            snap: provider.primary,
+          },
+        ]),
   ];
   if (provider.secondary)
     metrics.push({
@@ -450,18 +515,21 @@ export default function MenuCard({
   const hasMetrics = visibleMetrics.length > 0;
   const hasCost = !!provider.cost;
   const hasPace = !!provider.pace;
+  const wayfinderUsage = isWayfinder ? provider.wayfinderUsage : null;
   const hasDetails =
-    !provider.error && (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage);
+    !provider.error &&
+    (hasMetrics || hasCost || hasPace || hasCharts || !!localUsage || !!wayfinderUsage);
   const cardClassName = [
     "menu-card",
     provider.error ? "menu-card--error" : null,
+    isRefreshing ? "menu-card--refreshing" : null,
     hasDetails ? "menu-card--with-details" : "menu-card--header-only",
   ]
     .filter(Boolean)
     .join(" ");
 
   return (
-    <article className={cardClassName}>
+    <article className={cardClassName} aria-busy={isRefreshing}>
       <header className="menu-card__header">
         <div className="menu-card__title-row">
           <div className="menu-card__name-group">
@@ -501,6 +569,7 @@ export default function MenuCard({
                   snap={m.snap}
                   exhaustedLabel={t("DetailWindowExhausted")}
                   resetTimeRelative={resetTimeRelative}
+                  showResetWhenExhausted={showResetWhenExhausted}
                   showAsUsed={showAsUsed}
                   expanded={expandedPaceWindow === m.id}
                   onToggleExpanded={() => {
@@ -513,6 +582,8 @@ export default function MenuCard({
               ))}
             </section>
           )}
+
+          {wayfinderUsage && <WayfinderUsageBlock usage={wayfinderUsage} />}
 
           {localUsage && (
             <LocalUsageBlock

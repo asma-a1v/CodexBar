@@ -19,11 +19,18 @@ function parseCodexSessionsDirs(value: string): string[] {
     .filter(Boolean);
 }
 
+function parseSshHosts(value: string): string[] {
+  return value.split(/[,\n]/).map((host) => host.trim()).filter(Boolean);
+}
+
 export default function AdvancedTab({ settings, set, saving }: TabProps) {
   const { t } = useLocale();
   const [shortcutError, setShortcutError] = useState<string | null>(null);
   const [codexDirsDraft, setCodexDirsDraft] = useState(() =>
     formatCodexSessionsDirs(settings.codexCustomSessionsDirs),
+  );
+  const [sshHostsDraft, setSshHostsDraft] = useState(() =>
+    (settings.agentSessionSshHosts ?? []).join(", "),
   );
 
   useEffect(() => {
@@ -31,6 +38,10 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
       setCodexDirsDraft(formatCodexSessionsDirs(settings.codexCustomSessionsDirs));
     }
   }, [saving, settings.codexCustomSessionsDirs]);
+
+  useEffect(() => {
+    if (!saving) setSshHostsDraft((settings.agentSessionSshHosts ?? []).join(", "));
+  }, [saving, settings.agentSessionSshHosts]);
 
   const commitShortcut = useCallback(
     async (accelerator: string) => {
@@ -108,6 +119,40 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
                 if (event.key === "Enter") {
                   event.currentTarget.blur();
                 }
+              }}
+            />
+          </Field>
+        </div>
+      </section>
+
+      {/* -- Privacy ----------------------------------------------- */}
+      <section className="settings-section">
+        <h3 className="settings-section__title">{t("AgentSessionsTitle")}</h3>
+        <div className="settings-section__group">
+          <Field
+            label={t("AgentSessionsEnableLabel")}
+            description={t("AgentSessionsEnableHelper")}
+            leading
+          >
+            <Toggle
+              checked={settings.agentSessionsEnabled ?? false}
+              disabled={saving}
+              onChange={(v) => set({ agentSessionsEnabled: v })}
+            />
+          </Field>
+          <Field
+            label={t("AgentSessionsSshHostsLabel")}
+            description={t("AgentSessionsSshHostsHelper")}
+          >
+            <input
+              type="text"
+              className="text-input"
+              value={sshHostsDraft}
+              disabled={saving || !settings.agentSessionsEnabled}
+              onChange={(event) => setSshHostsDraft(event.target.value)}
+              onBlur={() => set({ agentSessionSshHosts: parseSshHosts(sshHostsDraft) })}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") event.currentTarget.blur();
               }}
             />
           </Field>

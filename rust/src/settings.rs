@@ -66,6 +66,8 @@ pub struct Settings {
     /// Critical usage threshold for alerts (percentage)
     pub critical_usage_threshold: f64,
 
+    pub provider_usage_thresholds: HashMap<String, UsageThresholdOverride>,
+
     /// Merge mode: show all enabled providers in a single tray icon
     pub merge_tray_icons: bool,
 
@@ -93,6 +95,14 @@ pub struct Settings {
 
     /// Show reset times as relative (e.g., "2h 30m" instead of "3:00 PM")
     pub reset_time_relative: bool,
+
+    /// Replace exhausted quota text with its concrete future reset time.
+    #[serde(default)]
+    pub show_reset_when_exhausted: bool,
+
+    /// Warn when Codex or Claude pace predicts exhaustion before reset.
+    #[serde(default)]
+    pub predictive_pace_warning_enabled: bool,
 
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
@@ -136,6 +146,14 @@ pub struct Settings {
     /// Additional Codex home or sessions directories to include in local cost scans.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub codex_custom_sessions_dirs: Vec<String>,
+
+    /// Discover local and configured SSH Codex/Claude sessions.
+    #[serde(default)]
+    pub agent_sessions_enabled: bool,
+
+    /// SSH targets queried for remote agent sessions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_session_ssh_hosts: Vec<String>,
 
     /// Automatically download updates in the background
     #[serde(default)]
@@ -353,6 +371,7 @@ impl Default for Settings {
             sound_volume: 100,
             high_usage_threshold: 70.0,
             critical_usage_threshold: 90.0,
+            provider_usage_thresholds: HashMap::new(),
             merge_tray_icons: false, // Show single provider by default
             tray_icon_mode: TrayIconMode::default(), // Single icon by default
             switcher_shows_icons: true,
@@ -361,6 +380,8 @@ impl Default for Settings {
             show_as_used: true,        // Show as "used" by default
             enable_animations: true,   // Animations enabled by default
             reset_time_relative: true, // Show relative times by default
+            show_reset_when_exhausted: false,
+            predictive_pace_warning_enabled: false,
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),
@@ -371,6 +392,8 @@ impl Default for Settings {
             provider_order: Vec::new(), // Empty = canonical ProviderId::all() order
             global_shortcut: default_global_shortcut(), // Ctrl+Shift+U by default
             codex_custom_sessions_dirs: Vec::new(),
+            agent_sessions_enabled: false,
+            agent_session_ssh_hosts: Vec::new(),
             auto_download_updates: false, // Require explicit opt-in for background downloads
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default
@@ -713,6 +736,24 @@ impl Settings {
 
     pub fn set_workspace_id(&mut self, id: ProviderId, value: impl Into<String>) {
         self.provider_config_mut(id).workspace_id = Some(value.into());
+    }
+
+    /// Wayfinder gateway URL, defaulting to the local loopback gateway.
+    pub fn gateway_url(&self, id: ProviderId) -> &str {
+        self.provider_configs
+            .get(&id)
+            .and_then(|c| c.gateway_url.as_deref())
+            .unwrap_or_else(|| {
+                if id == ProviderId::Wayfinder {
+                    crate::providers::wayfinder::DEFAULT_GATEWAY_URL
+                } else {
+                    ""
+                }
+            })
+    }
+
+    pub fn set_gateway_url(&mut self, id: ProviderId, value: impl Into<String>) {
+        self.provider_config_mut(id).gateway_url = Some(value.into());
     }
 
     /// IDE base path override for `id`, or `""` if unset.

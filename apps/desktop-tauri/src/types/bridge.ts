@@ -2,8 +2,9 @@ export type SurfaceMode = "hidden" | "trayPanel" | "popOut" | "settings";
 export type VisibleSurfaceMode = Exclude<SurfaceMode, "hidden">;
 export type SettingsTabId =
   | "general"
-  | "providers"
-  | "display"
+  | "notifications"
+  | "menuBar"
+  | "menu"
   | "advanced"
   | "about";
 
@@ -100,7 +101,8 @@ export type ProofProviderId =
   | "zed"
   | "crossmodel"
   | "qoder"
-  | "sakana";
+  | "sakana"
+  | "wayfinder";
 
 export type TrayPanelSurfaceTarget = { kind: "summary" };
 export type PopOutSurfaceTarget =
@@ -124,6 +126,43 @@ export interface CurrentSurfaceState {
   mode: SurfaceMode;
   target: SurfaceTarget;
 }
+
+export interface AgentSession {
+  id: string;
+  provider: "codex" | "claude";
+  source: "cli" | "desktopApp" | "ide" | "unknown";
+  state: "active" | "idle";
+  pid: number | null;
+  transcriptPath: string | null;
+  host: string;
+  workspace: {
+    cwd: string | null;
+    projectName: string | null;
+  };
+  activity: {
+    startedAt: string | null;
+    lastActivityAt: string | null;
+  };
+  focusTarget:
+    | { kind: "process"; pid: number }
+    | { kind: "transcript"; transcriptPath: string }
+    | { kind: "none" };
+}
+
+export interface AgentSessionHostResult {
+  host: string;
+  sessions: AgentSession[];
+  error: string | null;
+}
+
+export type AgentSessionDiscoveryResult =
+  | { status: "disabled" }
+  | { status: "hosts"; hosts: AgentSessionHostResult[] };
+
+export type SessionFocusResult =
+  | { status: "focused" }
+  | { status: "unsupported"; message: string }
+  | { status: "failed"; message: string };
 
 export interface ProofRect {
   x: number;
@@ -176,6 +215,8 @@ export interface SettingsSnapshot {
   soundVolume: number;
   highUsageThreshold: number;
   criticalUsageThreshold: number;
+  providerUsageThresholds?: Record<string, UsageThresholdOverride>;
+  predictivePaceWarningEnabled: boolean;
   trayIconMode: TrayIconMode;
   switcherShowsIcons: boolean;
   menuBarShowsHighestUsage: boolean;
@@ -184,6 +225,7 @@ export interface SettingsSnapshot {
   showAllTokenAccountsInMenu: boolean;
   enableAnimations: boolean;
   resetTimeRelative: boolean;
+  showResetWhenExhausted: boolean;
   menuBarDisplayMode: MenuBarDisplayMode;
   hidePersonalInfo: boolean;
   updateChannel: UpdateChannel;
@@ -192,6 +234,8 @@ export interface SettingsSnapshot {
   globalShortcut: string;
   /** Extra Codex home or sessions directories scanned for local cost estimates. */
   codexCustomSessionsDirs: string[];
+  agentSessionsEnabled?: boolean;
+  agentSessionSshHosts?: string[];
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -202,6 +246,7 @@ export interface SettingsSnapshot {
   claudeAvoidKeychainPrompts: boolean;
   codexSparkUsageVisible: boolean;
   disableKeychainAccess: boolean;
+  wayfinderGatewayUrl?: string;
   providerMetrics: Record<string, MetricPreference>;
   floatBarEnabled: boolean;
   /** 30..=100 — clamped server-side. */
@@ -218,11 +263,67 @@ export interface SettingsSnapshot {
   /** When true, render the next primary reset inline in each provider pill. */
   floatBarShowResetInline: boolean;
   /** When true, scan and render local cost summaries. */
-  floatBarShowCost?: boolean;
+  floatBarShowCost: boolean;
 }
 
 /** Partial settings object — only include fields you want to change. */
-export type SettingsUpdate = Partial<Omit<SettingsSnapshot, "providerOrder">>;
+export interface SettingsUpdate {
+  enabledProviders?: string[];
+  refreshIntervalSecs?: number;
+  refreshAllProvidersOnMenuOpen?: boolean;
+  startAtLogin?: boolean;
+  startMinimized?: boolean;
+  showNotifications?: boolean;
+  soundEnabled?: boolean;
+  soundVolume?: number;
+  highUsageThreshold?: number;
+  criticalUsageThreshold?: number;
+  providerUsageThresholds?: Record<string, UsageThresholdOverride>;
+  predictivePaceWarningEnabled?: boolean;
+  trayIconMode?: TrayIconMode;
+  switcherShowsIcons?: boolean;
+  menuBarShowsHighestUsage?: boolean;
+  menuBarShowsPercent?: boolean;
+  showAsUsed?: boolean;
+  showAllTokenAccountsInMenu?: boolean;
+  enableAnimations?: boolean;
+  resetTimeRelative?: boolean;
+  showResetWhenExhausted?: boolean;
+  menuBarDisplayMode?: MenuBarDisplayMode;
+  hidePersonalInfo?: boolean;
+  updateChannel?: UpdateChannel;
+  autoDownloadUpdates?: boolean;
+  installUpdatesOnQuit?: boolean;
+  globalShortcut?: string;
+  codexCustomSessionsDirs?: string[];
+  agentSessionsEnabled?: boolean;
+  agentSessionSshHosts?: string[];
+  uiLanguage?: Language;
+  theme?: ThemePreference;
+  windowScalePercent?: number;
+  trayScalePercent?: number;
+  powertoysStatusPipeEnabled?: boolean;
+  claudeAvoidKeychainPrompts?: boolean;
+  codexSparkUsageVisible?: boolean;
+  disableKeychainAccess?: boolean;
+  /** Map of provider CLI name → metric preference label. */
+  providerMetrics?: Record<string, MetricPreference>;
+  floatBarEnabled?: boolean;
+  floatBarOpacity?: number;
+  floatBarScale?: number;
+  floatBarOrientation?: FloatBarOrientation;
+  floatBarStyle?: FloatBarStyle;
+  floatBarClickThrough?: boolean;
+  floatBarProviderIds?: string[];
+  floatBarDarkText?: boolean;
+  floatBarShowResetInline?: boolean;
+  floatBarShowCost?: boolean;
+}
+
+export interface UsageThresholdOverride {
+  high?: number;
+  critical?: number;
+}
 
 export interface BootstrapState {
   contractVersion: string;
@@ -289,11 +390,45 @@ export interface ProviderUsageSnapshot {
   accountOrganization: string | null;
   trayStatusLabel: string | null;
   fetchDurationMs?: number | null;
+  wayfinderUsage?: WayfinderUsageSnapshot | null;
+}
+
+export interface WayfinderRouteSummary {
+  name: string;
+  requests: number;
+  tokens: number;
+  realized: number;
+  baseline: number;
+  saved: number;
+}
+
+export interface WayfinderUsageSnapshot {
+  gatewayStatus: string;
+  offline: boolean;
+  dryRun: boolean;
+  missingKeys: string[];
+  modelCount: number;
+  models: string[];
+  requests: number;
+  estimatedRequests: number;
+  tokens: number;
+  realized: number;
+  baseline: number;
+  saved: number;
+  savedPercent: number;
+  periodDays: number;
+  unit: string;
+  priced: boolean;
+  routes: WayfinderRouteSummary[];
 }
 
 export interface RefreshCompletePayload {
   providerCount: number;
   errorCount: number;
+}
+
+export interface RefreshStartedPayload {
+  providerIds: string[];
 }
 
 export interface SafeDiagnostics {
@@ -399,6 +534,7 @@ export interface ProviderLocalUsageSummary {
   latestTokens: number | null;
   topModel: string | null;
   estimateNote: string;
+  tokenCostUpdatedAtMs: number;
 }
 
 export interface ProviderChartData {
@@ -432,6 +568,39 @@ export interface ProviderTokenAccountsBridge {
   support: TokenAccountSupportBridge;
   accounts: TokenAccountBridge[];
   activeIndex: number;
+}
+
+// ── Phase 4 — provider ordering / cookie source / region ─────────────
+
+export interface ProviderSummary {
+  id: string;
+  displayName: string;
+  enabled: boolean;
+  order: number;
+}
+
+// ── Phase 4 — credential detection ───────────────────────────────────
+
+export interface GeminiCliStatus {
+  signedIn: boolean;
+  credentialsPath: string | null;
+}
+
+export interface VertexAiStatus {
+  hasCredentials: boolean;
+  credentialsPath: string | null;
+}
+
+export interface JetbrainsIde {
+  id: string;
+  displayName: string;
+  path: string;
+  detected: boolean;
+}
+
+export interface KiroStatus {
+  available: boolean;
+  hint: string | null;
 }
 
 // ── Phase 4 — session / environment ──────────────────────────────────

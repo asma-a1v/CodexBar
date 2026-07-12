@@ -78,7 +78,11 @@ function provider(
 
 function renderCard(
   snapshot: ProviderUsageSnapshot,
-  opts: { showAsUsed?: boolean; onLayoutChange?: () => void } = {},
+  opts: {
+    showAsUsed?: boolean;
+    showResetWhenExhausted?: boolean;
+    onLayoutChange?: () => void;
+  } = {},
 ) {
   return render(
     <LocaleProvider>
@@ -87,6 +91,7 @@ function renderCard(
         hideEmail={false}
         resetTimeRelative={true}
         showAsUsed={opts.showAsUsed}
+        showResetWhenExhausted={opts.showResetWhenExhausted}
         onLayoutChange={opts.onLayoutChange}
       />
     </LocaleProvider>,
@@ -110,6 +115,16 @@ describe("MenuCard", () => {
         PanelThirtyDayTokens: "30d tokens",
         PanelTodayBudget: "today",
         PanelUsedSuffix: "used",
+        ResetsInHoursMinutes: "Resets in {}h {}m",
+        ResetsInMinutes: "Resets in {}m",
+        WayfinderGatewayStatus: "Gateway",
+        WayfinderModels: "Models",
+        WayfinderRequests: "Requests",
+        WayfinderTokens: "Tokens",
+        WayfinderSaved: "Saved",
+        WayfinderOffline: "Gateway offline",
+        WayfinderDryRun: "Dry run",
+        WayfinderMissingKeys: "Missing keys",
       }),
     );
     tauriMocks.getProviderChartData.mockResolvedValue({
@@ -124,6 +139,7 @@ describe("MenuCard", () => {
         latestTokens: null,
         topModel: "glim-4.6",
         estimateNote: "Estimated from local logs",
+        tokenCostUpdatedAtMs: 1234,
       },
     });
     eventMocks.listen.mockResolvedValue(() => {});
@@ -169,6 +185,24 @@ describe("MenuCard", () => {
     expect(fill?.style.width).toBe("100%");
   });
 
+  it("replaces an exhausted percentage with a future reset countdown", async () => {
+    const snapshot = provider(null, 100, { exhausted: true });
+    snapshot.primary.resetsAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+
+    renderCard(snapshot, { showResetWhenExhausted: true });
+
+    expect(await screen.findByText(/Resets in \d+m/)).toBeInTheDocument();
+    expect(screen.queryByText("0% left")).not.toBeInTheDocument();
+  });
+
+  it("keeps an exhausted percentage without a concrete future reset", async () => {
+    renderCard(provider(null, 100, { exhausted: true, resetDescription: "in 2h" }), {
+      showResetWhenExhausted: true,
+    });
+
+    expect(await screen.findByText("0% left")).toBeInTheDocument();
+  });
+
   it("renders additional Copilot budget windows", async () => {
     const snapshot = provider(null, 20);
     snapshot.providerId = "copilot";
@@ -185,6 +219,42 @@ describe("MenuCard", () => {
 
     expect(await screen.findByText("Additional Budget")).toBeInTheDocument();
     expect(screen.getByText("58% left")).toBeInTheDocument();
+  });
+
+  it("renders Wayfinder telemetry without quota or identity rows", async () => {
+    const snapshot = provider(null);
+    snapshot.providerId = "wayfinder";
+    snapshot.displayName = "Wayfinder";
+    snapshot.accountEmail = "should-not-render@example.test";
+    snapshot.planName = "should-not-render";
+    snapshot.wayfinderUsage = {
+      gatewayStatus: "ok",
+      offline: false,
+      dryRun: false,
+      missingKeys: [],
+      modelCount: 2,
+      models: ["model-a", "model-b"],
+      requests: 14,
+      estimatedRequests: 0,
+      tokens: 1028,
+      realized: 0.004,
+      baseline: 0.01,
+      saved: 0.006,
+      savedPercent: 60,
+      periodDays: 30,
+      unit: "usd",
+      priced: true,
+      routes: [],
+    };
+
+    renderCard(snapshot);
+
+    expect(await screen.findByText("ok")).toBeInTheDocument();
+    expect(screen.getByText("2")).toBeInTheDocument();
+    expect(screen.getByText("1K")).toBeInTheDocument();
+    expect(screen.queryByText("should-not-render@example.test")).not.toBeInTheDocument();
+    expect(screen.queryByText("should-not-render")).not.toBeInTheDocument();
+    expect(screen.queryByText("Session")).not.toBeInTheDocument();
   });
 
   it("notifies the tray panel after async local usage data loads", async () => {
