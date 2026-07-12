@@ -28,6 +28,61 @@ fn new_warning_and_reset_settings_are_backward_compatible() {
 }
 
 #[test]
+fn usage_thresholds_inherit_from_window_provider_and_global_levels() {
+    let mut settings = Settings::default();
+    settings.provider_usage_thresholds.insert(
+        "codex".into(),
+        UsageThresholdOverride {
+            high: Some(75.0),
+            critical: None,
+        },
+    );
+    settings.provider_usage_thresholds.insert(
+        "codex:weekly".into(),
+        UsageThresholdOverride {
+            high: None,
+            critical: Some(95.0),
+        },
+    );
+
+    assert_eq!(
+        settings.usage_thresholds(ProviderId::Codex, "weekly"),
+        UsageThresholds {
+            high: 75.0,
+            critical: 95.0,
+        }
+    );
+    assert_eq!(
+        settings.usage_thresholds(ProviderId::Claude, "session"),
+        UsageThresholds {
+            high: 70.0,
+            critical: 90.0,
+        }
+    );
+}
+
+#[test]
+fn empty_and_out_of_range_threshold_overrides_are_normalized_on_load() {
+    let loaded: Settings = serde_json::from_str(
+        r#"{
+            "provider_usage_thresholds": {
+                "codex": {"high": 120.0},
+                "claude": {},
+                "codex:weekly": {"critical": -10.0}
+            }
+        }"#,
+    )
+    .expect("parse settings");
+
+    assert_eq!(loaded.provider_usage_thresholds.len(), 2);
+    assert_eq!(loaded.provider_usage_thresholds["codex"].high, Some(100.0));
+    assert_eq!(
+        loaded.provider_usage_thresholds["codex:weekly"].critical,
+        Some(0.0)
+    );
+}
+
+#[test]
 fn float_bar_defaults_are_safe() {
     let settings = Settings::default();
     assert!(!settings.float_bar_enabled);

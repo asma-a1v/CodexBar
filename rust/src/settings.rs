@@ -66,6 +66,8 @@ pub struct Settings {
     /// Critical usage threshold for alerts (percentage)
     pub critical_usage_threshold: f64,
 
+    pub provider_usage_thresholds: HashMap<String, UsageThresholdOverride>,
+
     /// Merge mode: show all enabled providers in a single tray icon
     pub merge_tray_icons: bool,
 
@@ -365,6 +367,7 @@ impl Default for Settings {
             sound_volume: 100,
             high_usage_threshold: 70.0,
             critical_usage_threshold: 90.0,
+            provider_usage_thresholds: HashMap::new(),
             merge_tray_icons: false, // Show single provider by default
             tray_icon_mode: TrayIconMode::default(), // Single icon by default
             switcher_shows_icons: true,

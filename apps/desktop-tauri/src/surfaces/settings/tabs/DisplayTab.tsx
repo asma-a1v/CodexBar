@@ -105,7 +105,7 @@ export default function DisplayTab({
 
       {/* ── Menu content ─────────────────────────────────────────── */}
       {mode === "menu" && <section className="settings-section">
-        <h3 className="settings-section__title">Menu Content</h3>
+        <h3 className="settings-section__title">{t("TabMenu")}</h3>
         <div className="settings-section__group">
           <Field
             label={`${t("WindowScaleLabel")} (${windowScaleDraft}%)`}

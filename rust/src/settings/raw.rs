@@ -24,6 +24,7 @@ pub(super) struct RawSettings {
     sound_volume: u8,
     high_usage_threshold: f64,
     critical_usage_threshold: f64,
+    provider_usage_thresholds: HashMap<String, UsageThresholdOverride>,
     merge_tray_icons: bool,
     tray_icon_mode: TrayIconMode,
     #[serde(default = "default_true")]
@@ -154,6 +155,7 @@ impl Default for RawSettings {
             sound_volume: s.sound_volume,
             high_usage_threshold: s.high_usage_threshold,
             critical_usage_threshold: s.critical_usage_threshold,
+            provider_usage_thresholds: HashMap::new(),
             merge_tray_icons: s.merge_tray_icons,
             tray_icon_mode: s.tray_icon_mode,
             switcher_shows_icons: s.switcher_shows_icons,
@@ -441,6 +443,9 @@ impl From<RawSettings> for Settings {
             sound_volume: raw.sound_volume,
             high_usage_threshold: raw.high_usage_threshold,
             critical_usage_threshold: raw.critical_usage_threshold,
+            provider_usage_thresholds: normalize_usage_threshold_overrides(
+                raw.provider_usage_thresholds,
+            ),
             merge_tray_icons: raw.merge_tray_icons,
             tray_icon_mode: raw.tray_icon_mode,
             switcher_shows_icons: raw.switcher_shows_icons,

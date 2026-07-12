@@ -220,6 +220,7 @@ impl NotificationManager {
     pub fn check_and_notify(
         &mut self,
         provider: ProviderId,
+        window: &str,
         used_percent: f64,
         settings: &Settings,
     ) {
@@ -227,11 +228,12 @@ impl NotificationManager {
             return;
         }
 
+        let thresholds = settings.usage_thresholds(provider, window);
         let notification_type = if used_percent >= 100.0 {
             Some(NotificationType::Exhausted)
-        } else if used_percent >= settings.critical_usage_threshold {
+        } else if used_percent >= thresholds.critical {
             Some(NotificationType::CriticalUsage)
-        } else if used_percent >= settings.high_usage_threshold {
+        } else if used_percent >= thresholds.high {
             Some(NotificationType::HighUsage)
         } else {
             // Reset notifications if usage dropped

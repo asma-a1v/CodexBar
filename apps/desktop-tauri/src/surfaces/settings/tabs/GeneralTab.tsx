@@ -3,7 +3,7 @@ import { useLocale } from "../../../hooks/useLocale";
 import { invoke } from "@tauri-apps/api/core";
 import { playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
-import type { Language, LanguageOption } from "../../../types/bridge";
+import type { Language, LanguageOption, UsageThresholdOverride } from "../../../types/bridge";
 import type { TabProps } from "../../Settings";
 
 const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
@@ -23,6 +23,66 @@ const REFRESH_CADENCE_OPTIONS: { value: string; label: string }[] = [
   { value: "1800", label: "30 minutes" },
   { value: "3600", label: "1 hour" },
 ];
+
+function ThresholdOverrideInputs({
+  label,
+  value,
+  inheritedHigh,
+  inheritedCritical,
+  disabled,
+  onChange,
+}: {
+  label: string;
+  value: UsageThresholdOverride;
+  inheritedHigh: number;
+  inheritedCritical: number;
+  disabled: boolean;
+  onChange: (value: UsageThresholdOverride) => void;
+}) {
+  const [high, setHigh] = useState(value.high?.toString() ?? "");
+  const [critical, setCritical] = useState(value.critical?.toString() ?? "");
+  useEffect(() => setHigh(value.high?.toString() ?? ""), [value.high]);
+  useEffect(() => setCritical(value.critical?.toString() ?? ""), [value.critical]);
+  const commit = () =>
+    onChange({
+      high: high === "" ? undefined : Math.min(100, Math.max(0, Number(high))),
+      critical:
+        critical === "" ? undefined : Math.min(100, Math.max(0, Number(critical))),
+    });
+  const blurOnEnter = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === "Enter") event.currentTarget.blur();
+  };
+  return (
+    <Field label={label}>
+      <div className="settings-inline-fields">
+        <input
+          type="number"
+          value={high}
+          min={0}
+          max={100}
+          disabled={disabled}
+          placeholder={String(inheritedHigh)}
+          aria-label={`${label} high`}
+          onChange={(event) => setHigh(event.target.value)}
+          onBlur={commit}
+          onKeyDown={blurOnEnter}
+        />
+        <input
+          type="number"
+          value={critical}
+          min={0}
+          max={100}
+          disabled={disabled}
+          placeholder={String(inheritedCritical)}
+          aria-label={`${label} critical`}
+          onChange={(event) => setCritical(event.target.value)}
+          onBlur={commit}
+          onKeyDown={blurOnEnter}
+        />
+      </div>
+    </Field>
+  );
+}
 
 export default function GeneralTab({
   mode = "general",
@@ -149,6 +209,50 @@ export default function GeneralTab({
                 onChange={(v) => set({ soundVolume: v })}
               />
             </Field>
+          )}
+        </div>
+        <div className="settings-section__group">
+          {(["codex", "claude"] as const).flatMap((provider) =>
+            (["provider", "session", "weekly"] as const).map((window) => {
+              const key = window === "provider" ? provider : `${provider}:${window}`;
+              const values = settings.providerUsageThresholds ?? {};
+              const providerLabel = provider === "codex" ? "Codex" : "Claude";
+              return (
+                <ThresholdOverrideInputs
+                  key={key}
+                  label={
+                    window === "provider"
+                      ? providerLabel
+                      : `${providerLabel} · ${t(window === "session" ? "ProviderSession" : "ProviderWeekly")}`
+                  }
+                  value={values[key] ?? {}}
+                  inheritedHigh={
+                    window === "provider"
+                      ? settings.highUsageThreshold
+                      : values[provider]?.high ?? settings.highUsageThreshold
+                  }
+                  inheritedCritical={
+                    window === "provider"
+                      ? settings.criticalUsageThreshold
+                      : values[provider]?.critical ?? settings.criticalUsageThreshold
+                  }
+                  disabled={saving}
+                  onChange={(value) => {
+                    const next = { ...values };
+                    if (value.high === undefined && value.critical === undefined) {
+                      set({
+                        providerUsageThresholds: Object.fromEntries(
+                          Object.entries(next).filter(([entry]) => entry !== key),
+                        ),
+                      });
+                    } else {
+                      next[key] = value;
+                      set({ providerUsageThresholds: next });
+                    }
+                  }}
+                />
+              );
+            }),
           )}
         </div>
       </section>}

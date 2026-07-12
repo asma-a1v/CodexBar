@@ -116,4 +116,38 @@ describe("GeneralTab language picker", () => {
 
     expect(set).toHaveBeenCalledWith({ predictivePaceWarningEnabled: true });
   });
+
+  it("saves a window override on blur and clears it to resume inheritance", () => {
+    const set = vi.fn();
+    const { rerender } = render(
+      <GeneralTab mode="notifications" settings={settings} set={set} saving={false} />,
+    );
+    const input = screen.getByRole("spinbutton", {
+      name: "Codex · ProviderSession high",
+    });
+
+    fireEvent.change(input, { target: { value: "80" } });
+    fireEvent.blur(input);
+    expect(set).toHaveBeenLastCalledWith({
+      providerUsageThresholds: { "codex:session": { high: 80 } },
+    });
+
+    rerender(
+      <GeneralTab
+        mode="notifications"
+        settings={{
+          ...settings,
+          providerUsageThresholds: { "codex:session": { high: 80 } },
+        }}
+        set={set}
+        saving={false}
+      />,
+    );
+    const saved = screen.getByRole("spinbutton", {
+      name: "Codex · ProviderSession high",
+    });
+    fireEvent.change(saved, { target: { value: "" } });
+    fireEvent.blur(saved);
+    expect(set).toHaveBeenLastCalledWith({ providerUsageThresholds: {} });
+  });
 });

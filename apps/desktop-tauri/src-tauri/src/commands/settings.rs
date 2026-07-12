@@ -17,6 +17,8 @@ pub struct SettingsUpdate {
     pub sound_volume: Option<u8>,
     pub high_usage_threshold: Option<f64>,
     pub critical_usage_threshold: Option<f64>,
+    pub provider_usage_thresholds:
+        Option<std::collections::HashMap<String, codexbar::settings::UsageThresholdOverride>>,
     pub predictive_pace_warning_enabled: Option<bool>,
     pub tray_icon_mode: Option<String>,
     pub switcher_shows_icons: Option<bool>,
@@ -68,6 +70,7 @@ impl SettingsUpdate {
             || self.codex_custom_sessions_dirs.is_some()
             || self.high_usage_threshold.is_some()
             || self.critical_usage_threshold.is_some()
+            || self.provider_usage_thresholds.is_some()
             || self.show_as_used.is_some()
             || self.reset_time_relative.is_some()
             || self.show_reset_when_exhausted.is_some()
@@ -200,6 +203,10 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.critical_usage_threshold {
             settings.critical_usage_threshold = v.clamp(0.0, 100.0);
+        }
+        if let Some(values) = self.provider_usage_thresholds.clone() {
+            settings.provider_usage_thresholds =
+                codexbar::settings::normalize_usage_threshold_overrides(values);
         }
         if let Some(v) = self.predictive_pace_warning_enabled {
             settings.predictive_pace_warning_enabled = v;

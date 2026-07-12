@@ -215,6 +215,7 @@ export interface SettingsSnapshot {
   soundVolume: number;
   highUsageThreshold: number;
   criticalUsageThreshold: number;
+  providerUsageThresholds?: Record<string, UsageThresholdOverride>;
   predictivePaceWarningEnabled: boolean;
   trayIconMode: TrayIconMode;
   switcherShowsIcons: boolean;
@@ -275,6 +276,7 @@ export interface SettingsUpdate {
   soundVolume?: number;
   highUsageThreshold?: number;
   criticalUsageThreshold?: number;
+  providerUsageThresholds?: Record<string, UsageThresholdOverride>;
   predictivePaceWarningEnabled?: boolean;
   trayIconMode?: TrayIconMode;
   switcherShowsIcons?: boolean;
@@ -313,6 +315,11 @@ export interface SettingsUpdate {
   floatBarProviderIds?: string[];
   floatBarDarkText?: boolean;
   floatBarShowResetInline?: boolean;
+}
+
+export interface UsageThresholdOverride {
+  high?: number;
+  critical?: number;
 }
 
 export interface BootstrapState {

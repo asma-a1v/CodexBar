@@ -413,6 +413,8 @@ pub struct SettingsSnapshot {
     sound_volume: u8,
     high_usage_threshold: f64,
     critical_usage_threshold: f64,
+    provider_usage_thresholds:
+        std::collections::HashMap<String, codexbar::settings::UsageThresholdOverride>,
     predictive_pace_warning_enabled: bool,
     tray_icon_mode: &'static str,
     switcher_shows_icons: bool,
@@ -504,6 +506,7 @@ impl From<Settings> for SettingsSnapshot {
             sound_volume: settings.sound_volume,
             high_usage_threshold: settings.high_usage_threshold,
             critical_usage_threshold: settings.critical_usage_threshold,
+            provider_usage_thresholds: settings.provider_usage_thresholds,
             predictive_pace_warning_enabled: settings.predictive_pace_warning_enabled,
             tray_icon_mode: tray_icon_mode_label(settings.tray_icon_mode),
             switcher_shows_icons: settings.switcher_shows_icons,

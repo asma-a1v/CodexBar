@@ -426,9 +426,18 @@ fn notify_usage_thresholds(
             {
                 guard.notification_manager.check_and_notify(
                     provider,
+                    "session",
                     snapshot.primary.used_percent,
                     settings,
                 );
+                if let Some(weekly) = &snapshot.secondary {
+                    guard.notification_manager.check_and_notify(
+                        provider,
+                        "weekly",
+                        weekly.used_percent,
+                        settings,
+                    );
+                }
                 guard.notification_manager.check_session_transition(
                     provider,
                     snapshot.primary.used_percent,
