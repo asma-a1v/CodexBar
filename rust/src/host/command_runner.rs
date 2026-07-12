@@ -109,6 +109,7 @@ pub struct CommandRunner {
 }
 
 impl CommandRunner {
+    const MAX_CAPTURE_BYTES: usize = 1024 * 1024;
     pub fn new() -> Self {
         Self {
             env_additions: HashMap::new(),
@@ -366,7 +367,20 @@ impl CommandRunner {
     }
 
     fn append_output_line(output: &mut String, line: &str) {
-        output.push_str(line);
+        if output.len() >= Self::MAX_CAPTURE_BYTES {
+            return;
+        }
+        let remaining = Self::MAX_CAPTURE_BYTES - output.len();
+        let end = line
+            .char_indices()
+            .take_while(|(index, _)| *index < remaining)
+            .map(|(index, character)| index + character.len_utf8())
+            .last()
+            .unwrap_or(0);
+        output.push_str(&line[..end]);
+        if output.len() >= Self::MAX_CAPTURE_BYTES {
+            return;
+        }
         output.push('\n');
     }
 
@@ -499,6 +513,14 @@ mod tests {
 
         assert_eq!(runner.env_additions.get("FOO"), Some(&"bar".to_string()));
         assert_eq!(runner.env_additions.get("BAZ"), Some(&"qux".to_string()));
+    }
+
+    #[test]
+    fn captured_output_is_bounded() {
+        let mut output = String::new();
+        let line = "x".repeat(CommandRunner::MAX_CAPTURE_BYTES + 10);
+        CommandRunner::append_output_line(&mut output, &line);
+        assert_eq!(output.len(), CommandRunner::MAX_CAPTURE_BYTES);
     }
 
     #[cfg(windows)]

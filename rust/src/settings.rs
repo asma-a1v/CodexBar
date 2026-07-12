@@ -145,6 +145,14 @@ pub struct Settings {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub codex_custom_sessions_dirs: Vec<String>,
 
+    /// Discover local and configured SSH Codex/Claude sessions.
+    #[serde(default)]
+    pub agent_sessions_enabled: bool,
+
+    /// SSH targets queried for remote agent sessions.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub agent_session_ssh_hosts: Vec<String>,
+
     /// Automatically download updates in the background
     #[serde(default)]
     pub auto_download_updates: bool,
@@ -377,6 +385,8 @@ impl Default for Settings {
             provider_order: Vec::new(), // Empty = canonical ProviderId::all() order
             global_shortcut: default_global_shortcut(), // Ctrl+Shift+U by default
             codex_custom_sessions_dirs: Vec::new(),
+            agent_sessions_enabled: false,
+            agent_session_ssh_hosts: Vec::new(),
             auto_download_updates: false, // Require explicit opt-in for background downloads
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default

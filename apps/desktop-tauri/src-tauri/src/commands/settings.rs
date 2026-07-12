@@ -34,6 +34,8 @@ pub struct SettingsUpdate {
     pub install_updates_on_quit: Option<bool>,
     pub global_shortcut: Option<String>,
     pub codex_custom_sessions_dirs: Option<Vec<String>>,
+    pub agent_sessions_enabled: Option<bool>,
+    pub agent_session_ssh_hosts: Option<Vec<String>>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
@@ -224,6 +226,13 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.codex_custom_sessions_dirs.clone() {
             settings.codex_custom_sessions_dirs = normalize_custom_sessions_dirs(v);
+        }
+        if let Some(v) = self.agent_sessions_enabled {
+            settings.agent_sessions_enabled = v;
+        }
+        if let Some(v) = self.agent_session_ssh_hosts.clone() {
+            settings.agent_session_ssh_hosts =
+                codexbar::agent_sessions::RemoteSessionFetcher::sanitized_hosts(&v);
         }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;

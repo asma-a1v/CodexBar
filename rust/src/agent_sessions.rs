@@ -70,35 +70,6 @@ pub struct AgentSession {
     pub focus_target: AgentSessionFocusTarget,
 }
 
-impl AgentSession {
-    #[allow(clippy::too_many_arguments)]
-    pub fn new(
-        id: impl Into<String>,
-        provider: AgentSessionProvider,
-        source: AgentSessionSource,
-        state: AgentSessionState,
-        pid: Option<u32>,
-        transcript_path: Option<String>,
-        host: impl Into<String>,
-        workspace: AgentSessionWorkspace,
-        activity: AgentSessionActivity,
-        focus_target: AgentSessionFocusTarget,
-    ) -> Self {
-        Self {
-            id: id.into(),
-            provider,
-            source,
-            state,
-            pid,
-            transcript_path,
-            host: host.into(),
-            workspace,
-            activity,
-            focus_target,
-        }
-    }
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentSessionHostResult {
@@ -304,7 +275,8 @@ pub enum AgentSessionDiscoveryMode {
     Enabled { ssh_hosts: Vec<String> },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase", tag = "status", content = "hosts")]
 pub enum AgentSessionDiscoveryResult {
     Disabled,
     Hosts(Vec<AgentSessionHostResult>),
@@ -766,51 +738,6 @@ impl CodexRolloutFirstLineParser {
         }
         Some(line)
     }
-
-    #[allow(clippy::too_many_arguments)]
-    pub fn make_session(
-        metadata: CodexRolloutMetadata,
-        transcript_path: &Path,
-        modified_at: DateTime<Utc>,
-        pid: Option<u32>,
-        started_at: Option<DateTime<Utc>>,
-        host: &str,
-        config: SessionScanConfig,
-        now: DateTime<Utc>,
-    ) -> Option<AgentSession> {
-        if pid.is_none() && !config.file_only_session_allowed(modified_at, now) {
-            return None;
-        }
-
-        let session_source = metadata.session_source();
-        let workspace = AgentSessionWorkspace {
-            cwd: metadata.cwd.clone(),
-            project_name: metadata.cwd.as_deref().and_then(project_name_from_cwd),
-        };
-        let transcript_path = transcript_path.to_string_lossy().to_string();
-        let focus_target = match pid {
-            Some(pid) => AgentSessionFocusTarget::Process { pid },
-            None => AgentSessionFocusTarget::Transcript {
-                transcript_path: transcript_path.clone(),
-            },
-        };
-
-        Some(AgentSession::new(
-            metadata.session_id,
-            AgentSessionProvider::Codex,
-            session_source,
-            config.state(Some(modified_at), now, pid.is_some()),
-            pid,
-            Some(transcript_path),
-            host,
-            workspace,
-            AgentSessionActivity {
-                started_at,
-                last_activity_at: Some(modified_at),
-            },
-            focus_target,
-        ))
-    }
 }
 
 impl AgentSessionCorrelation {
@@ -821,9 +748,9 @@ impl AgentSessionCorrelation {
 
 pub fn focus_session(session: &AgentSession) -> SessionFocusResult {
     match session.focus_target {
-        AgentSessionFocusTarget::Transcript { .. } => {
-            SessionFocusResult::unsupported("This file-only session has no focusable Windows window.")
-        }
+        AgentSessionFocusTarget::Transcript { .. } => SessionFocusResult::unsupported(
+            "This file-only session has no focusable Windows window.",
+        ),
         AgentSessionFocusTarget::None => {
             SessionFocusResult::unsupported("This session has no focus target on Windows.")
         }
@@ -867,10 +794,10 @@ fn focus_process(pid: u32) -> SessionFocusResult {
     }
 
     unsafe extern "system" fn find_window(hwnd: HWND, data: LPARAM) -> BOOL {
-        let search = &mut *(data.0 as *mut Search);
+        let search = unsafe { &mut *(data.0 as *mut Search) };
         let mut window_pid = 0;
-        GetWindowThreadProcessId(hwnd, Some(&mut window_pid));
-        if window_pid == search.pid && IsWindowVisible(hwnd).as_bool() {
+        unsafe { GetWindowThreadProcessId(hwnd, Some(&mut window_pid)) };
+        if window_pid == search.pid && unsafe { IsWindowVisible(hwnd).as_bool() } {
             search.window = Some(hwnd);
             return BOOL(0);
         }
@@ -1033,18 +960,11 @@ impl LocalAgentSessionScanner {
             }
         }
 
-        sessions.extend(rollouts.into_iter().filter_map(|rollout| {
-            CodexRolloutFirstLineParser::make_session(
-                rollout.metadata,
-                &rollout.path,
-                rollout.modified_at,
-                None,
-                None,
-                host,
-                self.config,
-                now,
-            )
-        }));
+        sessions.extend(
+            rollouts
+                .into_iter()
+                .filter_map(|rollout| self.codex_file_session(host, now, rollout)),
+        );
         sessions.sort_by(|lhs, rhs| {
             (rhs.state == AgentSessionState::Active)
                 .cmp(&(lhs.state == AgentSessionState::Active))
@@ -1079,27 +999,27 @@ impl LocalAgentSessionScanner {
         let transcript_path = rollout
             .as_ref()
             .map(|rollout| rollout.path.to_string_lossy().to_string());
-        AgentSession::new(
-            rollout
+        AgentSession {
+            id: rollout
                 .as_ref()
                 .map(|rollout| rollout.metadata.session_id.clone())
                 .unwrap_or_else(|| format!("pid:{}", process.pid)),
-            AgentSessionProvider::Codex,
+            provider: AgentSessionProvider::Codex,
             source,
-            self.config.state(modified_at, now, true),
-            Some(process.pid),
+            state: self.config.state(modified_at, now, true),
+            pid: Some(process.pid),
             transcript_path,
-            host,
-            AgentSessionWorkspace {
+            host: host.to_string(),
+            workspace: AgentSessionWorkspace {
                 project_name: cwd.as_deref().and_then(project_name_from_cwd),
                 cwd,
             },
-            AgentSessionActivity {
+            activity: AgentSessionActivity {
                 started_at: process.started_at,
                 last_activity_at: modified_at,
             },
-            AgentSessionFocusTarget::Process { pid: process.pid },
-        )
+            focus_target: AgentSessionFocusTarget::Process { pid: process.pid },
+        }
     }
 
     fn claude_process_session(
@@ -1129,24 +1049,57 @@ impl LocalAgentSessionScanner {
                 })
             })
             .unwrap_or_else(|| format!("pid:{}", process.pid));
-        AgentSession::new(
+        AgentSession {
             id,
-            AgentSessionProvider::Claude,
-            process.source,
-            self.config.state(modified_at, now, true),
-            Some(process.pid),
+            provider: AgentSessionProvider::Claude,
+            source: process.source,
+            state: self.config.state(modified_at, now, true),
+            pid: Some(process.pid),
             transcript_path,
-            host,
-            AgentSessionWorkspace {
+            host: host.to_string(),
+            workspace: AgentSessionWorkspace {
                 project_name: cwd.as_deref().and_then(project_name_from_cwd),
                 cwd,
             },
-            AgentSessionActivity {
+            activity: AgentSessionActivity {
                 started_at: process.started_at,
                 last_activity_at: modified_at,
             },
-            AgentSessionFocusTarget::Process { pid: process.pid },
-        )
+            focus_target: AgentSessionFocusTarget::Process { pid: process.pid },
+        }
+    }
+
+    fn codex_file_session(
+        &self,
+        host: &str,
+        now: DateTime<Utc>,
+        rollout: CodexRollout,
+    ) -> Option<AgentSession> {
+        self.config
+            .file_only_session_allowed(rollout.modified_at, now)
+            .then(|| {
+                let source = rollout.metadata.session_source();
+                let cwd = rollout.metadata.cwd;
+                let transcript_path = rollout.path.to_string_lossy().to_string();
+                AgentSession {
+                    id: rollout.metadata.session_id,
+                    provider: AgentSessionProvider::Codex,
+                    source,
+                    state: self.config.state(Some(rollout.modified_at), now, false),
+                    pid: None,
+                    transcript_path: Some(transcript_path.clone()),
+                    host: host.to_string(),
+                    workspace: AgentSessionWorkspace {
+                        project_name: cwd.as_deref().and_then(project_name_from_cwd),
+                        cwd,
+                    },
+                    activity: AgentSessionActivity {
+                        started_at: None,
+                        last_activity_at: Some(rollout.modified_at),
+                    },
+                    focus_target: AgentSessionFocusTarget::Transcript { transcript_path },
+                }
+            })
     }
 
     fn codex_sessions_root() -> PathBuf {

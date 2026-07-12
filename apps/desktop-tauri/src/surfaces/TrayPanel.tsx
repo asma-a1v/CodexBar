@@ -32,6 +32,7 @@ import {
   hydrateProviderSlots,
   orderedEnabledProviderSlots,
 } from "../lib/trayProviders";
+import AgentSessions from "../components/AgentSessions";
 
 /** Provider IDs that have a dashboard URL in the backend */
 const HAS_DASHBOARD = new Set([
@@ -455,6 +456,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           footerRows={footerRows}
           style={{ zoom: trayScale }}
         >
+          {settings.agentSessionsEnabled && <AgentSessions />}
           <MenuEmpty
             isLoading={isRefreshing && !hasCachedData}
             onSettings={openSettings}
@@ -477,6 +479,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         footerRows={footerRows}
         style={{ zoom: trayScale }}
       >
+        {settings.agentSessionsEnabled && <AgentSessions />}
         <ProviderGrid
           providers={expectsDenseOverview ? denseTrayProviders : sorted}
           selectedProviderId={selectedProviderId}

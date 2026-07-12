@@ -123,19 +123,16 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
     }
 
     if args.json {
-        let output = serde_json::to_string_pretty(&SessionsOutput {
+        let output = SessionsOutput {
             sessions: &sessions,
             errors,
-        })?;
+        };
         println!(
             "{}",
             if args.pretty {
-                output
+                serde_json::to_string_pretty(&output)?
             } else {
-                serde_json::to_string(&SessionsOutput {
-                    sessions: &sessions,
-                    errors,
-                })?
+                serde_json::to_string(&output)?
             }
         );
     } else if args.brief {
@@ -150,7 +147,11 @@ pub async fn run(args: SessionsArgs) -> anyhow::Result<()> {
             println!(
                 "{} {} on {} ({})",
                 provider_label(session),
-                session.workspace.project_name.as_deref().unwrap_or("unknown workspace"),
+                session
+                    .workspace
+                    .project_name
+                    .as_deref()
+                    .unwrap_or("unknown workspace"),
                 session.host,
                 session.id
             );
