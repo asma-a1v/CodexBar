@@ -29,6 +29,8 @@ function ThresholdOverrideInputs({
   value,
   inheritedHigh,
   inheritedCritical,
+  highLabel,
+  criticalLabel,
   disabled,
   onChange,
 }: {
@@ -36,6 +38,8 @@ function ThresholdOverrideInputs({
   value: UsageThresholdOverride;
   inheritedHigh: number;
   inheritedCritical: number;
+  highLabel: string;
+  criticalLabel: string;
   disabled: boolean;
   onChange: (value: UsageThresholdOverride) => void;
 }) {
@@ -62,7 +66,7 @@ function ThresholdOverrideInputs({
           max={100}
           disabled={disabled}
           placeholder={String(inheritedHigh)}
-          aria-label={`${label} high`}
+          aria-label={`${label} ${highLabel}`}
           onChange={(event) => setHigh(event.target.value)}
           onBlur={commit}
           onKeyDown={blurOnEnter}
@@ -74,7 +78,7 @@ function ThresholdOverrideInputs({
           max={100}
           disabled={disabled}
           placeholder={String(inheritedCritical)}
-          aria-label={`${label} critical`}
+          aria-label={`${label} ${criticalLabel}`}
           onChange={(event) => setCritical(event.target.value)}
           onBlur={commit}
           onKeyDown={blurOnEnter}
@@ -236,6 +240,8 @@ export default function GeneralTab({
                       ? settings.criticalUsageThreshold
                       : values[provider]?.critical ?? settings.criticalUsageThreshold
                   }
+                  highLabel={t("HighUsageAlert")}
+                  criticalLabel={t("CriticalUsageAlert")}
                   disabled={saving}
                   onChange={(value) => {
                     const next = { ...values };
