@@ -87,7 +87,7 @@ unic-langid = "0.9"
 
 # Windows-only
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.58", features = [
+windows = { version = "0.61", features = [
     "Win32_Foundation",
     "Win32_Graphics_Gdi",
     "Win32_Security_Credentials",
