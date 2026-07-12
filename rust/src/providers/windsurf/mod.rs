@@ -272,8 +272,7 @@ fn valid_json_text(text: &str) -> Option<String> {
 
 fn window_from_remaining_percent(remaining: f64, reset_unix: Option<i64>) -> RateWindow {
     let resets_at = reset_unix.and_then(|ts| DateTime::<Utc>::from_timestamp(ts, 0));
-    // ponytail: reset countdown is localized at render time from `resets_at`;
-    // do not bake a language-specific description into the cached snapshot.
+    // Reset countdowns are localized at render time; keep cached snapshots language-neutral.
     RateWindow::with_details((100.0 - remaining).clamp(0.0, 100.0), None, resets_at, None)
 }
 
