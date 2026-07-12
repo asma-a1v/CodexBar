@@ -119,6 +119,7 @@ impl SettingsPatch {
             && self.provider_ids.is_none()
             && self.dark_text.is_none()
             && self.show_reset_inline.is_none()
+            && self.show_cost.is_none()
     }
 
     /// Apply this patch to a mutable `Settings`. Values are clamped and

@@ -158,6 +158,7 @@ locale_keys! {
 
     // Tab names (Preferences)
     TabGeneral,
+    TabProviders,
     TabNotifications,
     TabMenuBar,
     TabMenu,

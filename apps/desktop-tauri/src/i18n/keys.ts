@@ -6,6 +6,7 @@
 
 export const ALL_LOCALE_KEYS = [
   "TabGeneral",
+  "TabProviders",
   "TabNotifications",
   "TabMenuBar",
   "TabMenu",

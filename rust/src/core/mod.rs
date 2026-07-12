@@ -2,7 +2,6 @@
 
 mod cost_pricing;
 mod credential_migration;
-mod credentials;
 mod http;
 mod jsonl_scanner;
 mod models_dev_pricing;
@@ -19,7 +18,6 @@ mod widget_snapshot;
 
 pub use cost_pricing::*;
 pub use credential_migration::*;
-pub use credentials::*;
 pub use http::*;
 pub use jsonl_scanner::*;
 pub use models_dev_pricing::*;
