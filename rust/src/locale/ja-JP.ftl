@@ -1,4 +1,5 @@
 TabGeneral = 一般
+TabProviders = プロバイダー
 TabNotifications = Notifications
 TabMenuBar = Menu Bar
 TabMenu = Menu

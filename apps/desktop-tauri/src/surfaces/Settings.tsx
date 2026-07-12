@@ -52,6 +52,14 @@ const TabIcons: Record<SettingsTab, ReactElement> = {
       <path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.4 3.4l1.4 1.4M11.2 11.2l1.4 1.4M3.4 12.6l1.4-1.4M11.2 4.8l1.4-1.4" />
     </Svg>
   ),
+  providers: (
+    <Svg>
+      <circle cx="4" cy="4" r="1.5" />
+      <circle cx="12" cy="4" r="1.5" />
+      <circle cx="8" cy="12" r="1.5" />
+      <path d="M5.3 4.8 7.2 10M10.7 4.8 8.8 10M5.5 4h5" />
+    </Svg>
+  ),
   notifications: (
     <Svg>
       <path d="M3.5 11.5h9l-1.2-1.8V7a3.3 3.3 0 0 0-6.6 0v2.7Z" />
@@ -91,6 +99,7 @@ const TabIcons: Record<SettingsTab, ReactElement> = {
 
 const TAB_META: { id: SettingsTab; labelKey: LocaleKey }[] = [
   { id: "general", labelKey: "TabGeneral" },
+  { id: "providers", labelKey: "TabProviders" },
   { id: "notifications", labelKey: "TabNotifications" },
   { id: "menuBar", labelKey: "TabMenuBar" },
   { id: "menu", labelKey: "TabMenu" },
@@ -108,7 +117,7 @@ const SETTINGS_WINDOW_PROVIDERS_WIDTH = 600;
 
 async function applySettingsWindowSize(tab: SettingsTab) {
   const requestedWidth =
-    tab === "general"
+    tab === "providers"
       ? SETTINGS_WINDOW_PROVIDERS_WIDTH
       : SETTINGS_WINDOW_DEFAULT_WIDTH;
   const workArea = await getWorkAreaRect().catch(() => null);
@@ -197,7 +206,7 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
 
   return (
     <div
-      className={`settings${activeTab === "general" ? " settings--providers-active" : ""}`}
+      className={`settings${activeTab === "providers" ? " settings--providers-active" : ""}`}
     >
       {/* custom title bar (decorations disabled for guaranteed dark theme) */}
       <div className="settings-titlebar" data-tauri-drag-region>
@@ -248,17 +257,17 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
       )}
 
       {/* tab panels */}
-      <div className={`settings-body${activeTab === "general" ? " settings-body--providers" : ""}`}>
+      <div className={`settings-body${activeTab === "providers" ? " settings-body--providers" : ""}`}>
         {activeTab === "general" && (
-          <>
-            <GeneralTab mode="general" settings={settings} set={set} saving={saving} />
-            <ProvidersTab
-              settings={settings}
-              providers={state.providers}
-              set={set}
-              saving={saving}
-            />
-          </>
+          <GeneralTab mode="general" settings={settings} set={set} saving={saving} />
+        )}
+        {activeTab === "providers" && (
+          <ProvidersTab
+            settings={settings}
+            providers={state.providers}
+            set={set}
+            saving={saving}
+          />
         )}
         {activeTab === "notifications" && (
           <GeneralTab mode="notifications" settings={settings} set={set} saving={saving} />
