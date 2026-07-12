@@ -29,6 +29,7 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         .shadow(false)
         .theme(Some(tauri::Theme::Dark))
         .resizable(true)
+        .skip_taskbar(true)
         .build()
         .map_err(|e| e.to_string())?;
 

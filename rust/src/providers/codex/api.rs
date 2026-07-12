@@ -3,7 +3,7 @@
 //! Uses OAuth tokens stored by the Codex CLI in ~/.codex/auth.json
 
 use crate::core::{CostSnapshot, NamedRateWindow, ProviderError, RateWindow, UsageSnapshot};
-use chrono::{DateTime, TimeZone, Utc};
+use chrono::{DateTime, SecondsFormat, TimeZone, Utc};
 use serde::Deserialize;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -12,6 +12,9 @@ use std::time::{Duration, Instant, SystemTime};
 const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_PATH: &str = "/wham/usage";
 const RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
+const TOKEN_REFRESH_URL: &str = "https://auth.openai.com/oauth/token";
+const TOKEN_REFRESH_CLIENT_ID: &str = "app_EMoamEEZ73f0CkXaXp7hrann";
+const TOKEN_REFRESH_AGE_DAYS: i64 = 8;
 const CREDENTIAL_CACHE_TTL: Duration = Duration::from_secs(5);
 
 static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceLock::new();
@@ -41,9 +44,11 @@ impl CodexApi {
     /// Returns (UsageSnapshot, optional CostSnapshot)
     pub async fn fetch_usage(
         &self,
+        include_credits: bool,
     ) -> Result<(UsageSnapshot, Option<CostSnapshot>), ProviderError> {
         // Load credentials
-        let creds = self.load_credentials()?;
+        let loaded = self.load_credentials()?;
+        let creds = self.refresh_if_needed(loaded).await?;
 
         // Build request URL
         let base_url = self.resolve_base_url();
@@ -84,7 +89,8 @@ impl CodexApi {
             .map_err(|e| ProviderError::Parse(e.to_string()))?;
 
         let (mut usage, cost) = self.build_result_from_json(&json)?;
-        if let Ok(reset_credits) = self.fetch_rate_limit_reset_credits(&creds, &base_url).await
+        if include_credits
+            && let Ok(reset_credits) = self.fetch_rate_limit_reset_credits(&creds, &base_url).await
             && reset_credits.available_count > 0
         {
             let mut window = RateWindow::new(0.0);
@@ -99,7 +105,7 @@ impl CodexApi {
             ));
             usage = usage.with_extra_rate_window("reset-credits", "Reset credits", window);
         }
-        Ok((usage, cost))
+        Ok((usage, include_credits.then_some(cost).flatten()))
     }
 
     async fn fetch_rate_limit_reset_credits(
@@ -128,7 +134,7 @@ impl CodexApi {
         decode_reset_credits(&response.bytes().await?)
     }
 
-    fn load_credentials(&self) -> Result<CodexCredentials, ProviderError> {
+    fn load_credentials(&self) -> Result<LoadedCodexCredentials, ProviderError> {
         let auth_path = self.get_auth_path();
 
         if !auth_path.exists() {
@@ -142,7 +148,11 @@ impl CodexApi {
             .ok()
             .and_then(|metadata| metadata.modified().ok());
         if let Some(cached) = Self::cached_credentials(&auth_path, modified) {
-            return Ok(cached);
+            return Ok(LoadedCodexCredentials {
+                credentials: cached,
+                path: auth_path,
+                modified,
+            });
         }
 
         let content = std::fs::read_to_string(&auth_path).map_err(|e| {
@@ -150,8 +160,12 @@ impl CodexApi {
         })?;
 
         let credentials = Self::parse_credentials_json(&content)?;
-        Self::store_cached_credentials(auth_path, modified, credentials.clone());
-        Ok(credentials)
+        Self::store_cached_credentials(auth_path.clone(), modified, credentials.clone());
+        Ok(LoadedCodexCredentials {
+            credentials,
+            path: auth_path,
+            modified,
+        })
     }
 
     fn parse_credentials_json(content: &str) -> Result<CodexCredentials, ProviderError> {
@@ -164,34 +178,43 @@ impl CodexApi {
             if !trimmed.is_empty() {
                 return Ok(CodexCredentials {
                     access_token: trimmed.to_string(),
+                    refresh_token: None,
+                    id_token: None,
                     account_id: None,
+                    last_refresh: None,
                 });
             }
         }
 
         // Otherwise, look for tokens object
         let tokens = json.get("tokens").ok_or_else(|| {
-            ProviderError::Parse("Codex auth.json exists but contains no tokens.".to_string())
+            ProviderError::OAuth(
+                "Codex auth.json exists but contains no OAuth tokens. Run `codex login`."
+                    .to_string(),
+            )
         })?;
 
-        let access_token = tokens
-            .get("access_token")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .ok_or_else(|| {
-                ProviderError::Parse("Missing access_token in Codex credentials".to_string())
-            })?
-            .to_string();
-
-        let account_id = tokens
-            .get("account_id")
-            .and_then(|v| v.as_str())
-            .filter(|s| !s.is_empty())
-            .map(|s| s.to_string());
+        let access_token =
+            string_value(tokens, "access_token", "accessToken").ok_or_else(|| {
+                ProviderError::OAuth(
+                    "Codex OAuth access token is missing. Run `codex login`.".to_string(),
+                )
+            })?;
+        let refresh_token = string_value(tokens, "refresh_token", "refreshToken");
+        let id_token = string_value(tokens, "id_token", "idToken");
+        let account_id = string_value(tokens, "account_id", "accountId");
+        let last_refresh = json
+            .get("last_refresh")
+            .and_then(|value| value.as_str())
+            .and_then(|value| DateTime::parse_from_rfc3339(value).ok())
+            .map(|value| value.with_timezone(&Utc));
 
         Ok(CodexCredentials {
             access_token,
+            refresh_token,
+            id_token,
             account_id,
+            last_refresh,
         })
     }
 
@@ -227,6 +250,149 @@ impl CodexApi {
                 credentials,
             });
         }
+    }
+
+    fn clear_cached_credentials() {
+        if let Ok(mut guard) = Self::credential_cache().lock() {
+            *guard = None;
+        }
+    }
+
+    async fn refresh_if_needed(
+        &self,
+        loaded: LoadedCodexCredentials,
+    ) -> Result<CodexCredentials, ProviderError> {
+        if !loaded.credentials.needs_refresh() {
+            return Ok(loaded.credentials);
+        }
+
+        let refreshed = self.refresh_token(&loaded.credentials).await?;
+        if self.persist_refreshed_credentials(&loaded, &refreshed)? {
+            return Ok(refreshed);
+        }
+
+        // The Codex CLI updated auth.json while the refresh request was in flight.
+        // Prefer the CLI's new credentials instead of overwriting a rotated token.
+        tracing::info!("Codex credentials changed during refresh; using the newer auth.json");
+        Self::clear_cached_credentials();
+        Ok(self.load_credentials()?.credentials)
+    }
+
+    async fn refresh_token(
+        &self,
+        current: &CodexCredentials,
+    ) -> Result<CodexCredentials, ProviderError> {
+        let refresh_token = current.refresh_token.as_deref().ok_or_else(|| {
+            ProviderError::OAuth(
+                "Codex OAuth refresh token is missing. Run `codex login`.".to_string(),
+            )
+        })?;
+        let response = self
+            .client
+            .post(TOKEN_REFRESH_URL)
+            .header("Content-Type", "application/json")
+            .json(&serde_json::json!({
+                "client_id": TOKEN_REFRESH_CLIENT_ID,
+                "grant_type": "refresh_token",
+                "refresh_token": refresh_token,
+                "scope": "openid profile email"
+            }))
+            .send()
+            .await?;
+        let status = response.status();
+        let body = response.bytes().await?;
+        if !status.is_success() {
+            let code = refresh_error_code(&body);
+            let message = match code.as_deref() {
+                Some("refresh_token_expired") => "Codex refresh token expired. Run `codex login`.",
+                Some("refresh_token_reused") => {
+                    "Codex refresh token was already used. Run `codex login`."
+                }
+                Some("invalid_grant") | Some("refresh_token_invalidated") => {
+                    "Codex refresh token was revoked. Run `codex login`."
+                }
+                _ if status.as_u16() == 401 => {
+                    "Codex refresh token is no longer valid. Run `codex login`."
+                }
+                _ => {
+                    return Err(ProviderError::Other(format!(
+                        "Codex token refresh returned {status}"
+                    )));
+                }
+            };
+            return Err(ProviderError::OAuth(message.to_string()));
+        }
+
+        let payload: RefreshTokenResponse = serde_json::from_slice(&body).map_err(|error| {
+            ProviderError::Parse(format!("Invalid Codex token refresh response: {error}"))
+        })?;
+        Ok(CodexCredentials {
+            access_token: payload
+                .access_token
+                .filter(|value| !value.is_empty())
+                .unwrap_or_else(|| current.access_token.clone()),
+            refresh_token: payload
+                .refresh_token
+                .filter(|value| !value.is_empty())
+                .or_else(|| current.refresh_token.clone()),
+            id_token: payload
+                .id_token
+                .filter(|value| !value.is_empty())
+                .or_else(|| current.id_token.clone()),
+            account_id: current.account_id.clone(),
+            last_refresh: Some(Utc::now()),
+        })
+    }
+
+    fn persist_refreshed_credentials(
+        &self,
+        loaded: &LoadedCodexCredentials,
+        refreshed: &CodexCredentials,
+    ) -> Result<bool, ProviderError> {
+        let current_modified = std::fs::metadata(&loaded.path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        if current_modified != loaded.modified {
+            return Ok(false);
+        }
+
+        let content = std::fs::read_to_string(&loaded.path).map_err(|error| {
+            ProviderError::OAuth(format!("Failed to reread Codex auth.json: {error}"))
+        })?;
+        let current = Self::parse_credentials_json(&content)?;
+        if current.access_token != loaded.credentials.access_token
+            || current.refresh_token != loaded.credentials.refresh_token
+        {
+            return Ok(false);
+        }
+
+        let mut root: serde_json::Value = serde_json::from_str(&content).map_err(|error| {
+            ProviderError::Parse(format!("Invalid Codex credentials JSON: {error}"))
+        })?;
+        apply_refreshed_credentials_json(&mut root, refreshed)?;
+        let serialized = serde_json::to_vec_pretty(&root).map_err(|error| {
+            ProviderError::Parse(format!("Failed to serialize Codex credentials: {error}"))
+        })?;
+        let parent = loaded.path.parent().ok_or_else(|| {
+            ProviderError::OAuth("Codex auth.json has no parent directory.".to_string())
+        })?;
+        let temporary = parent.join(format!(".auth.json.codexbar-tmp-{}", uuid::Uuid::new_v4()));
+        std::fs::write(&temporary, serialized).map_err(|error| {
+            ProviderError::OAuth(format!("Failed to stage Codex credentials: {error}"))
+        })?;
+        restrict_private_permissions(&temporary)?;
+        if let Err(error) = std::fs::rename(&temporary, &loaded.path) {
+            let _ = std::fs::remove_file(&temporary);
+            return Err(ProviderError::OAuth(format!(
+                "Failed to replace Codex auth.json: {error}"
+            )));
+        }
+
+        let modified = std::fs::metadata(&loaded.path)
+            .ok()
+            .and_then(|metadata| metadata.modified().ok());
+        Self::store_cached_credentials(loaded.path.clone(), modified, refreshed.clone());
+        Ok(true)
     }
 
     fn get_auth_path(&self) -> PathBuf {
@@ -609,7 +775,28 @@ impl Default for CodexApi {
 #[derive(Clone)]
 struct CodexCredentials {
     access_token: String,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
     account_id: Option<String>,
+    last_refresh: Option<DateTime<Utc>>,
+}
+
+impl CodexCredentials {
+    fn needs_refresh(&self) -> bool {
+        if self.refresh_token.as_deref().is_none_or(str::is_empty) {
+            return false;
+        }
+        let Some(last_refresh) = self.last_refresh else {
+            return true;
+        };
+        Utc::now() - last_refresh >= chrono::Duration::days(TOKEN_REFRESH_AGE_DAYS)
+    }
+}
+
+struct LoadedCodexCredentials {
+    credentials: CodexCredentials,
+    path: PathBuf,
+    modified: Option<SystemTime>,
 }
 
 struct CachedCodexCredentials {
@@ -617,6 +804,13 @@ struct CachedCodexCredentials {
     modified: Option<SystemTime>,
     loaded_at: Instant,
     credentials: CodexCredentials,
+}
+
+#[derive(Debug, Deserialize)]
+struct RefreshTokenResponse {
+    access_token: Option<String>,
+    refresh_token: Option<String>,
+    id_token: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -709,6 +903,90 @@ impl SpendControlLimitSnapshot {
 }
 
 // --- Helper functions ---
+
+fn string_value(value: &serde_json::Value, snake_case: &str, camel_case: &str) -> Option<String> {
+    value
+        .get(snake_case)
+        .or_else(|| value.get(camel_case))
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
+}
+
+fn refresh_error_code(data: &[u8]) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_slice(data).ok()?;
+    let code = value
+        .get("error")
+        .and_then(|error| {
+            error
+                .get("code")
+                .and_then(serde_json::Value::as_str)
+                .or_else(|| error.as_str())
+        })
+        .or_else(|| value.get("code").and_then(serde_json::Value::as_str))?;
+    Some(code.to_ascii_lowercase())
+}
+
+fn apply_refreshed_credentials_json(
+    root: &mut serde_json::Value,
+    credentials: &CodexCredentials,
+) -> Result<(), ProviderError> {
+    let tokens = root
+        .get_mut("tokens")
+        .and_then(serde_json::Value::as_object_mut)
+        .ok_or_else(|| {
+            ProviderError::OAuth("Codex auth.json is missing its tokens object.".to_string())
+        })?;
+    tokens.insert(
+        "access_token".to_string(),
+        serde_json::Value::String(credentials.access_token.clone()),
+    );
+    if let Some(refresh_token) = &credentials.refresh_token {
+        tokens.insert(
+            "refresh_token".to_string(),
+            serde_json::Value::String(refresh_token.clone()),
+        );
+    }
+    if let Some(id_token) = &credentials.id_token {
+        tokens.insert(
+            "id_token".to_string(),
+            serde_json::Value::String(id_token.clone()),
+        );
+    }
+    if let Some(account_id) = &credentials.account_id {
+        tokens.insert(
+            "account_id".to_string(),
+            serde_json::Value::String(account_id.clone()),
+        );
+    }
+    root["last_refresh"] = serde_json::Value::String(
+        credentials
+            .last_refresh
+            .unwrap_or_else(Utc::now)
+            .to_rfc3339_opts(SecondsFormat::Millis, true),
+    );
+    Ok(())
+}
+
+#[cfg(unix)]
+fn restrict_private_permissions(path: &std::path::Path) -> Result<(), ProviderError> {
+    use std::os::unix::fs::PermissionsExt;
+    let mut permissions = std::fs::metadata(path)
+        .map_err(|error| {
+            ProviderError::OAuth(format!("Failed to inspect staged credentials: {error}"))
+        })?
+        .permissions();
+    permissions.set_mode(0o600);
+    std::fs::set_permissions(path, permissions).map_err(|error| {
+        ProviderError::OAuth(format!("Failed to protect staged credentials: {error}"))
+    })
+}
+
+#[cfg(not(unix))]
+fn restrict_private_permissions(_path: &std::path::Path) -> Result<(), ProviderError> {
+    Ok(())
+}
 
 fn timestamp_to_datetime(timestamp: Option<i64>) -> Option<DateTime<Utc>> {
     timestamp.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
@@ -865,12 +1143,14 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn parses_codex_credentials_without_retaining_refresh_token() {
+    fn parses_codex_credentials_for_refresh() {
         let credentials = CodexApi::parse_credentials_json(
             r#"{
+                "last_refresh": "2026-07-01T12:00:00Z",
                 "tokens": {
                     "access_token": "access",
                     "refresh_token": "refresh",
+                    "id_token": "identity",
                     "account_id": "acct_123"
                 }
             }"#,
@@ -878,7 +1158,144 @@ mod tests {
         .expect("credentials");
 
         assert_eq!(credentials.access_token, "access");
+        assert_eq!(credentials.refresh_token.as_deref(), Some("refresh"));
+        assert_eq!(credentials.id_token.as_deref(), Some("identity"));
         assert_eq!(credentials.account_id.as_deref(), Some("acct_123"));
+        assert!(credentials.last_refresh.is_some());
+    }
+
+    #[test]
+    fn refresh_merge_preserves_unrelated_auth_fields() {
+        let mut root = json!({
+            "OPENAI_API_KEY": null,
+            "custom": { "keep": true },
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "id_token": "old-id",
+                "account_id": "acct_123",
+                "extra": "keep"
+            }
+        });
+        let refreshed = CodexCredentials {
+            access_token: "new-access".to_string(),
+            refresh_token: Some("new-refresh".to_string()),
+            id_token: Some("new-id".to_string()),
+            account_id: Some("acct_123".to_string()),
+            last_refresh: Some(Utc.timestamp_opt(2_000_000_000, 0).unwrap()),
+        };
+
+        apply_refreshed_credentials_json(&mut root, &refreshed).expect("merge");
+
+        assert_eq!(root["custom"]["keep"], true);
+        assert_eq!(root["tokens"]["extra"], "keep");
+        assert_eq!(root["tokens"]["access_token"], "new-access");
+        assert_eq!(root["tokens"]["refresh_token"], "new-refresh");
+        assert_eq!(root["tokens"]["id_token"], "new-id");
+        assert_eq!(root["tokens"]["account_id"], "acct_123");
+        assert_eq!(root["last_refresh"], "2033-05-18T03:33:20.000Z");
+    }
+
+    #[test]
+    fn api_key_credentials_do_not_attempt_oauth_refresh() {
+        let credentials = CodexApi::parse_credentials_json(r#"{ "OPENAI_API_KEY": "sk-test" }"#)
+            .expect("credentials");
+
+        assert!(!credentials.needs_refresh());
+        assert!(credentials.refresh_token.is_none());
+    }
+
+    #[test]
+    fn recognizes_refresh_error_codes_without_exposing_response_text() {
+        assert_eq!(
+            refresh_error_code(br#"{"error":{"code":"refresh_token_reused","message":"secret"}}"#)
+                .as_deref(),
+            Some("refresh_token_reused")
+        );
+    }
+
+    #[test]
+    fn persists_refreshed_tokens_atomically_on_windows() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let path = directory.path().join("auth.json");
+        let original = r#"{
+            "custom": { "keep": true },
+            "last_refresh": "2026-06-01T00:00:00Z",
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh",
+                "account_id": "acct_123"
+            }
+        }"#;
+        std::fs::write(&path, original).expect("write auth");
+        let credentials = CodexApi::parse_credentials_json(original).expect("credentials");
+        let loaded = LoadedCodexCredentials {
+            credentials,
+            path: path.clone(),
+            modified: std::fs::metadata(&path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok()),
+        };
+        let refreshed = CodexCredentials {
+            access_token: "new-access".to_string(),
+            refresh_token: Some("new-refresh".to_string()),
+            id_token: Some("new-id".to_string()),
+            account_id: Some("acct_123".to_string()),
+            last_refresh: Some(Utc.timestamp_opt(2_000_000_000, 0).unwrap()),
+        };
+        let api = CodexApi::new();
+
+        assert!(
+            api.persist_refreshed_credentials(&loaded, &refreshed)
+                .expect("persist")
+        );
+        let saved: serde_json::Value =
+            serde_json::from_str(&std::fs::read_to_string(&path).expect("read persisted auth"))
+                .expect("saved json");
+        assert_eq!(saved["custom"]["keep"], true);
+        assert_eq!(saved["tokens"]["access_token"], "new-access");
+        assert_eq!(saved["tokens"]["refresh_token"], "new-refresh");
+    }
+
+    #[test]
+    fn does_not_overwrite_credentials_changed_by_codex_cli() {
+        let directory = tempfile::tempdir().expect("temp directory");
+        let path = directory.path().join("auth.json");
+        let original = r#"{
+            "tokens": {
+                "access_token": "old-access",
+                "refresh_token": "old-refresh"
+            }
+        }"#;
+        std::fs::write(&path, original).expect("write auth");
+        let loaded = LoadedCodexCredentials {
+            credentials: CodexApi::parse_credentials_json(original).expect("credentials"),
+            path: path.clone(),
+            modified: std::fs::metadata(&path)
+                .ok()
+                .and_then(|metadata| metadata.modified().ok()),
+        };
+        std::fs::write(
+            &path,
+            r#"{"tokens":{"access_token":"cli-access","refresh_token":"cli-refresh"}}"#,
+        )
+        .expect("simulate CLI rotation");
+        let refreshed = CodexCredentials {
+            access_token: "app-access".to_string(),
+            refresh_token: Some("app-refresh".to_string()),
+            id_token: None,
+            account_id: None,
+            last_refresh: Some(Utc::now()),
+        };
+
+        assert!(
+            !CodexApi::new()
+                .persist_refreshed_credentials(&loaded, &refreshed)
+                .expect("concurrent update")
+        );
+        let saved = std::fs::read_to_string(&path).expect("read auth");
+        assert!(saved.contains("cli-refresh"));
+        assert!(!saved.contains("app-refresh"));
     }
 
     #[test]

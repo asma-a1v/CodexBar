@@ -35,14 +35,18 @@
   },
   "bundle": {
     "active": true,
-    "targets": "all",
+    "targets": ["nsis"],
     "icon": [
-      "../../../rust/icons/icon.ico",
-      "../../../rust/icons/icon.png"
+      "../../../rust/icons/app.ico",
+      "../../../rust/icons/app.png"
     ],
     "windows": {
       "webviewInstallMode": {
         "type": "downloadBootstrapper"
+      },
+      "nsis": {
+        "installerIcon": "../../../rust/icons/app.ico",
+        "installMode": "currentUser"
       }
     }
   }
