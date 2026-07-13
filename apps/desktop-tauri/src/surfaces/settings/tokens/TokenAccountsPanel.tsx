@@ -128,7 +128,7 @@ export function TokenAccountsPanel({ providerId, compact = false }: Props) {
 
   if (!providerId) return null;
 
-  const placeholder = data?.support.placeholder ?? "Paste token…";
+  const placeholder = data?.support.placeholder ?? t("TokenAccountTokenPlaceholder");
   const subtitle = data?.support.subtitle ?? "";
 
   const body = (

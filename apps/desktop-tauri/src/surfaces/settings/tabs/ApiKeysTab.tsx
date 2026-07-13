@@ -104,7 +104,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                     {saved ? (
                       <>
                         <span className="credential-card__badge credential-card__badge--set">
-                          Configured
+                          {t("KeySet")}
                         </span>
                         <span className="credential-card__masked">
                           {saved.maskedKey}
@@ -115,12 +115,12 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                           </span>
                         )}
                         <span className="credential-card__date">
-                          Saved {saved.savedAt}
+                          {t("LastUpdated")} {saved.savedAt}
                         </span>
                       </>
                     ) : (
                       <span className="credential-card__badge credential-card__badge--unset">
-                        Not set
+                        {t("ApiKeyNotSet")}
                       </span>
                     )}
                   </span>
@@ -136,7 +136,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                         setEditLabel(saved?.label ?? "");
                       }}
                     >
-                      {saved ? "Update" : "Add Key"}
+                      {saved ? t("ApiKeyUpdate") : t("AddKey")}
                     </button>
                   )}
                   {saved && !isEditing && (
@@ -145,7 +145,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                       disabled={busy}
                       onClick={() => void handleRemove(p.id)}
                     >
-                      Remove
+                      {t("Remove")}
                     </button>
                   )}
                 </div>
@@ -162,7 +162,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  Open dashboard ↗
+                  {t("OpenProviderDashboard").replace("{}", displayName)} ↗
                 </a>
               )}
 
@@ -171,7 +171,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                   <input
                     type="password"
                     className="text-input credential-card__input"
-                    placeholder="Paste API key…"
+                    placeholder={t("PasteApiKeyHere")}
                     autoComplete="off"
                     value={editValue}
                     onChange={(e) => setEditValue(e.target.value)}
@@ -180,7 +180,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                   <input
                     type="text"
                     className="text-input credential-card__input credential-card__input--label"
-                    placeholder="Label (optional)"
+                    placeholder={t("ApiKeyLabelOptional")}
                     value={editLabel}
                     onChange={(e) => setEditLabel(e.target.value)}
                     disabled={busy}
@@ -191,7 +191,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                       disabled={busy || !editValue.trim()}
                       onClick={() => void handleSave(p.id)}
                     >
-                      Save
+                      {t("Save")}
                     </button>
                     <button
                       className="credential-btn"
@@ -202,7 +202,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                         setEditLabel("");
                       }}
                     >
-                      Cancel
+                      {t("Cancel")}
                     </button>
                   </div>
                 </div>

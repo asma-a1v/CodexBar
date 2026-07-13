@@ -190,7 +190,7 @@ function providerSidebarSubtitle(
     return `${t("ProviderDisabled")} — ${providerSourceHintShort(providerId, t)}`;
   }
   if (!snap) {
-    return "Waiting for usage";
+    return t("WaitingForUsage");
   }
   const source = snap.sourceLabel || providerSourceHintShort(providerId, t);
   return source;

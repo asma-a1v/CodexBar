@@ -297,12 +297,12 @@ describe("MenuCard", () => {
     const toggle = await screen.findByRole("button", { name: /On-pace budget/ });
     expect(screen.getByText("now 20%")).toBeInTheDocument();
     expect(screen.getByText("1h 21%")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: /usage pace/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /PaceChartAriaLabel/i })).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("img", { name: /usage pace/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /PaceChartAriaLabel/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(onLayoutChange).toHaveBeenCalled();
     });
@@ -339,7 +339,7 @@ describe("MenuCard", () => {
     expect(await screen.findByText("69% left")).toBeInTheDocument();
     expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("img", { name: /usage pace/i }),
+      screen.queryByRole("img", { name: /PaceChartAriaLabel/i }),
     ).not.toBeInTheDocument();
   });
 
