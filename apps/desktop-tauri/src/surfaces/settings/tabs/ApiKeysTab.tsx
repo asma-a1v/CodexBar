@@ -115,7 +115,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                           </span>
                         )}
                         <span className="credential-card__date">
-                          {t("Saved")} {saved.savedAt}
+                          {t("LastUpdated")} {saved.savedAt}
                         </span>
                       </>
                     ) : (
@@ -162,7 +162,7 @@ export default function ApiKeysTab({ providers }: { providers: ProviderCatalogEn
                   target="_blank"
                   rel="noopener noreferrer"
                 >
-                  {t("OpenProviderDashboard")} ↗
+                  {t("OpenProviderDashboard").replace("{}", displayName)} ↗
                 </a>
               )}
 

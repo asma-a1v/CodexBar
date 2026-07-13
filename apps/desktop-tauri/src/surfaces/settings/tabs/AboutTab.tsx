@@ -201,7 +201,7 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
       </div>
 
       <p className="about-copyright">
-        {copyrightBefore}
+        {copyrightBefore}{" "}
         <button
           type="button"
           className="about-link about-link--inline"
@@ -209,7 +209,7 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
         >
           {t("AppName")}
         </button>
-        {copyrightAfter}
+        {" "}{copyrightAfter}
       </p>
     </section>
   );

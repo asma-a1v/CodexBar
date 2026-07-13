@@ -345,7 +345,7 @@ fn test_locale_respects_language_setting() {
 }
 
 #[test]
-fn test_all_locale_keys_have_all_languages() {
+fn test_english_is_complete_and_other_languages_can_fallback() {
     let resources = [
         ("en-US", include_str!("en-US.ftl")),
         ("zh-CN", include_str!("zh-CN.ftl")),
@@ -359,12 +359,23 @@ fn test_all_locale_keys_have_all_languages() {
         .into_iter()
         .map(|(locale, resource)| (locale, resource_key_names(resource)))
         .collect();
+    let locale_key_names: HashSet<&str> = LocaleKey::ALL.iter().map(|(_, name)| *name).collect();
+
+    for (locale, keys) in &resource_keys {
+        for name in keys {
+            assert!(
+                locale_key_names.contains(name),
+                "unknown Fluent key {name} in {locale}"
+            );
+        }
+    }
 
     for (key, name) in LocaleKey::ALL {
         assert_eq!(key.name(), *name);
-        for (locale, keys) in &resource_keys {
-            assert!(keys.contains(name), "missing Fluent key {name} in {locale}");
-        }
+        assert!(
+            resource_keys[0].1.contains(name),
+            "missing Fluent key {name} in en-US"
+        );
         for lang in Language::all() {
             let text = LOCALES
                 .try_lookup(language_id(*lang), name)

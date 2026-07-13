@@ -138,7 +138,7 @@ export function ApiKeySection({ providerId }: Props) {
                       </span>
                     )}
                     <span className="credential-card__date">
-                      {t("Saved")} {saved.savedAt}
+                      {t("LastUpdated")} {saved.savedAt}
                     </span>
                   </>
                 ) : (
@@ -185,7 +185,7 @@ export function ApiKeySection({ providerId }: Props) {
               target="_blank"
               rel="noopener noreferrer"
             >
-              {t("OpenProviderDashboard")} ↗
+              {t("OpenProviderDashboard").replace("{}", info.displayName)} ↗
             </a>
           )}
 

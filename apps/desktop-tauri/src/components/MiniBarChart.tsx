@@ -1,7 +1,4 @@
-/**
- * MiniBarChart — lightweight SVG bar chart with no external dependencies.
- * Used in ProviderDetail for cost history, credits history, and usage breakdown.
- */
+/** MiniBarChart：不依赖外部库的轻量 SVG 柱状图。 */
 
 import type { DailyCostPoint, DailyUsageBreakdown } from "../types/bridge";
 import type { LocaleKey } from "../i18n/keys";
@@ -12,11 +9,10 @@ interface BarChartProps {
   height?: number;
   label?: string;
   formatValue?: (v: number) => string;
-  /** Optional translator from the locale context (passed by MenuCard). */
-  t?: (key: LocaleKey) => string;
+  t: (key: LocaleKey) => string;
 }
 
-/** Simple bar chart for daily cost or credits history. */
+/** 展示每日成本或积分历史的简单柱状图。 */
 export function SimpleBarChart({
   points,
   color = "#5d87ff",
@@ -25,7 +21,7 @@ export function SimpleBarChart({
   formatValue,
   t,
 }: BarChartProps) {
-  const emptyMsg = t?.("DetailChartEmpty") ?? "No data";
+  const emptyMsg = t("DetailChartEmpty");
   if (points.length === 0) {
     return (
       <div className="mini-chart mini-chart--empty">
@@ -39,7 +35,7 @@ export function SimpleBarChart({
   const BAR_GAP = 2;
   const fmt = formatValue ?? ((v: number) => v.toFixed(2));
 
-  // Show at most 30 bars; abbreviate label to last 2 chars of date
+  // 最多显示 30 根柱，并将日期标签缩短为末尾两位
   const visible = points.slice(-30);
   const svgWidth = 280;
   const barWidth = Math.max(
@@ -56,7 +52,7 @@ export function SimpleBarChart({
         height={height}
         viewBox={`0 0 ${actualWidth} ${height}`}
         className="mini-chart__svg"
-        aria-label={label ?? (t?.("BarChartAriaLabel") ?? "bar chart")}
+        aria-label={label ?? t("BarChartAriaLabel")}
       >
         {visible.map((p, i) => {
           const barH = Math.max(1, (p.value / max) * (height - 4));
@@ -93,7 +89,7 @@ export function SimpleBarChart({
   );
 }
 
-// Deterministic palette for service names
+// 按服务名称稳定分配颜色
 const SERVICE_COLORS = [
   "#5d87ff",
   "#06d6a0",
@@ -114,18 +110,17 @@ interface StackedBarChartProps {
   points: DailyUsageBreakdown[];
   height?: number;
   label?: string;
-  /** Optional translator from the locale context (passed by MenuCard). */
-  t?: (key: LocaleKey) => string;
+  t: (key: LocaleKey) => string;
 }
 
-/** Stacked bar chart for daily usage breakdown by service. */
+/** 按服务展示每日用量明细的堆叠柱状图。 */
 export function StackedBarChart({
   points,
   height = 64,
   label,
   t,
 }: StackedBarChartProps) {
-  const emptyMsg = t?.("DetailChartEmpty") ?? "No data";
+  const emptyMsg = t("DetailChartEmpty");
   if (points.length === 0) {
     return (
       <div className="mini-chart mini-chart--empty">
@@ -159,12 +154,12 @@ export function StackedBarChart({
         height={height}
         viewBox={`0 0 ${actualWidth} ${height}`}
         className="mini-chart__svg"
-        aria-label={label ?? (t?.("StackedBarChartAriaLabel") ?? "stacked bar chart")}
+        aria-label={label ?? t("StackedBarChartAriaLabel")}
       >
         {visible.map((p, i) => {
           const x = i * (barWidth + BAR_GAP);
           const totalH = Math.max(1, (p.totalCreditsUsed / max) * (height - 4));
-          // Sort services to stack predictably
+          // 固定服务排序，确保堆叠顺序可预测
           const sorted = [...p.services].sort((a, b) =>
             a.service.localeCompare(b.service),
           );

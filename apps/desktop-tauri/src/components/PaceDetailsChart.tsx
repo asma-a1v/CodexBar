@@ -20,17 +20,10 @@ export default function PaceDetailsChart({
   t,
 }: {
   snap: RateWindowSnapshot;
-  /**
-   * Optional translator from the locale context. Callers inside the
-   * LocaleProvider (e.g. MenuCard) pass `t` so chart labels localize;
-   * the English fallbacks keep the component usable in isolation/tests.
-   */
-  t?: (key: LocaleKey) => string;
+  t: (key: LocaleKey) => string;
 }) {
   const chart = getPaceChartSnapshot(snap);
   if (!chart) return null;
-
-  const tr = (key: LocaleKey, fallback: string): string => t?.(key) ?? fallback;
 
   const startX = chartX(0);
   const startY = chartY(0);
@@ -45,7 +38,7 @@ export default function PaceDetailsChart({
       <svg
         viewBox={`0 0 ${CHART_WIDTH} ${CHART_HEIGHT}`}
         role="img"
-        aria-label={tr("PaceChartAriaLabel", "Average usage pace and projection through the current rate window")}
+        aria-label={t("PaceChartAriaLabel")}
       >
         <line
           className="pace-details-chart__grid"
@@ -80,9 +73,9 @@ export default function PaceDetailsChart({
         />
       </svg>
       <div className="pace-details-chart__legend">
-        <span data-series="actual">{tr("PaceChartLegendAverageSoFar", "Average so far")}</span>
-        <span data-series="ideal">{tr("PaceChartLegendIdealPace", "Ideal pace")}</span>
-        <span data-series="projection">{tr("PaceChartLegendProjection", "Projection")}</span>
+        <span data-series="actual">{t("PaceChartLegendAverageSoFar")}</span>
+        <span data-series="ideal">{t("PaceChartLegendIdealPace")}</span>
+        <span data-series="projection">{t("PaceChartLegendProjection")}</span>
       </div>
     </div>
   );
