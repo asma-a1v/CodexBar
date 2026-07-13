@@ -124,7 +124,7 @@ describe("GeneralTab language picker", () => {
       <GeneralTab mode="notifications" settings={settings} set={set} saving={false} />,
     );
     const input = screen.getByRole("spinbutton", {
-      name: "Codex · ProviderSession HighUsageAlert",
+      name: "ProviderNameCodex · ProviderSession HighUsageAlert",
     });
 
     fireEvent.change(input, { target: { value: "80" } });
@@ -145,7 +145,7 @@ describe("GeneralTab language picker", () => {
       />,
     );
     const saved = screen.getByRole("spinbutton", {
-      name: "Codex · ProviderSession HighUsageAlert",
+      name: "ProviderNameCodex · ProviderSession HighUsageAlert",
     });
     fireEvent.change(saved, { target: { value: "" } });
     fireEvent.blur(saved);

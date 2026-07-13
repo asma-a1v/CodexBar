@@ -52,7 +52,11 @@ export default function AgentSessions() {
           key={`${session.host}:${session.provider}:${session.id}`}
           onClick={() => focus(session)}
         >
-          <span>{session.provider === "codex" ? "Codex" : "Claude"}</span>
+          <span>
+            {session.provider === "codex"
+              ? t("ProviderNameCodex")
+              : t("ProviderNameClaude")}
+          </span>
           <span>{session.workspace.projectName ?? session.host}</span>
           <span>{session.state}</span>
         </button>

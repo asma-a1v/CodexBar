@@ -4,6 +4,7 @@
  */
 
 import type { DailyCostPoint, DailyUsageBreakdown } from "../types/bridge";
+import type { LocaleKey } from "../i18n/keys";
 
 interface BarChartProps {
   points: DailyCostPoint[];
@@ -11,6 +12,8 @@ interface BarChartProps {
   height?: number;
   label?: string;
   formatValue?: (v: number) => string;
+  /** Optional translator from the locale context (passed by MenuCard). */
+  t?: (key: LocaleKey) => string;
 }
 
 /** Simple bar chart for daily cost or credits history. */
@@ -20,12 +23,14 @@ export function SimpleBarChart({
   height = 48,
   label,
   formatValue,
+  t,
 }: BarChartProps) {
+  const emptyMsg = t?.("DetailChartEmpty") ?? "No data";
   if (points.length === 0) {
     return (
       <div className="mini-chart mini-chart--empty">
         {label && <span className="mini-chart__label">{label}</span>}
-        <span className="mini-chart__empty-msg">No data</span>
+        <span className="mini-chart__empty-msg">{emptyMsg}</span>
       </div>
     );
   }
@@ -51,7 +56,7 @@ export function SimpleBarChart({
         height={height}
         viewBox={`0 0 ${actualWidth} ${height}`}
         className="mini-chart__svg"
-        aria-label={label ?? "bar chart"}
+        aria-label={label ?? (t?.("BarChartAriaLabel") ?? "bar chart")}
       >
         {visible.map((p, i) => {
           const barH = Math.max(1, (p.value / max) * (height - 4));
@@ -109,6 +114,8 @@ interface StackedBarChartProps {
   points: DailyUsageBreakdown[];
   height?: number;
   label?: string;
+  /** Optional translator from the locale context (passed by MenuCard). */
+  t?: (key: LocaleKey) => string;
 }
 
 /** Stacked bar chart for daily usage breakdown by service. */
@@ -116,12 +123,14 @@ export function StackedBarChart({
   points,
   height = 64,
   label,
+  t,
 }: StackedBarChartProps) {
+  const emptyMsg = t?.("DetailChartEmpty") ?? "No data";
   if (points.length === 0) {
     return (
       <div className="mini-chart mini-chart--empty">
         {label && <span className="mini-chart__label">{label}</span>}
-        <span className="mini-chart__empty-msg">No data</span>
+        <span className="mini-chart__empty-msg">{emptyMsg}</span>
       </div>
     );
   }
@@ -150,7 +159,7 @@ export function StackedBarChart({
         height={height}
         viewBox={`0 0 ${actualWidth} ${height}`}
         className="mini-chart__svg"
-        aria-label={label ?? "stacked bar chart"}
+        aria-label={label ?? (t?.("StackedBarChartAriaLabel") ?? "stacked bar chart")}
       >
         {visible.map((p, i) => {
           const x = i * (barWidth + BAR_GAP);
@@ -176,7 +185,8 @@ export function StackedBarChart({
                 rx={1}
               >
                 <title>
-                  {p.day} {s.service}: {s.creditsUsed.toFixed(2)} credits
+                  {p.day} {s.service}: {s.creditsUsed.toFixed(2)}{" "}
+                  {t?.("CreditsLabel") ?? "credits"}
                 </title>
               </rect>
             );

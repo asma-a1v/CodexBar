@@ -61,7 +61,7 @@ describe("ProvidersSidebar", () => {
       </LocaleProvider>,
     );
 
-    expect(await screen.findByRole("listbox", { name: "Providers" })).toBeInTheDocument();
+    expect(await screen.findByRole("listbox", { name: "ProvidersAriaLabel" })).toBeInTheDocument();
     expect(screen.getAllByRole("option")).toHaveLength(TEST_PROVIDER_CATALOG.length);
     const names = Array.from(
       container.querySelectorAll(".providers-sidebar__name"),

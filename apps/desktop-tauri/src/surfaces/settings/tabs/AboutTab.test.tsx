@@ -102,9 +102,9 @@ describe("AboutTab", () => {
   it("opens about links through the Tauri URL bridge", async () => {
     render(<AboutTab settings={settings} set={vi.fn()} saving={false} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "GitHub" }));
-    fireEvent.click(screen.getByRole("button", { name: "Website" }));
-    fireEvent.click(screen.getByRole("button", { name: "Original Project" }));
+    fireEvent.click(await screen.findByRole("button", { name: "AboutLinkGitHub" }));
+    fireEvent.click(screen.getByRole("button", { name: "AboutLinkWebsite" }));
+    fireEvent.click(screen.getByRole("button", { name: "AboutLinkOriginalProject" }));
 
     expect(tauriMocks.openExternalUrl).toHaveBeenNthCalledWith(
       1,
@@ -125,10 +125,10 @@ describe("AboutTab", () => {
 
     render(<AboutTab settings={settings} set={vi.fn()} saving={false} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "Website" }));
+    fireEvent.click(await screen.findByRole("button", { name: "AboutLinkWebsite" }));
 
     await waitFor(() => {
-      expect(screen.getByText("Error: no browser")).toBeInTheDocument();
+      expect(screen.getByText("ErrorPrefix no browser")).toBeInTheDocument();
     });
   });
 });

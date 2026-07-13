@@ -86,7 +86,7 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
             disabled={busy || projectId.trim() === savedProjectId}
             onClick={saveProjectId}
           >
-            Save
+            {t("Save")}
           </button>
         </div>
         {error && <div className="provider-detail-error">{error}</div>}
@@ -98,24 +98,24 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
     switch (providerId) {
       case "openaiapi":
         return {
-          title: "OpenAI Admin API",
-          label: "Project ID",
-          placeholder: "proj_...",
-          help: "Leave blank for organization-wide usage. Set a project ID to scope OpenAI usage and cost requests with the Admin API.",
+          title: t("OpenAiAdminApiTitle"),
+          label: t("OpenAiProjectIdLabel"),
+          placeholder: t("OpenAiProjectIdPlaceholder"),
+          help: t("OpenAiProjectIdHelp"),
         };
       case "litellm":
         return {
-          title: "LiteLLM API",
-          label: "Base URL",
-          placeholder: "https://litellm.example.com",
-          help: "Used with the saved API key for LiteLLM /key/info.",
+          title: t("LiteLlmApiTitle"),
+          label: t("LiteLlmBaseUrlLabel"),
+          placeholder: t("LiteLlmBaseUrlPlaceholder"),
+          help: t("LiteLlmBaseUrlHelp"),
         };
       case "devin":
         return {
-          title: "Devin API",
-          label: "Organization",
-          placeholder: "org/acme",
-          help: "Used with the saved bearer token for Devin billing quota usage.",
+          title: t("DevinApiTitle"),
+          label: t("DevinOrganizationLabel"),
+          placeholder: t("DevinOrganizationPlaceholder"),
+          help: t("DevinOrganizationHelp"),
         };
       case "opencodego":
         return {
@@ -126,10 +126,10 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
         };
       case "zed":
         return {
-          title: "Zed API",
-          label: "API URL",
-          placeholder: "https://cloud.zed.dev/client/users/me",
-          help: "Optional. Leave blank for the default Zed Cloud API URL.",
+          title: t("ZedApiTitle"),
+          label: t("ZedApiUrlLabel"),
+          placeholder: t("ZedApiUrlPlaceholder"),
+          help: t("ZedApiUrlHelp"),
         };
       default:
         return null;

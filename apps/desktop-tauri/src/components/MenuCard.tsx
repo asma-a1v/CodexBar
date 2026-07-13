@@ -228,10 +228,13 @@ function WayfinderUsageBlock({
   );
 }
 
-function displayPlanName(planName: string | null): string | null {
+function displayPlanName(
+  planName: string | null,
+  t: (key: LocaleKey) => string,
+): string | null {
   if (!planName) return null;
   const normalized = planName.trim().toLowerCase();
-  if (normalized === "default_claude_ai") return "Claude AI";
+  if (normalized === "default_claude_ai") return t("ProviderPlanClaudeAi");
   return planName;
 }
 
@@ -381,7 +384,7 @@ function MetricRow({
               </span>
             ))}
           </div>
-          {expanded && <PaceDetailsChart snap={snap} />}
+          {expanded && <PaceDetailsChart snap={snap} t={t} />}
         </div>
       )}
       {paceView.kind === "reserve" && (
@@ -463,7 +466,7 @@ export default function MenuCard({
       ? maskEmail(provider.accountEmail)
       : provider.accountEmail
     : null;
-  const planName = !isWayfinder ? displayPlanName(provider.planName) : null;
+  const planName = !isWayfinder ? displayPlanName(provider.planName, t) : null;
 
   const metrics: MetricEntry[] = [
     ...(isWayfinder
@@ -685,6 +688,7 @@ export default function MenuCard({
                   label={t("DetailChartCost")}
                   color="var(--accent)"
                   formatValue={(v) => `$${v.toFixed(2)}`}
+                  t={t}
                 />
               )}
               {hasCreditsHistory && (
@@ -693,6 +697,7 @@ export default function MenuCard({
                   label={t("DetailChartCredits")}
                   color="var(--provider-status-ok)"
                   formatValue={(v) => v.toFixed(1)}
+                  t={t}
                 />
               )}
               {hasUsageBreakdown && (
@@ -700,6 +705,7 @@ export default function MenuCard({
                   points={chartData!.usageBreakdown}
                   label={t("DetailChartUsageBreakdown")}
                   height={56}
+                  t={t}
                 />
               )}
             </section>

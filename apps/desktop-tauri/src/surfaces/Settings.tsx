@@ -199,19 +199,19 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
     >
       {/* custom title bar (decorations disabled for guaranteed dark theme) */}
       <div className="settings-titlebar" data-tauri-drag-region>
-        <span className="settings-titlebar__title" data-tauri-drag-region>CodexBar Settings</span>
+        <span className="settings-titlebar__title" data-tauri-drag-region>{t("SettingsWindowTitle")}</span>
         <div className="settings-titlebar__controls">
           <button
             className="settings-titlebar__control settings-titlebar__control--minimize"
             onClick={() => void getCurrentWindow().minimize()}
-            aria-label="Minimize"
-            title="Minimize"
+            aria-label={t("WindowMinimize")}
+            title={t("WindowMinimize")}
           />
           <button
             className="settings-titlebar__control settings-titlebar__control--close"
             onClick={() => void closeSettingsWindow()}
-            aria-label="Close"
-            title="Close"
+            aria-label={t("WindowClose")}
+            title={t("WindowClose")}
           >
             <svg aria-hidden viewBox="0 0 16 16" focusable="false">
               <path d="M4.5 4.5l7 7M11.5 4.5l-7 7" />

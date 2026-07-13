@@ -18,7 +18,7 @@ interface Props {
 export function IdentitySection({ provider, subtitle, t }: Props) {
   const rows: { label: string; value: string | null }[] = [
     { label: t("Account"), value: provider.email ?? provider.organization },
-    { label: t("Plan"), value: displayIdentityValue(provider.plan) },
+    { label: t("Plan"), value: displayIdentityValue(provider.plan, t) },
     { label: t("AuthType"), value: provider.authType },
     { label: t("DataSource"), value: provider.sourceLabel },
   ];
@@ -50,8 +50,12 @@ export function IdentitySection({ provider, subtitle, t }: Props) {
   );
 }
 
-function displayIdentityValue(value: string | null): string | null {
+function displayIdentityValue(
+  value: string | null,
+  t: (key: LocaleKey) => string,
+): string | null {
   if (!value) return null;
-  if (value.trim().toLowerCase() === "default_claude_ai") return "Claude AI";
+  if (value.trim().toLowerCase() === "default_claude_ai")
+    return t("ProviderPlanClaudeAi");
   return value;
 }

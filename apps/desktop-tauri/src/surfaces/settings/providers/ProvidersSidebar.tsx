@@ -214,7 +214,7 @@ export function ProvidersSidebar({
         ref={sidebarRef}
         className="providers-sidebar"
         role="listbox"
-        aria-label="Providers"
+        aria-label={t("ProvidersAriaLabel")}
         aria-orientation="vertical"
         onWheel={handleWheel}
       >
@@ -323,7 +323,7 @@ export function ProvidersSidebar({
                 disabled={disabled}
                 onClick={(e) => e.stopPropagation()}
                 onChange={(e) => onToggleEnabled(p.id, e.target.checked)}
-                aria-label={`${p.displayName} enabled`}
+                aria-label={`${p.displayName} ${t("ProviderEnabled")}`}
               />
             </li>
           );

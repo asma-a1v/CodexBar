@@ -10,6 +10,7 @@ import {
 } from "./lib/tauri";
 import { useSurfaceSnapshot } from "./hooks/useSurfaceSnapshot";
 import { useTheme } from "./hooks/useTheme";
+import { useLocale } from "./hooks/useLocale";
 import TrayPanel from "./surfaces/TrayPanel";
 import { FLOATBAR_WINDOW_LABEL } from "./floatbar/api";
 import { LocaleProvider } from "./i18n/LocaleProvider";
@@ -54,6 +55,7 @@ export default function App() {
 }
 
 function AppInner() {
+  const { t } = useLocale();
   const surface = useSurfaceSnapshot();
   const [state, setState] = useState<BootstrapState | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -146,7 +148,7 @@ function AppInner() {
     return (
       <main className="shell">
         <section className="panel error">
-          <h2>Bootstrap failed</h2>
+          <h2>{t("BootstrapFailed")}</h2>
           <p>{error}</p>
         </section>
       </main>
@@ -157,8 +159,8 @@ function AppInner() {
     return (
       <main className="shell">
         <section className="panel">
-          <h2>Loading shell contract…</h2>
-          <p>Waiting for the Rust bridge to describe providers, surfaces, and settings.</p>
+          <h2>{t("LoadingShellContract")}</h2>
+          <p>{t("LoadingShellContractHint")}</p>
         </section>
       </main>
     );
