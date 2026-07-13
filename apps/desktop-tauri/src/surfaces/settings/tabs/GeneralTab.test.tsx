@@ -10,7 +10,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   invoke: vi.fn().mockResolvedValue([
     { value: "english", display: "English" },
     { value: "chinese", display: "中文" },
-    { value: "chinesetraditional", display: "繁體中文（臺灣）" },
+    { value: "chinesetraditional", display: "繁體中文" },
     { value: "japanese", display: "日本語" },
     { value: "korean", display: "한국어" },
     { value: "spanish", display: "Español" },
@@ -99,7 +99,7 @@ describe("GeneralTab language picker", () => {
   it("includes Traditional Chinese as a selectable option", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
-    expect(screen.getByText("繁體中文（臺灣）")).toBeInTheDocument();
+    expect(screen.getByText("繁體中文")).toBeInTheDocument();
   });
 
   it("updates the predictive pace warning preference", () => {

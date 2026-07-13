@@ -80,7 +80,7 @@ impl Language {
         match self {
             Language::English => "English",
             Language::Chinese => "中文",
-            Language::ChineseTraditional => "繁體中文（臺灣）",
+            Language::ChineseTraditional => "繁體中文",
             Language::Japanese => "日本語",
             Language::Korean => "한국어",
             Language::Spanish => "Español",
