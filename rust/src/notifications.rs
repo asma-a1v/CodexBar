@@ -797,4 +797,41 @@ mod tests {
             NotificationType::HighUsage,
         )));
     }
+
+    /// Mirrors `notify_usage_thresholds` in the Tauri shell: each refresh
+    /// calls session then weekly. Confidence pass for #198 over many cycles.
+    #[test]
+    fn refresh_loop_session_cool_weekly_hot_toasts_once() {
+        let mut manager = NotificationManager::new();
+        let settings = Settings::default();
+        let weekly_high = (
+            ProviderId::Claude,
+            "weekly".to_string(),
+            NotificationType::HighUsage,
+        );
+
+        let mut weekly_fires = 0usize;
+        for _ in 0..30 {
+            let before = manager.sent_notifications.contains(&weekly_high);
+            // Same order as apps/desktop-tauri/.../providers.rs
+            manager.check_and_notify(ProviderId::Claude, "session", 20.0, &settings);
+            manager.check_and_notify(ProviderId::Claude, "weekly", 76.0, &settings);
+            let after = manager.sent_notifications.contains(&weekly_high);
+            if after && !before {
+                weekly_fires += 1;
+            }
+        }
+
+        assert_eq!(
+            weekly_fires, 1,
+            "weekly high must fire exactly once across 30 refresh cycles"
+        );
+        assert!(manager.sent_notifications.contains(&weekly_high));
+        // Session never armed high while cool.
+        assert!(!manager.sent_notifications.contains(&(
+            ProviderId::Claude,
+            "session".to_string(),
+            NotificationType::HighUsage,
+        )));
+    }
 }
