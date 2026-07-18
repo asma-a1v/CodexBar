@@ -277,6 +277,8 @@ struct QuotaSnapshot {
     quota_id: Option<String>,
     #[serde(default)]
     placeholder: bool,
+    #[serde(default)]
+    unlimited: bool,
 }
 
 // --- Snapshot building ---
@@ -287,6 +289,12 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
         .as_deref()
         .and_then(parse_iso_date);
     let quotas = response.usable_quotas(reset);
+    let has_unlimited_quota = response
+        .quota_snapshots
+        .entries
+        .values()
+        .filter_map(|value| serde_json::from_value::<QuotaSnapshot>(value.clone()).ok())
+        .any(|quota| quota.unlimited);
 
     let primary_quota = quotas.premium.clone().or_else(|| quotas.first.clone());
     if primary_quota.is_none()
@@ -302,7 +310,13 @@ fn snapshot_from_response(response: CopilotUsageResponse) -> Result<UsageSnapsho
     let primary = primary_quota
         .as_ref()
         .map(|quota| quota.to_rate_window(reset))
-        .unwrap_or_else(|| RateWindow::new(0.0));
+        .unwrap_or_else(|| {
+            if has_unlimited_quota {
+                RateWindow::informational("Unlimited")
+            } else {
+                RateWindow::new(0.0)
+            }
+        });
 
     let mut usage =
         UsageSnapshot::new(primary).with_login_method(plan_label(&response.copilot_plan));
@@ -350,7 +364,7 @@ struct UsableQuota {
 
 impl UsableQuota {
     fn from_snapshot(key: &str, snapshot: QuotaSnapshot) -> Option<Self> {
-        if snapshot.is_placeholder() {
+        if snapshot.unlimited || snapshot.is_placeholder() {
             return None;
         }
 
@@ -823,6 +837,29 @@ mod tests {
             err.to_string()
                 .contains("token-based billing usage is unavailable")
         );
+    }
+
+    #[test]
+    fn hides_explicitly_unlimited_quota_bars() {
+        let usage = parse_snapshot(
+            r#"{
+                "copilot_plan": "business",
+                "quota_snapshots": {
+                    "premium_interactions": {
+                        "unlimited": true,
+                        "percent_remaining": 100,
+                        "quota_id": "premium_interactions"
+                    }
+                }
+            }"#,
+        );
+
+        assert!(usage.primary.is_informational);
+        assert_eq!(
+            usage.primary.reset_description.as_deref(),
+            Some("Unlimited")
+        );
+        assert!(usage.secondary.is_none());
     }
 
     #[test]

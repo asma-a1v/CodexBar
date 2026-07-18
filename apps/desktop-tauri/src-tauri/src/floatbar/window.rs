@@ -101,7 +101,10 @@ fn fallback_physical_position(
     let window_w = window_size.width as f64 / scale_factor;
     let window_h = window_size.height as f64 / scale_factor;
     let (x, y) = default_logical_origin(mon_x, mon_y, mon_w, mon_h, window_w, window_h, style);
-    PhysicalPosition::new((x * scale_factor).round() as i32, (y * scale_factor).round() as i32)
+    PhysicalPosition::new(
+        (x * scale_factor).round() as i32,
+        (y * scale_factor).round() as i32,
+    )
 }
 
 /// True when the window rectangle intersects any connected display's full
@@ -336,10 +339,11 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
     };
     // Never re-poison the store with a position that is off every display
     // (failed recovery, transient shell state, etc.).
-    if let Ok(monitors) = window.available_monitors() {
-        if !monitors.is_empty() && !intersects_any_monitor(pos, size, &monitors) {
-            return;
-        }
+    if let Ok(monitors) = window.available_monitors()
+        && !monitors.is_empty()
+        && !intersects_any_monitor(pos, size, &monitors)
+    {
+        return;
     }
     let scale = window.scale_factor().unwrap_or(1.0);
     geometry_store::save_entry(

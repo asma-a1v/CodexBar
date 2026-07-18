@@ -1,5 +1,18 @@
 # Changelog
 
+## [Windows] 0.44.0 - 2026-07-19
+
+### Changed
+- Update the Windows/Tauri base to Win-CodexBar 0.43.0, including sub2api, Factory API-key fallback, Kimi CLI credentials, account-scoped quota alerts, improved cost scanning, Japanese localization, and tray/FloatBar reliability fixes.
+- Align the Windows release version with upstream CodexBar 0.44.0 while keeping macOS-only Swift, WidgetKit, and menu-bar changes out of the Windows build.
+
+### Fixed
+- Retain incomplete Codex JSONL tails for incremental resume instead of advancing past a partially written usage record.
+- Show StepFun credit-plan consumption from weighted credit buckets instead of false exhausted five-hour/weekly quotas, and derive the required device ID from the stored token.
+- Treat explicitly unlimited Copilot quotas as informational instead of rendering a misleading usage bar.
+
+---
+
 ## [Windows] 0.43.0 - 2026-07-17
 
 ### Added
