@@ -536,10 +536,7 @@ fn test_language_all_variants_available() {
 fn test_language_display_names() {
     assert_eq!(Language::English.display_name(), "English");
     assert_eq!(Language::Chinese.display_name(), "中文");
-    assert_eq!(
-        Language::ChineseTraditional.display_name(),
-        "繁體中文（臺灣）"
-    );
+    assert_eq!(Language::ChineseTraditional.display_name(), "繁體中文");
     assert_eq!(Language::Japanese.display_name(), "日本語");
 }
 

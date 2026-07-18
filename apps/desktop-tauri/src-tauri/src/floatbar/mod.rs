@@ -6,6 +6,7 @@
 //! shell only needs to call into the small public API exported here.
 
 mod commands;
+mod topmost_guard;
 mod window;
 
 pub use commands::*;
@@ -15,10 +16,13 @@ pub use window::FLOATBAR_LABEL;
 use codexbar::settings::Settings;
 use tauri::{Emitter, Manager};
 
-/// Reopen the floating bar on app start if it was enabled previously.
+/// Install the native z-order guard and reopen the floating bar on app start
+/// if it was enabled previously.
 ///
-/// Called once from `main.rs::setup`. No-op when the setting is off.
+/// Called once from `main.rs::setup` so the guard has the app handle before
+/// the floatbar is shown.
 pub fn install(app: &tauri::AppHandle) {
+    topmost_guard::install(app);
     let persisted = Settings::load();
     if persisted.float_bar_enabled {
         let _ = window::show(
@@ -39,10 +43,27 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
         return false;
     }
     match event {
-        tauri::WindowEvent::Moved(_)
-        | tauri::WindowEvent::Resized(_)
-        | tauri::WindowEvent::CloseRequested { .. } => {
-            window::remember_geometry(window);
+        tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => {
+            // Probe first (no I/O). Load style only when recovery runs.
+            // Always reassert topmost on geometry change; the visibility-scoped
+            // topmost_guard timer stays overlap-gated.
+            let relocated = if window::is_off_all_monitors(window) {
+                let style = Settings::load().float_bar_style;
+                window::recover_onto_primary(window, &style)
+            } else {
+                window::remember_geometry(window);
+                false
+            };
+            if let Some(floatbar) = window.app_handle().get_webview_window(FLOATBAR_LABEL) {
+                if relocated {
+                    window::apply_no_activate(&floatbar);
+                }
+                window::apply_always_on_top(&floatbar);
+            }
+        }
+        tauri::WindowEvent::CloseRequested { .. } => window::remember_geometry(window),
+        tauri::WindowEvent::Destroyed => {
+            topmost_guard::set_active(false);
         }
         _ => {}
     }
@@ -84,9 +105,11 @@ pub fn apply_state(app: &tauri::AppHandle, settings: &Settings) {
     } else if !settings.float_bar_enabled && open {
         let _ = window::hide(app);
     } else if let Some(w) = app.get_webview_window(FLOATBAR_LABEL) {
-        window::apply_no_activate(&w);
+        let _ = window::ensure_visible_on_active_monitor(&w, &settings.float_bar_style);
         window::apply_opacity(&w, settings.float_bar_opacity);
         window::apply_click_through(&w, settings.float_bar_click_through);
+        // After possible unminimize/relocate, re-assert widget interaction flags.
+        window::apply_no_activate(&w);
         window::apply_always_on_top(&w);
     }
 }

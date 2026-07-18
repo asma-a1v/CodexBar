@@ -11,6 +11,7 @@ import { getProviderChartData } from "../lib/tauri";
 import { useLocale } from "../hooks/useLocale";
 import { useFormattedResetTime } from "../hooks/useFormattedResetTime";
 import { formatRelativeUpdated } from "../lib/relativeTime";
+import { formatEta } from "../lib/formatEta";
 import type { LocaleKey } from "../i18n/keys";
 import { paceCategory } from "../surfaces/tray/paceCategory";
 import { SimpleBarChart, StackedBarChart } from "./MiniBarChart";
@@ -228,10 +229,13 @@ function WayfinderUsageBlock({
   );
 }
 
-function displayPlanName(planName: string | null): string | null {
+function displayPlanName(
+  planName: string | null,
+  t: (key: LocaleKey) => string,
+): string | null {
   if (!planName) return null;
   const normalized = planName.trim().toLowerCase();
-  if (normalized === "default_claude_ai") return "Claude AI";
+  if (normalized === "default_claude_ai") return t("ProviderPlanClaudeAi");
   return planName;
 }
 
@@ -318,6 +322,7 @@ function MetricRow({
   onToggleExpanded: () => void;
 }) {
   const { t } = useLocale();
+  const isInformational = snap.isInformational === true;
   const usedPct = Number.isFinite(snap.usedPercent) ? Math.max(0, snap.usedPercent) : 0;
   const barPct = Math.min(100, usedPct);
   const remain = 100 - usedPct;
@@ -344,21 +349,27 @@ function MetricRow({
   return (
     <div className="menu-metric">
       <span className="menu-metric__title">{title}</span>
-      <div className="menu-metric__bar">
-        <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
-      </div>
+      {!isInformational && (
+        <div className="menu-metric__bar">
+          <div className="menu-metric__bar-fill" data-level={level} style={{ width: `${barDisplayPct}%` }} />
+        </div>
+      )}
       <div className="menu-metric__row">
         <span className="menu-metric__pct">
-          {replacesPercent ? resetText : `${Math.round(displayPct)}% ${displayLabel}`}
+          {isInformational
+            ? resetText ?? "—"
+            : replacesPercent
+              ? resetText
+              : `${Math.round(displayPct)}% ${displayLabel}`}
         </span>
-        {resetText && !replacesPercent && (
+        {!isInformational && resetText && !replacesPercent && (
           <span className="menu-metric__reset">{resetText}</span>
         )}
       </div>
-      {snap.isExhausted && (
+      {!isInformational && snap.isExhausted && (
         <div className="menu-metric__exhausted">{exhaustedLabel}</div>
       )}
-      {paceView.kind === "budget" && (
+      {!isInformational && paceView.kind === "budget" && (
         <div className="menu-metric__budget">
           <button
             type="button"
@@ -381,10 +392,10 @@ function MetricRow({
               </span>
             ))}
           </div>
-          {expanded && <PaceDetailsChart snap={snap} />}
+          {expanded && <PaceDetailsChart snap={snap} t={t} />}
         </div>
       )}
-      {paceView.kind === "reserve" && (
+      {!isInformational && paceView.kind === "reserve" && (
         <div className="menu-metric__row menu-metric__reserve">
           <span className="menu-metric__pct">{Math.round(paceView.percent)}% {t("PanelReserveSuffix")}</span>
           {reserveDescription && (
@@ -463,7 +474,7 @@ export default function MenuCard({
       ? maskEmail(provider.accountEmail)
       : provider.accountEmail
     : null;
-  const planName = !isWayfinder ? displayPlanName(provider.planName) : null;
+  const planName = !isWayfinder ? displayPlanName(provider.planName, t) : null;
 
   const metrics: MetricEntry[] = [
     ...(isWayfinder
@@ -659,10 +670,7 @@ export default function MenuCard({
               {provider.pace.etaSeconds != null && !provider.pace.willLastToReset && (
                 <div className="menu-card__pace-eta">
                   ⚠{" "}
-                  {t("DetailPaceRunsOutIn").replace(
-                    "{}",
-                    String(Math.round(provider.pace.etaSeconds / 3600)),
-                  )}
+                  {t("DetailPaceRunsOutIn")} {formatEta(provider.pace.etaSeconds)}
                 </div>
               )}
               {provider.pace.willLastToReset && (
@@ -685,6 +693,7 @@ export default function MenuCard({
                   label={t("DetailChartCost")}
                   color="var(--accent)"
                   formatValue={(v) => `$${v.toFixed(2)}`}
+                  t={t}
                 />
               )}
               {hasCreditsHistory && (
@@ -693,6 +702,7 @@ export default function MenuCard({
                   label={t("DetailChartCredits")}
                   color="var(--provider-status-ok)"
                   formatValue={(v) => v.toFixed(1)}
+                  t={t}
                 />
               )}
               {hasUsageBreakdown && (
@@ -700,6 +710,7 @@ export default function MenuCard({
                   points={chartData!.usageBreakdown}
                   label={t("DetailChartUsageBreakdown")}
                   height={56}
+                  t={t}
                 />
               )}
             </section>

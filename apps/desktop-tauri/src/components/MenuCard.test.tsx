@@ -104,6 +104,7 @@ describe("MenuCard", () => {
     tauriMocks.getLocaleStrings.mockResolvedValue(
       buildBundle({
         ActionCopyError: "Copy error",
+        DetailPaceRunsOutIn: "Runs out in",
         PanelEstimatedFromLocalLogs: "Estimated from local logs",
         PanelLeftSuffix: "left",
         PanelNow: "now",
@@ -221,6 +222,28 @@ describe("MenuCard", () => {
     expect(screen.getByText("58% left")).toBeInTheDocument();
   });
 
+  it("renders informational metrics without quota percentages", async () => {
+    const snapshot = provider(null, 20);
+    snapshot.extraRateWindows = [
+      {
+        id: "requests",
+        title: "Requests",
+        window: {
+          ...rateWindow(0),
+          isInformational: true,
+          resetDescription: "7 requests",
+        },
+      },
+    ];
+
+    renderCard(snapshot);
+
+    const title = await screen.findByText("Requests");
+    expect(title.parentElement).not.toHaveTextContent("100% left");
+    expect(title.parentElement?.querySelector(".menu-metric__bar")).toBeNull();
+    expect(screen.getByText("7 requests")).toBeInTheDocument();
+  });
+
   it("renders Wayfinder telemetry without quota or identity rows", async () => {
     const snapshot = provider(null);
     snapshot.providerId = "wayfinder";
@@ -267,6 +290,26 @@ describe("MenuCard", () => {
     });
   });
 
+  it("shows the formatted predicted exhaustion time", async () => {
+    const snapshot = provider(null, 40);
+    snapshot.pace = {
+      stage: "far_ahead",
+      deltaPercent: 20,
+      expectedUsedPercent: 20,
+      actualUsedPercent: 40,
+      etaSeconds: 90 * 60,
+      willLastToReset: false,
+    };
+
+    const { container } = renderCard(snapshot);
+
+    await waitFor(() => {
+      expect(container.querySelector(".menu-card__pace-eta")).toHaveTextContent(
+        "⚠ Runs out in 2h",
+      );
+    });
+  });
+
   it("renders local token and cost totals after chart data loads", async () => {
     const { container } = renderCard(provider(null));
 
@@ -297,12 +340,12 @@ describe("MenuCard", () => {
     const toggle = await screen.findByRole("button", { name: /On-pace budget/ });
     expect(screen.getByText("now 20%")).toBeInTheDocument();
     expect(screen.getByText("1h 21%")).toBeInTheDocument();
-    expect(screen.queryByRole("img", { name: /usage pace/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("img", { name: /PaceChartAriaLabel/i })).not.toBeInTheDocument();
 
     fireEvent.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByRole("img", { name: /usage pace/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /PaceChartAriaLabel/i })).toBeInTheDocument();
     await waitFor(() => {
       expect(onLayoutChange).toHaveBeenCalled();
     });
@@ -339,7 +382,7 @@ describe("MenuCard", () => {
     expect(await screen.findByText("69% left")).toBeInTheDocument();
     expect(screen.queryByText("On-pace budget")).not.toBeInTheDocument();
     expect(
-      screen.queryByRole("img", { name: /usage pace/i }),
+      screen.queryByRole("img", { name: /PaceChartAriaLabel/i }),
     ).not.toBeInTheDocument();
   });
 

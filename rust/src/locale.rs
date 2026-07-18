@@ -851,6 +851,109 @@ locale_keys! {
     TrayPaceBadgeBurning,
     TrayResetsInLabel,
     TrayResetsDueNow,
+
+    // Tauri desktop shell — FloatBar settings section
+    FloatBarSectionTitle,
+    FloatBarShowFloatingBar,
+    FloatBarShowFloatingBarHelper,
+    FloatBarOrientation,
+    FloatBarOrientationHelper,
+    FloatBarOrientationHorizontal,
+    FloatBarOrientationVertical,
+    FloatBarStyle,
+    FloatBarStyleHelper,
+    FloatBarStyleFloating,
+    FloatBarStyleTaskbar,
+    FloatBarOpacity,
+    FloatBarOpacityHelper,
+    FloatBarOpacityAriaLabel,
+    FloatBarSize,
+    FloatBarSizeHelper,
+    FloatBarSizeAriaLabel,
+    FloatBarShowResetInline,
+    FloatBarShowResetInlineHelper,
+    FloatBarInvertColors,
+    FloatBarInvertColorsHelper,
+    FloatBarClickThrough,
+    FloatBarClickThroughHelper,
+
+    // Tauri desktop shell — About / app identity
+    AppName,
+    SettingsWindowTitle,
+    ErrorPrefix,
+    AboutLoading,
+    AboutCheckForUpdates,
+    AboutChecking,
+    AboutUpToDate,
+    AboutCopyrightBefore,
+    AboutCopyrightAfter,
+    AboutLinkGitHub,
+    AboutLinkWebsite,
+    AboutLinkOriginalProject,
+
+    // Tauri desktop shell — Cookies tab hints / placeholder
+    SavedCookiesHint,
+    ImportFromBrowserHint,
+    NoBrowsersDetectedHint,
+    CookieHeaderValuePlaceholder,
+
+    // Tauri desktop shell — API key section fields
+    ApiKeyTitle,
+    ApiKeyNotSet,
+    ApiKeyUpdate,
+    ApiKeyLabelOptional,
+
+    // Tauri desktop shell — App bootstrap fallbacks
+    BootstrapFailed,
+    LoadingShellContract,
+    LoadingShellContractHint,
+
+    // Tauri desktop shell — Refresh interval + provider display names
+    RefreshIntervalManual,
+    RefreshInterval15Min,
+    RefreshInterval30Min,
+    RefreshInterval1Hour,
+    ProviderNameCodex,
+    ProviderNameClaude,
+
+    // Tauri desktop shell — misc singletons
+    ProvidersAriaLabel,
+    WaitingForUsage,
+    TokenAccountTokenPlaceholder,
+    ProviderPlanClaudeAi,
+    PaceChartAriaLabel,
+    PaceChartLegendAverageSoFar,
+    PaceChartLegendIdealPace,
+    PaceChartLegendProjection,
+    BarChartAriaLabel,
+    StackedBarChartAriaLabel,
+
+    // Tauri desktop shell — OpenAI extras (admin/litellm/devin/zed)
+    OpenAiAdminApiTitle,
+    OpenAiProjectIdLabel,
+    OpenAiProjectIdPlaceholder,
+    OpenAiProjectIdHelp,
+    LiteLlmApiTitle,
+    LiteLlmBaseUrlLabel,
+    LiteLlmBaseUrlPlaceholder,
+    LiteLlmBaseUrlHelp,
+    DevinApiTitle,
+    DevinOrganizationLabel,
+    DevinOrganizationPlaceholder,
+    DevinOrganizationHelp,
+    ZedApiTitle,
+    ZedApiUrlLabel,
+    ZedApiUrlPlaceholder,
+    ZedApiUrlHelp,
+    Sub2ApiTitle,
+    Sub2ApiBaseUrlLabel,
+    Sub2ApiBaseUrlPlaceholder,
+    Sub2ApiBaseUrlHelp,
+
+    // Tray icon visibility (Windows 11 hidden-icons overflow)
+    PromoteTrayIconLabel,
+    PromoteTrayIconHelper,
+    PromoteTrayIconUnsupportedHint,
 }
 
 #[cfg(test)]

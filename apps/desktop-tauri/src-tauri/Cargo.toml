@@ -1,6 +1,6 @@
 [package]
 name = "codexbar-desktop-tauri"
-version = "0.42.0"
+version = "0.43.0"
 edition = "2024"
 publish = false
 
@@ -19,3 +19,6 @@ tauri-plugin-single-instance = "2"
 tokio = { version = "1", features = ["rt", "time", "sync", "net", "io-util"] }
 tracing = "0.1"
 uuid = { version = "1", features = ["v4"] }
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
