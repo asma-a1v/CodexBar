@@ -6,6 +6,7 @@
 //! retaining a password.
 
 use async_trait::async_trait;
+use base64::Engine;
 use chrono::{DateTime, TimeZone, Utc};
 use reqwest::Client;
 use serde::Deserialize;
@@ -35,6 +36,95 @@ struct StepFunRateLimitResponse {
     weekly_usage_left_rate: Option<FlexibleNumber>,
     five_hour_usage_reset_time: Option<FlexibleTimestamp>,
     weekly_usage_reset_time: Option<FlexibleTimestamp>,
+    plan_family: Option<FlexibleNumber>,
+    plan_credit_rate_limit: Option<StepFunPlanCreditRateLimit>,
+}
+
+impl StepFunRateLimitResponse {
+    fn is_credit_plan(&self) -> bool {
+        if let Some(family) = self.plan_family.as_ref().map(|value| value.0)
+            && family > 0.0
+        {
+            return (family - 2.0).abs() < f64::EPSILON;
+        }
+
+        let Some(credit) = self.plan_credit_rate_limit.as_ref() else {
+            return false;
+        };
+        if credit
+            .subscription_credit_left_rate
+            .as_ref()
+            .is_none_or(|rate| rate.0 <= 0.0)
+        {
+            return false;
+        }
+
+        let five_hour_is_empty = self
+            .five_hour_usage_left_rate
+            .as_ref()
+            .is_none_or(|rate| rate.0 == 0.0)
+            && self
+                .five_hour_usage_reset_time
+                .as_ref()
+                .is_none_or(|reset| reset.0 == 0);
+        let weekly_is_empty = self
+            .weekly_usage_left_rate
+            .as_ref()
+            .is_none_or(|rate| rate.0 == 0.0)
+            && self
+                .weekly_usage_reset_time
+                .as_ref()
+                .is_none_or(|reset| reset.0 == 0);
+        five_hour_is_empty || weekly_is_empty
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StepFunPlanCreditRateLimit {
+    subscription_credit_left_rate: Option<FlexibleNumber>,
+    subscription_credit_reset_time: Option<FlexibleTimestamp>,
+    topup_credit_left_rate: Option<FlexibleNumber>,
+    #[serde(default)]
+    credit_buckets: Vec<StepFunPlanCreditBucket>,
+}
+
+impl StepFunPlanCreditRateLimit {
+    fn total_credit_left_rate(&self) -> Option<f64> {
+        if !self.credit_buckets.is_empty() {
+            let balances = self
+                .credit_buckets
+                .iter()
+                .map(|bucket| {
+                    let total = bucket.credit_total.as_ref()?.0;
+                    let residual = bucket.credit_residual.as_ref()?.0;
+                    (total.is_finite()
+                        && residual.is_finite()
+                        && total > 0.0
+                        && residual >= 0.0
+                        && residual <= total)
+                        .then_some((total, residual))
+                })
+                .collect::<Option<Vec<_>>>();
+            if let Some(balances) = balances {
+                let total = balances.iter().map(|(total, _)| total).sum::<f64>();
+                let residual = balances.iter().map(|(_, residual)| residual).sum::<f64>();
+                if total > 0.0 {
+                    return Some(residual / total);
+                }
+            }
+        }
+
+        self.subscription_credit_left_rate
+            .as_ref()
+            .or(self.topup_credit_left_rate.as_ref())
+            .map(|rate| rate.0)
+    }
+}
+
+#[derive(Debug, Deserialize)]
+struct StepFunPlanCreditBucket {
+    credit_total: Option<FlexibleNumber>,
+    credit_residual: Option<FlexibleNumber>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,16 +264,17 @@ impl StepFunProvider {
         url: &str,
         token: &str,
     ) -> Result<T, ProviderError> {
+        let web_id = web_id_for_token(token);
         let response = self
             .client
             .post(url)
             .header("content-type", "application/json")
             .header("oasis-appid", STEPFUN_APP_ID)
             .header("oasis-platform", "web")
-            .header("oasis-webid", STEPFUN_WEB_ID)
+            .header("oasis-webid", &web_id)
             .header(
                 "Cookie",
-                format!("Oasis-Token={token}; Oasis-Webid={STEPFUN_WEB_ID}"),
+                format!("Oasis-Token={token}; Oasis-Webid={web_id}"),
             )
             .body("{}")
             .send()
@@ -222,6 +313,31 @@ fn snapshot_from_response(
             return Err(ProviderError::AuthRequired);
         }
         return Err(ProviderError::Other(format!("StepFun API error: {msg}")));
+    }
+
+    if response.is_credit_plan() {
+        let credit = response
+            .plan_credit_rate_limit
+            .as_ref()
+            .ok_or_else(|| ProviderError::Parse("Missing StepFun credit-plan usage".into()))?;
+        let credit_left = credit
+            .total_credit_left_rate()
+            .ok_or_else(|| ProviderError::Parse("Missing StepFun credit-plan balance".into()))?;
+        let reset = credit
+            .subscription_credit_reset_time
+            .as_ref()
+            .and_then(|timestamp| Utc.timestamp_opt(timestamp.0, 0).single());
+        let primary = RateWindow::with_details(
+            (1.0 - credit_left).clamp(0.0, 1.0) * 100.0,
+            None,
+            reset,
+            reset.map(reset_description),
+        );
+        return Ok(UsageSnapshot::new(primary).with_login_method(
+            plan_name
+                .filter(|value| !value.trim().is_empty())
+                .unwrap_or_else(|| "Oasis-Token".to_string()),
+        ));
     }
 
     let five_left = response
@@ -263,6 +379,27 @@ fn snapshot_from_response(
         snapshot = snapshot.with_login_method("Oasis-Token");
     }
     Ok(snapshot)
+}
+
+fn web_id_for_token(token: &str) -> String {
+    normalize_token(token)
+        .rsplit("...")
+        .find_map(device_id_from_jwt)
+        .unwrap_or_else(|| STEPFUN_WEB_ID.to_string())
+}
+
+fn device_id_from_jwt(jwt: &str) -> Option<String> {
+    let payload = jwt.trim().split('.').nth(1)?;
+    let decoded = base64::engine::general_purpose::URL_SAFE_NO_PAD
+        .decode(payload)
+        .or_else(|_| base64::engine::general_purpose::URL_SAFE.decode(payload))
+        .ok()?;
+    let json: serde_json::Value = serde_json::from_slice(&decoded).ok()?;
+    json.get("device_id")
+        .and_then(serde_json::Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 struct StepFunTokenParts {
@@ -454,10 +591,57 @@ mod tests {
             weekly_usage_left_rate: Some(FlexibleNumber(0.75)),
             five_hour_usage_reset_time: Some(FlexibleTimestamp(1_800_000_000)),
             weekly_usage_reset_time: Some(FlexibleTimestamp(1_800_000_000)),
+            plan_family: None,
+            plan_credit_rate_limit: None,
         };
         let snapshot = snapshot_from_response(&response, Some("Step Plan".into())).unwrap();
         assert_eq!(snapshot.primary.used_percent, 75.0);
         assert_eq!(snapshot.secondary.unwrap().used_percent, 25.0);
+    }
+
+    #[test]
+    fn stepfun_credit_plan_uses_weighted_bucket_balance() {
+        let response = StepFunRateLimitResponse {
+            status: Some(1),
+            code: None,
+            message: None,
+            desc: None,
+            five_hour_usage_left_rate: Some(FlexibleNumber(0.0)),
+            weekly_usage_left_rate: Some(FlexibleNumber(0.0)),
+            five_hour_usage_reset_time: Some(FlexibleTimestamp(0)),
+            weekly_usage_reset_time: Some(FlexibleTimestamp(0)),
+            plan_family: Some(FlexibleNumber(2.0)),
+            plan_credit_rate_limit: Some(StepFunPlanCreditRateLimit {
+                subscription_credit_left_rate: Some(FlexibleNumber(0.9)),
+                subscription_credit_reset_time: Some(FlexibleTimestamp(1_800_000_000)),
+                topup_credit_left_rate: Some(FlexibleNumber(0.1)),
+                credit_buckets: vec![
+                    StepFunPlanCreditBucket {
+                        credit_total: Some(FlexibleNumber(100.0)),
+                        credit_residual: Some(FlexibleNumber(50.0)),
+                    },
+                    StepFunPlanCreditBucket {
+                        credit_total: Some(FlexibleNumber(300.0)),
+                        credit_residual: Some(FlexibleNumber(225.0)),
+                    },
+                ],
+            }),
+        };
+
+        let snapshot = snapshot_from_response(&response, Some("Step Pro".into())).unwrap();
+        assert!((snapshot.primary.used_percent - 31.25).abs() < f64::EPSILON);
+        assert!(snapshot.secondary.is_none());
+        assert_eq!(snapshot.login_method.as_deref(), Some("Step Pro"));
+    }
+
+    #[test]
+    fn stepfun_uses_device_id_from_refresh_jwt() {
+        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
+            .encode(br#"{"device_id":"device-123"}"#);
+        let token = format!("header.access.signature...header.{payload}.signature");
+
+        assert_eq!(web_id_for_token(&token), "device-123");
+        assert_eq!(web_id_for_token("not-a-jwt"), STEPFUN_WEB_ID);
     }
 
     #[test]

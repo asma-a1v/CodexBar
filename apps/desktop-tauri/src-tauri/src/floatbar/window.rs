@@ -3,7 +3,7 @@
 //! Tauri window labeled `floatbar`, independent of the main surface
 //! state machine.
 
-use tauri::{LogicalPosition, LogicalSize, Manager, WebviewUrl};
+use tauri::{LogicalPosition, LogicalSize, Manager, PhysicalPosition, PhysicalSize, WebviewUrl};
 
 use crate::geometry_store;
 
@@ -13,6 +13,197 @@ const FLOATBAR_DEFAULT_WIDTH_H: f64 = 360.0;
 const FLOATBAR_DEFAULT_HEIGHT_H: f64 = 36.0;
 const FLOATBAR_DEFAULT_WIDTH_V: f64 = 80.0;
 const FLOATBAR_DEFAULT_HEIGHT_V: f64 = 280.0;
+const WINDOWS_MINIMIZED_COORDINATE: i32 = -32_000;
+/// Stored geometry is logical. Physical park (-32000,-32000) becomes about
+/// -25600 @1.25x or -16000 @2x after scale divide. Both axes at/below this
+/// threshold are treated as unusable while multi-monitor origins like
+/// (-3840, 0) or (-8000, -8000) still restore.
+const STORED_LOGICAL_PARK_THRESHOLD: i32 = -15_000;
+
+/// Windows parks minimized windows at the exact physical coordinate pair
+/// (-32000, -32000). Keep this strict so legitimate negative monitor origins
+/// are never mistaken for minimized geometry.
+fn is_windows_minimized_position(x: i32, y: i32) -> bool {
+    x == WINDOWS_MINIMIZED_COORDINATE && y == WINDOWS_MINIMIZED_COORDINATE
+}
+
+/// Reject stored (logical) positions that came from a Windows park coordinate
+/// at any common DPI scale, not only exact logical (-32000, -32000).
+fn is_unusable_stored_logical_position(x: i32, y: i32) -> bool {
+    if is_windows_minimized_position(x, y) {
+        return true;
+    }
+    x <= STORED_LOGICAL_PARK_THRESHOLD && y <= STORED_LOGICAL_PARK_THRESHOLD
+}
+
+fn should_remember_physical_position(is_minimized: bool, x: i32, y: i32) -> bool {
+    !is_minimized && !is_windows_minimized_position(x, y)
+}
+
+fn physical_rects_intersect(
+    first_position: PhysicalPosition<i32>,
+    first_size: PhysicalSize<u32>,
+    second_position: PhysicalPosition<i32>,
+    second_size: PhysicalSize<u32>,
+) -> bool {
+    let first_left = i64::from(first_position.x);
+    let first_top = i64::from(first_position.y);
+    let first_right = first_left + i64::from(first_size.width);
+    let first_bottom = first_top + i64::from(first_size.height);
+    let second_left = i64::from(second_position.x);
+    let second_top = i64::from(second_position.y);
+    let second_right = second_left + i64::from(second_size.width);
+    let second_bottom = second_top + i64::from(second_size.height);
+
+    first_left < second_right
+        && first_right > second_left
+        && first_top < second_bottom
+        && first_bottom > second_top
+}
+
+/// Default first-open / recovery placement: center-X, taskbar bottom or
+/// floating top, with 8 logical px edge padding. `mon_*` and size are logical.
+fn default_logical_origin(
+    mon_x: f64,
+    mon_y: f64,
+    mon_w: f64,
+    mon_h: f64,
+    window_w: f64,
+    window_h: f64,
+    style: &str,
+) -> (f64, f64) {
+    let x = mon_x + (mon_w - window_w) / 2.0;
+    let y = if style == "taskbar" {
+        mon_y + mon_h - window_h - 8.0
+    } else {
+        mon_y + 8.0
+    };
+    (x.max(mon_x), y.max(mon_y))
+}
+
+/// Physical fallback placement on a monitor work area (safe recovery target).
+fn fallback_physical_position(
+    work_area_position: PhysicalPosition<i32>,
+    work_area_size: PhysicalSize<u32>,
+    window_size: PhysicalSize<u32>,
+    scale_factor: f64,
+    style: &str,
+) -> PhysicalPosition<i32> {
+    let scale_factor = if scale_factor.is_finite() && scale_factor > 0.0 {
+        scale_factor
+    } else {
+        1.0
+    };
+    let mon_x = work_area_position.x as f64 / scale_factor;
+    let mon_y = work_area_position.y as f64 / scale_factor;
+    let mon_w = work_area_size.width as f64 / scale_factor;
+    let mon_h = work_area_size.height as f64 / scale_factor;
+    let window_w = window_size.width as f64 / scale_factor;
+    let window_h = window_size.height as f64 / scale_factor;
+    let (x, y) = default_logical_origin(mon_x, mon_y, mon_w, mon_h, window_w, window_h, style);
+    PhysicalPosition::new(
+        (x * scale_factor).round() as i32,
+        (y * scale_factor).round() as i32,
+    )
+}
+
+/// True when the window rectangle intersects any connected display's full
+/// bounds (not just the work area). Taskbar-style bars may sit in the
+/// reserved taskbar strip and must still count as on-screen.
+fn intersects_any_monitor(
+    position: PhysicalPosition<i32>,
+    size: PhysicalSize<u32>,
+    monitors: &[tauri::Monitor],
+) -> bool {
+    monitors.iter().any(|monitor| {
+        physical_rects_intersect(position, size, *monitor.position(), *monitor.size())
+    })
+}
+
+/// Probe: live window sits on no connected display (parked, disconnected
+/// monitor, etc.). Returns `false` when geometry cannot be read so callers
+/// do not treat "unknown" as recovery-needed.
+pub(super) fn is_off_all_monitors<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) -> bool {
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+    if monitors.is_empty() {
+        return false;
+    }
+    !intersects_any_monitor(position, size, &monitors)
+}
+
+/// Recover: unminimize if needed, place on the primary work area using
+/// `style` for top/bottom, and persist the recovered geometry. Callers must
+/// supply style (settings stay out of this module).
+pub(super) fn recover_onto_primary<R: tauri::Runtime, M: WindowGeometry<R>>(
+    window: &M,
+    style: &str,
+) -> bool {
+    let Ok(position) = window.outer_position() else {
+        return false;
+    };
+    let Ok(size) = window.outer_size() else {
+        return false;
+    };
+    let Ok(monitors) = window.available_monitors() else {
+        return false;
+    };
+    let target_monitor = window
+        .primary_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| monitors.into_iter().next());
+    let Some(target_monitor) = target_monitor else {
+        return false;
+    };
+
+    // Placement uses the work area so recovery lands in a usable desktop
+    // region; visibility probes use full monitor bounds (see
+    // `intersects_any_monitor`).
+    let work_area = target_monitor.work_area();
+    let target = fallback_physical_position(
+        work_area.position,
+        work_area.size,
+        size,
+        target_monitor.scale_factor(),
+        style,
+    );
+
+    if window.is_minimized().unwrap_or(false)
+        || is_windows_minimized_position(position.x, position.y)
+    {
+        let _ = window.unminimize();
+    }
+    if window.set_physical_position(target).is_err() {
+        return false;
+    }
+    // Atomic: persist recovered geometry here so event handlers never need
+    // a synthetic Moved to re-save, and never persist the old off-screen pos.
+    remember_geometry(window);
+    true
+}
+
+/// Move a FloatBar that no longer intersects an active monitor onto the
+/// primary monitor. Returns `true` when the window was relocated.
+///
+/// Prefer calling [`is_off_all_monitors`] then [`recover_onto_primary`] when
+/// style comes from settings so the hot path can skip `Settings::load`.
+pub(super) fn ensure_visible_on_active_monitor<R: tauri::Runtime, M: WindowGeometry<R>>(
+    window: &M,
+    style: &str,
+) -> bool {
+    if !is_off_all_monitors(window) {
+        return false;
+    }
+    recover_onto_primary(window, style)
+}
 
 /// Initial dimensions (logical pixels) for the floating bar given an
 /// orientation string. Unknown values fall back to horizontal so callers
@@ -45,12 +236,15 @@ pub fn show(
     click_through: bool,
 ) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
-        apply_no_activate(&window);
         apply_opacity(&window, opacity);
         apply_click_through(&window, click_through);
+        let _ = ensure_visible_on_active_monitor(&window, style);
+        // Re-assert after possible unminimize/relocate so focus stays off.
+        apply_no_activate(&window);
         apply_always_on_top(&window);
         window.show().map_err(|e| e.to_string())?;
         apply_always_on_top(&window);
+        super::topmost_guard::set_active(true);
         return Ok(());
     }
 
@@ -83,7 +277,9 @@ pub fn show(
     // Restore prior geometry if we have one. Otherwise, taskbar style opens
     // near the bottom while the original floating style keeps its top-center
     // placement.
-    if let Some(g) = geometry_store::load_entry(FLOATBAR_LABEL) {
+    if let Some(g) = geometry_store::load_entry(FLOATBAR_LABEL)
+        .filter(|g| !is_unusable_stored_logical_position(g.x, g.y))
+    {
         let _ = win.set_position(LogicalPosition::new(g.x as f64, g.y as f64));
         if let (Some(w), Some(h)) = (g.width, g.height) {
             let _ = win.set_size(LogicalSize::new(w as f64, h as f64));
@@ -94,30 +290,32 @@ pub fn show(
         let mon_y = monitor.position().y as f64 / scale;
         let mon_w = monitor.size().width as f64 / scale;
         let mon_h = monitor.size().height as f64 / scale;
-        let x = mon_x + (mon_w - w) / 2.0;
-        let y = if style == "taskbar" {
-            mon_y + mon_h - h - 8.0
-        } else {
-            mon_y + 8.0
-        };
-        let _ = win.set_position(LogicalPosition::new(x.max(mon_x), y.max(mon_y)));
+        let (x, y) = default_logical_origin(mon_x, mon_y, mon_w, mon_h, w, h, style);
+        let _ = win.set_position(LogicalPosition::new(x, y));
     }
 
-    apply_no_activate(&win);
+    let _ = ensure_visible_on_active_monitor(&win, style);
+
     apply_opacity(&win, opacity);
     apply_click_through(&win, click_through);
+    apply_no_activate(&win);
     apply_always_on_top(&win);
     win.show().map_err(|e| e.to_string())?;
     apply_always_on_top(&win);
+    super::topmost_guard::set_active(true);
     Ok(())
 }
 
 /// Hide / destroy the floating bar.
 pub fn hide(app: &tauri::AppHandle) -> Result<(), String> {
+    super::topmost_guard::set_active(false);
     if let Some(window) = app.get_webview_window(FLOATBAR_LABEL) {
         // Persist position before closing so it reopens in place.
         remember_geometry(&window);
-        window.close().map_err(|e| e.to_string())?;
+        if let Err(error) = window.close() {
+            super::topmost_guard::set_active(true);
+            return Err(error.to_string());
+        }
     }
     Ok(())
 }
@@ -132,9 +330,21 @@ pub fn remember_geometry<R: tauri::Runtime, M: WindowGeometry<R>>(window: &M) {
     let Ok(pos) = window.outer_position() else {
         return;
     };
+    let is_minimized = window.is_minimized().unwrap_or(false);
+    if !should_remember_physical_position(is_minimized, pos.x, pos.y) {
+        return;
+    }
     let Ok(size) = window.outer_size() else {
         return;
     };
+    // Never re-poison the store with a position that is off every display
+    // (failed recovery, transient shell state, etc.).
+    if let Ok(monitors) = window.available_monitors()
+        && !monitors.is_empty()
+        && !intersects_any_monitor(pos, size, &monitors)
+    {
+        return;
+    }
     let scale = window.scale_factor().unwrap_or(1.0);
     geometry_store::save_entry(
         FLOATBAR_LABEL,
@@ -156,6 +366,11 @@ pub trait WindowGeometry<R: tauri::Runtime> {
     fn outer_position(&self) -> tauri::Result<tauri::PhysicalPosition<i32>>;
     fn outer_size(&self) -> tauri::Result<tauri::PhysicalSize<u32>>;
     fn scale_factor(&self) -> tauri::Result<f64>;
+    fn is_minimized(&self) -> tauri::Result<bool>;
+    fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>>;
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>>;
+    fn unminimize(&self) -> tauri::Result<()>;
+    fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()>;
 }
 
 impl<R: tauri::Runtime> WindowGeometry<R> for tauri::WebviewWindow<R> {
@@ -168,6 +383,21 @@ impl<R: tauri::Runtime> WindowGeometry<R> for tauri::WebviewWindow<R> {
     fn scale_factor(&self) -> tauri::Result<f64> {
         tauri::WebviewWindow::scale_factor(self)
     }
+    fn is_minimized(&self) -> tauri::Result<bool> {
+        tauri::WebviewWindow::is_minimized(self)
+    }
+    fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>> {
+        tauri::WebviewWindow::primary_monitor(self)
+    }
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
+        tauri::WebviewWindow::available_monitors(self)
+    }
+    fn unminimize(&self) -> tauri::Result<()> {
+        tauri::WebviewWindow::unminimize(self)
+    }
+    fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()> {
+        tauri::WebviewWindow::set_position(self, position)
+    }
 }
 
 impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
@@ -179,6 +409,21 @@ impl<R: tauri::Runtime> WindowGeometry<R> for tauri::Window<R> {
     }
     fn scale_factor(&self) -> tauri::Result<f64> {
         tauri::Window::scale_factor(self)
+    }
+    fn is_minimized(&self) -> tauri::Result<bool> {
+        tauri::Window::is_minimized(self)
+    }
+    fn primary_monitor(&self) -> tauri::Result<Option<tauri::Monitor>> {
+        tauri::Window::primary_monitor(self)
+    }
+    fn available_monitors(&self) -> tauri::Result<Vec<tauri::Monitor>> {
+        tauri::Window::available_monitors(self)
+    }
+    fn unminimize(&self) -> tauri::Result<()> {
+        tauri::Window::unminimize(self)
+    }
+    fn set_physical_position(&self, position: PhysicalPosition<i32>) -> tauri::Result<()> {
+        tauri::Window::set_position(self, position)
     }
 }
 
@@ -228,7 +473,12 @@ pub fn apply_always_on_top(window: &tauri::WebviewWindow) {
             const SWP_NOMOVE: u32 = 0x0002;
             const SWP_NOACTIVATE: u32 = 0x0010;
             let flags = SWP_NOSIZE | SWP_NOMOVE | SWP_NOACTIVATE;
-            SetWindowPos(h.hwnd.get(), HWND_TOPMOST, 0, 0, 0, 0, flags);
+            if SetWindowPos(h.hwnd.get(), HWND_TOPMOST, 0, 0, 0, 0, flags) == 0 {
+                tracing::warn!(
+                    error = %std::io::Error::last_os_error(),
+                    "failed to restore floatbar topmost z-order"
+                );
+            }
         }
     }
 }
@@ -394,6 +644,133 @@ mod tests {
         assert_eq!(
             initial_size("diagonal"),
             (FLOATBAR_DEFAULT_WIDTH_H, FLOATBAR_DEFAULT_HEIGHT_H)
+        );
+    }
+
+    #[test]
+    fn windows_minimized_position_is_not_restored() {
+        assert!(is_windows_minimized_position(-32_000, -32_000));
+    }
+
+    #[test]
+    fn legitimate_negative_monitor_positions_are_preserved() {
+        assert!(!is_windows_minimized_position(-3_840, 0));
+        assert!(!is_windows_minimized_position(-8_000, -8_000));
+        assert!(!is_windows_minimized_position(-16_000, -16_000));
+    }
+
+    #[test]
+    fn minimized_or_parked_physical_positions_are_not_remembered() {
+        assert!(!should_remember_physical_position(true, 100, 100));
+        assert!(!should_remember_physical_position(false, -32_000, -32_000));
+        assert!(should_remember_physical_position(false, -3_840, 100));
+    }
+
+    #[test]
+    fn physical_multi_monitor_origin_is_remembered() {
+        assert!(should_remember_physical_position(false, -8_000, -8_000));
+    }
+
+    #[test]
+    fn window_must_intersect_an_active_monitor_to_be_visible() {
+        let window_size = PhysicalSize::new(211, 40);
+        let monitor_size = PhysicalSize::new(1_920, 1_032);
+
+        assert!(physical_rects_intersect(
+            PhysicalPosition::new(780, 8),
+            window_size,
+            PhysicalPosition::new(0, 0),
+            monitor_size,
+        ));
+        assert!(!physical_rects_intersect(
+            PhysicalPosition::new(-32_000, -32_000),
+            window_size,
+            PhysicalPosition::new(0, 0),
+            monitor_size,
+        ));
+        assert!(physical_rects_intersect(
+            PhysicalPosition::new(-3_840, 8),
+            window_size,
+            PhysicalPosition::new(-3_840, 0),
+            monitor_size,
+        ));
+    }
+
+    #[test]
+    fn taskbar_strip_outside_work_area_still_counts_as_on_monitor() {
+        // Full monitor 1920x1080; work area is 1920x1032 (48px taskbar strip).
+        // A taskbar-style bar sitting fully in the strip is on-screen for
+        // visibility even though it has zero work-area intersection.
+        let window_pos = PhysicalPosition::new(800, 1_040);
+        let window_size = PhysicalSize::new(211, 40);
+        let monitor_pos = PhysicalPosition::new(0, 0);
+        let monitor_size = PhysicalSize::new(1_920, 1_080);
+        let work_area_pos = PhysicalPosition::new(0, 0);
+        let work_area_size = PhysicalSize::new(1_920, 1_032);
+
+        assert!(physical_rects_intersect(
+            window_pos,
+            window_size,
+            monitor_pos,
+            monitor_size,
+        ));
+        assert!(!physical_rects_intersect(
+            window_pos,
+            window_size,
+            work_area_pos,
+            work_area_size,
+        ));
+    }
+
+    #[test]
+    fn hidpi_parked_logical_geometry_is_rejected() {
+        assert!(is_unusable_stored_logical_position(-32_000, -32_000));
+        // -32000 physical at 1.25x / 1.5x / 2.0x scale factors.
+        assert!(is_unusable_stored_logical_position(-25_600, -25_600));
+        assert!(is_unusable_stored_logical_position(-21_333, -21_333));
+        assert!(is_unusable_stored_logical_position(-16_000, -16_000));
+        // Legitimate multi-monitor logical origins must still restore.
+        assert!(!is_unusable_stored_logical_position(-3_840, 0));
+        assert!(!is_unusable_stored_logical_position(-8_000, -8_000));
+    }
+
+    #[test]
+    fn disconnected_monitor_position_falls_back_to_primary_work_area() {
+        let work_area_position = PhysicalPosition::new(0, 0);
+        let work_area_size = PhysicalSize::new(1_920, 1_032);
+        let window_size = PhysicalSize::new(211, 40);
+
+        assert_eq!(
+            fallback_physical_position(
+                work_area_position,
+                work_area_size,
+                window_size,
+                1.0,
+                "floating",
+            ),
+            PhysicalPosition::new(855, 8),
+        );
+        assert_eq!(
+            fallback_physical_position(
+                work_area_position,
+                work_area_size,
+                window_size,
+                1.0,
+                "taskbar",
+            ),
+            PhysicalPosition::new(855, 984),
+        );
+    }
+
+    #[test]
+    fn default_logical_origin_matches_first_open_policy() {
+        assert_eq!(
+            default_logical_origin(0.0, 0.0, 1_920.0, 1_080.0, 211.0, 40.0, "floating"),
+            (854.5, 8.0),
+        );
+        assert_eq!(
+            default_logical_origin(0.0, 0.0, 1_920.0, 1_080.0, 211.0, 40.0, "taskbar"),
+            (854.5, 1_032.0),
         );
     }
 }

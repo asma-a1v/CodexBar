@@ -292,6 +292,25 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(app)?;
 
+    // Apply tray promotion on startup. The NotifyIconSettings entry is created
+    // by Windows only after the icon is first registered, so on the very first
+    // run the subkey may not exist yet — apply_promotion tolerates that
+    // (returns EntryNotFound, logs a debug message). A one-time retry task is
+    // spawned so that subsequent refreshes of the icon on first-run also work.
+    let promote = codexbar::settings::Settings::load().promote_tray_icon;
+    if promote {
+        crate::tray_visibility::apply_promotion(true);
+        let app_handle = app.handle().clone();
+        tauri::async_runtime::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+            let still_promote = codexbar::settings::Settings::load().promote_tray_icon;
+            if still_promote {
+                crate::tray_visibility::apply_promotion(true);
+            }
+            drop(app_handle);
+        });
+    }
+
     Ok(())
 }
 
@@ -610,23 +629,33 @@ fn selected_metric_percent(
 ) -> Option<f64> {
     match preference {
         MetricPreference::Automatic => automatic_metric_percent(snapshot, provider),
+        // Informational primaries (e.g. Claude null five_hour placeholder) must
+        // not paint a phantom session percent; fall through to Automatic.
+        MetricPreference::Session if snapshot.primary.is_informational => None,
         MetricPreference::Session => Some(snapshot.primary.used_percent),
         MetricPreference::Weekly => snapshot
             .secondary
             .as_ref()
+            .filter(|w| !w.is_informational)
             .map(|w| w.used_percent)
-            .or(Some(snapshot.primary.used_percent)),
+            .or_else(|| {
+                (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent)
+            }),
         MetricPreference::Model => snapshot
             .model_specific
             .as_ref()
             .map(|w| w.used_percent)
-            .or(Some(snapshot.primary.used_percent)),
+            .or_else(|| {
+                (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent)
+            }),
         MetricPreference::Tertiary => snapshot
             .tertiary
             .as_ref()
             .map(|w| w.used_percent)
             .or_else(|| snapshot.secondary.as_ref().map(|w| w.used_percent))
-            .or(Some(snapshot.primary.used_percent)),
+            .or_else(|| {
+                (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent)
+            }),
         MetricPreference::Credits => cost_metric_percent(snapshot),
         MetricPreference::ExtraUsage => {
             extra_rate_window_percent(snapshot).or_else(|| cost_metric_percent(snapshot))
@@ -654,18 +683,35 @@ fn automatic_metric_percent(
         Some(ProviderId::Factory) | Some(ProviderId::Kimi) => snapshot
             .secondary
             .as_ref()
+            .filter(|w| !w.is_informational)
             .map(|w| w.used_percent)
-            .or(Some(snapshot.primary.used_percent)),
+            .or_else(|| {
+                (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent)
+            }),
         Some(ProviderId::Copilot) => max_metric_percent([
-            Some(snapshot.primary.used_percent),
-            snapshot.secondary.as_ref().map(|w| w.used_percent),
+            (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent),
+            snapshot
+                .secondary
+                .as_ref()
+                .filter(|w| !w.is_informational)
+                .map(|w| w.used_percent),
             extra_rate_window_percent(snapshot),
         ]),
+        // Informational primary (e.g. Claude null five_hour) is not a real quota —
+        // prefer secondary / non-informational signals for every provider.
+        _ if snapshot.primary.is_informational => snapshot
+            .secondary
+            .as_ref()
+            .filter(|w| !w.is_informational)
+            .map(|w| w.used_percent),
         _ => Some(snapshot.primary.used_percent),
     }
 }
 
 fn average_metric_percent(snapshot: &crate::commands::ProviderUsageSnapshot) -> Option<f64> {
+    if snapshot.primary.is_informational {
+        return snapshot.secondary.as_ref().map(|w| w.used_percent);
+    }
     let secondary = snapshot.secondary.as_ref()?;
     Some((snapshot.primary.used_percent + secondary.used_percent) / 2.0)
 }
@@ -1034,6 +1080,7 @@ mod tests {
                 resets_at: None,
                 reset_description: None,
                 is_exhausted: false,
+                is_informational: false,
                 reserve_percent: None,
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
@@ -1047,6 +1094,7 @@ mod tests {
                 resets_at: None,
                 reset_description: None,
                 is_exhausted: false,
+                is_informational: false,
                 reserve_percent: None,
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
@@ -1061,6 +1109,7 @@ mod tests {
                 resets_at: None,
                 reset_description: None,
                 is_exhausted: false,
+                is_informational: false,
                 reserve_percent: None,
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
@@ -1109,6 +1158,7 @@ mod tests {
                 resets_at: None,
                 reset_description: None,
                 is_exhausted: false,
+                is_informational: false,
                 reserve_percent: None,
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
@@ -1364,5 +1414,34 @@ mod tests {
         let (primary, _) = selected_tray_percents(&snapshot, &settings);
 
         assert_eq!(primary, 72.0);
+    }
+
+    #[test]
+    fn informational_primary_skips_session_and_automatic_phantom_zero() {
+        let mut settings = Settings::default();
+        settings.set_provider_metric(ProviderId::Claude, MetricPreference::Session);
+        let mut snapshot = fake_snapshot_with("claude", "Claude", 0.0, Some(42.0), None, None);
+        snapshot.primary.is_informational = true;
+
+        // Session preference must not paint the synthetic 0% primary;
+        // it falls through to Automatic which prefers weekly (42%).
+        let (primary, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(primary, 42.0);
+        assert_ne!(primary, 0.0);
+
+        // Automatic also prefers weekly over informational primary.
+        settings.set_provider_metric(ProviderId::Claude, MetricPreference::Automatic);
+        let (primary, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(primary, 42.0);
+
+        // Direct Session arm returns None when primary is informational.
+        assert_eq!(
+            selected_metric_percent(
+                &snapshot,
+                Some(ProviderId::Claude),
+                MetricPreference::Session
+            ),
+            None
+        );
     }
 }

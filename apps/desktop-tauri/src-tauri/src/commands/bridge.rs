@@ -11,6 +11,7 @@ pub struct RateWindowSnapshot {
     pub resets_at: Option<String>,
     pub reset_description: Option<String>,
     pub is_exhausted: bool,
+    pub is_informational: bool,
     pub reserve_percent: Option<f64>,
     pub reserve_description: Option<String>,
     pub reserve_will_last_to_reset: bool,
@@ -26,6 +27,7 @@ impl RateWindowSnapshot {
             resets_at: rw.resets_at.map(|dt| dt.to_rfc3339()),
             reset_description: rw.reset_description.clone(),
             is_exhausted: rw.is_exhausted(),
+            is_informational: rw.is_informational,
             reserve_percent: None,
             reserve_description: None,
             reserve_will_last_to_reset: false,
@@ -228,6 +230,7 @@ impl ProviderUsageSnapshot {
                 resets_at: None,
                 reset_description: None,
                 is_exhausted: false,
+                is_informational: false,
                 reserve_percent: None,
                 reserve_description: None,
                 reserve_will_last_to_reset: false,
@@ -454,6 +457,7 @@ pub struct SettingsSnapshot {
     float_bar_dark_text: bool,
     float_bar_show_reset_inline: bool,
     float_bar_show_cost: bool,
+    promote_tray_icon: bool,
 }
 
 #[tauri::command]
@@ -547,6 +551,7 @@ impl From<Settings> for SettingsSnapshot {
             float_bar_dark_text: settings.float_bar_dark_text,
             float_bar_show_reset_inline: settings.float_bar_show_reset_inline,
             float_bar_show_cost: settings.float_bar_show_cost,
+            promote_tray_icon: settings.promote_tray_icon,
         }
     }
 }
@@ -642,6 +647,7 @@ mod tests {
             resets_at: resets_at.map(|dt| dt.to_rfc3339()),
             reset_description,
             is_exhausted: false,
+            is_informational: false,
             reserve_percent: None,
             reserve_description: None,
             reserve_will_last_to_reset: false,

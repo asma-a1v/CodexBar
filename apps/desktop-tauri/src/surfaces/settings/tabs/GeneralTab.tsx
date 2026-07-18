@@ -4,24 +4,25 @@ import { invoke } from "@tauri-apps/api/core";
 import { playNotificationSound } from "../../../lib/tauri";
 import { Field, NumberInput, Select, Toggle } from "../../../components/FormControls";
 import type { Language, LanguageOption, UsageThresholdOverride } from "../../../types/bridge";
+import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../../Settings";
 
 const FALLBACK_LANGUAGE_OPTIONS: LanguageOption[] = [
   { value: "english", display: "English" },
   { value: "chinese", display: "中文" },
-  { value: "chinesetraditional", display: "繁體中文（臺灣）" },
+  { value: "chinesetraditional", display: "繁體中文" },
   { value: "japanese", display: "日本語" },
   { value: "korean", display: "한국어" },
   { value: "spanish", display: "Español" },
 ];
 
-const REFRESH_CADENCE_OPTIONS: { value: string; label: string }[] = [
-  { value: "0", label: "Manual" },
-  { value: "60", label: "1 minute" },
-  { value: "300", label: "5 minutes" },
-  { value: "900", label: "15 minutes" },
-  { value: "1800", label: "30 minutes" },
-  { value: "3600", label: "1 hour" },
+const REFRESH_CADENCE_OPTIONS: { value: string; labelKey: LocaleKey }[] = [
+  { value: "0", labelKey: "RefreshIntervalManual" },
+  { value: "60", labelKey: "RefreshInterval1Min" },
+  { value: "300", labelKey: "RefreshInterval5Min" },
+  { value: "900", labelKey: "RefreshInterval15Min" },
+  { value: "1800", labelKey: "RefreshInterval30Min" },
+  { value: "3600", labelKey: "RefreshInterval1Hour" },
 ];
 
 function ThresholdOverrideInputs({
@@ -220,7 +221,10 @@ export default function GeneralTab({
             (["provider", "session", "weekly"] as const).map((window) => {
               const key = window === "provider" ? provider : `${provider}:${window}`;
               const values = settings.providerUsageThresholds ?? {};
-              const providerLabel = provider === "codex" ? "Codex" : "Claude";
+              const providerLabel =
+                provider === "codex"
+                  ? t("ProviderNameCodex")
+                  : t("ProviderNameClaude");
               return (
                 <ThresholdOverrideInputs
                   key={key}
@@ -308,7 +312,10 @@ export default function GeneralTab({
             <Select
               value={String(settings.refreshIntervalSecs)}
               disabled={saving}
-              options={REFRESH_CADENCE_OPTIONS}
+              options={REFRESH_CADENCE_OPTIONS.map((o) => ({
+                value: o.value,
+                label: t(o.labelKey),
+              }))}
               onChange={(v) => set({ refreshIntervalSecs: Number(v) })}
             />
           </Field>
