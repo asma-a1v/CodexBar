@@ -1,5 +1,16 @@
 # Changelog
 
+## [Windows] 0.44.1 - 2026-07-19
+
+### Changed
+- Size the system-tray flyout automatically from its visible provider content instead of using a remembered user-resizable window with internal scrolling.
+- Remove the tray flyout zoom control and its persisted setting so the panel always renders at the standard scale.
+
+### Fixed
+- Stabilize the all-providers flyout height with a small measurement margin so fractional pixel rounding cannot repeatedly toggle the scrollbar.
+
+---
+
 ## [Windows] 0.44.0 - 2026-07-19
 
 ### Changed

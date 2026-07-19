@@ -176,11 +176,6 @@ pub struct Settings {
     #[serde(default = "default_window_scale_percent")]
     pub window_scale_percent: u16,
 
-    /// Tray flyout display scale, in the inclusive range 100..=200.
-    /// 100 % is normal size; higher values enlarge the flyout content.
-    #[serde(default = "default_tray_scale_percent")]
-    pub tray_scale_percent: u16,
-
     /// Enable the local PowerToys Command Palette status pipe.
     #[serde(default)]
     pub powertoys_status_pipe_enabled: bool,
@@ -240,14 +235,6 @@ fn default_window_scale_percent() -> u16 {
 
 pub fn clamp_window_scale_percent(value: u16) -> u16 {
     value.clamp(100, 250)
-}
-
-fn default_tray_scale_percent() -> u16 {
-    100
-}
-
-pub fn clamp_tray_scale_percent(value: u16) -> u16 {
-    value.clamp(100, 200)
 }
 
 fn default_float_bar_opacity() -> u8 {
@@ -404,7 +391,6 @@ impl Default for Settings {
             ui_language: Language::default(), // English by default
             theme: ThemePreference::default(), // Auto (follows prefers-color-scheme)
             window_scale_percent: default_window_scale_percent(),
-            tray_scale_percent: default_tray_scale_percent(),
             powertoys_status_pipe_enabled: false,
             float_bar_enabled: false,
             float_bar_opacity: default_float_bar_opacity(),

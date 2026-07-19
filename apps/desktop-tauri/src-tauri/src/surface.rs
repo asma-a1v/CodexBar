@@ -48,16 +48,16 @@ impl SurfaceMode {
             },
             // TrayPanel is the "Pop Out Dashboard" flyout: anchored above the
             // tray icon, always-on-top, auto-hides on click-outside (blur), and
-            // never shows in the taskbar. It is resizable so the user can widen
-            // or heighten it; the chosen size persists (position stays anchored).
+            // never shows in the taskbar. Its size follows measured web content;
+            // users do not resize it into a fixed, internally scrolling panel.
             Self::TrayPanel => WindowProperties {
                 visible: true,
                 decorations: false,
-                resizable: true,
+                resizable: false,
                 width: 328.0,
                 height: 776.0,
-                min_width: Some(300.0),
-                min_height: Some(360.0),
+                min_width: None,
+                min_height: None,
                 always_on_top: true,
                 blur_dismiss: true,
                 skip_taskbar: true,
@@ -271,16 +271,16 @@ mod tests {
     }
 
     #[test]
-    fn tray_panel_is_resizable_blur_dismiss_flyout() {
+    fn tray_panel_is_content_sized_blur_dismiss_flyout() {
         let props = SurfaceMode::TrayPanel.window_properties();
-        // "Pop Out Dashboard" flyout: resizable, anchored, auto-hide, no taskbar.
-        assert!(props.resizable);
+        // Tray flyout: content-sized, anchored, auto-hide, no taskbar.
+        assert!(!props.resizable);
         assert!(props.blur_dismiss);
         assert!(props.always_on_top);
         assert!(props.skip_taskbar);
         assert!(!props.decorations);
-        assert_eq!(props.min_width, Some(300.0));
-        assert_eq!(props.min_height, Some(360.0));
+        assert_eq!(props.min_width, None);
+        assert_eq!(props.min_height, None);
     }
 
     #[test]
