@@ -93,7 +93,6 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     // touching window.matchMedia, which jsdom doesn't implement here.
     theme: "dark",
     windowScalePercent: 125,
-    trayScalePercent: 100,
     powertoysStatusPipeEnabled: false,
     claudeAvoidKeychainPrompts: false,
     codexSparkUsageVisible: true,

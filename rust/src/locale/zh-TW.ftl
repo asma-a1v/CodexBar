@@ -453,7 +453,6 @@ PanelAllProviders = 所有提供者
 PanelAllProvidersShort = 全部
 PanelShowAllProviders = 顯示所有提供者
 PanelShowFewerProviders = 顯示較少提供者
-PanelZoom = 縮放
 PanelMenu = 選單
 PanelCopied = 已複製
 PanelToday = 今日

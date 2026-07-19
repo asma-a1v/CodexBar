@@ -459,7 +459,6 @@ PanelAllProviders = All providers
 PanelAllProvidersShort = All
 PanelShowAllProviders = Show all providers
 PanelShowFewerProviders = Show fewer providers
-PanelZoom = Zoom
 PanelMenu = Menu
 PanelCopied = Copied
 PanelToday = Today

@@ -41,7 +41,6 @@ pub struct SettingsUpdate {
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
-    pub tray_scale_percent: Option<u16>,
     pub powertoys_status_pipe_enabled: Option<bool>,
     pub claude_avoid_keychain_prompts: Option<bool>,
     pub codex_spark_usage_visible: Option<bool>,
@@ -175,9 +174,6 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.window_scale_percent {
             settings.window_scale_percent = codexbar::settings::clamp_window_scale_percent(v);
-        }
-        if let Some(v) = self.tray_scale_percent {
-            settings.tray_scale_percent = codexbar::settings::clamp_tray_scale_percent(v);
         }
         if let Some(v) = self.switcher_shows_icons {
             settings.switcher_shows_icons = v;
@@ -482,24 +478,5 @@ mod tests {
         }
         .apply_display_settings(&mut settings);
         assert_eq!(settings.window_scale_percent, 100);
-    }
-
-    #[test]
-    fn apply_display_settings_clamps_tray_scale_percent() {
-        let mut settings = Settings::default();
-
-        SettingsUpdate {
-            tray_scale_percent: Some(300),
-            ..Default::default()
-        }
-        .apply_display_settings(&mut settings);
-        assert_eq!(settings.tray_scale_percent, 200);
-
-        SettingsUpdate {
-            tray_scale_percent: Some(50),
-            ..Default::default()
-        }
-        .apply_display_settings(&mut settings);
-        assert_eq!(settings.tray_scale_percent, 100);
     }
 }
