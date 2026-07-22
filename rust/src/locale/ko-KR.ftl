@@ -474,7 +474,6 @@ PanelAllProviders = 모든 제공자
 PanelAllProvidersShort = 전체
 PanelShowAllProviders = 모든 제공자 표시
 PanelShowFewerProviders = 적은 제공자 표시
-PanelZoom = 확대/축소
 PanelMenu = 메뉴
 PanelCopied = 복사됨
 PanelToday = 오늘

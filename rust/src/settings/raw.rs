@@ -120,8 +120,6 @@ pub(super) struct RawSettings {
     theme: ThemePreference,
     #[serde(default = "default_window_scale_percent")]
     window_scale_percent: u16,
-    #[serde(default = "default_tray_scale_percent")]
-    tray_scale_percent: u16,
     #[serde(default)]
     powertoys_status_pipe_enabled: bool,
 
@@ -221,7 +219,6 @@ impl Default for RawSettings {
             ui_language: s.ui_language,
             theme: s.theme,
             window_scale_percent: s.window_scale_percent,
-            tray_scale_percent: s.tray_scale_percent,
             powertoys_status_pipe_enabled: s.powertoys_status_pipe_enabled,
             float_bar_enabled: s.float_bar_enabled,
             float_bar_opacity: s.float_bar_opacity,
@@ -491,7 +488,6 @@ impl From<RawSettings> for Settings {
             ui_language: raw.ui_language,
             theme: raw.theme,
             window_scale_percent: clamp_window_scale_percent(raw.window_scale_percent),
-            tray_scale_percent: clamp_tray_scale_percent(raw.tray_scale_percent),
             powertoys_status_pipe_enabled: raw.powertoys_status_pipe_enabled,
             float_bar_enabled: raw.float_bar_enabled,
             float_bar_opacity: clamp_float_bar_opacity(raw.float_bar_opacity),

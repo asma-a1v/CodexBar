@@ -21,12 +21,39 @@ macOS-only shell polish (menu-bar layout editor, widgets, full hooks UI chrome) 
 ### Changed
 - Soft-remove Kimi K2 and CrossModel (deprecated labels; hidden unless already enabled; CLI still resolves).
 - Prefer active OpenRouter token-account keys over stored single API keys.
+- Keep normal and second-instance launches tray-only; visible surfaces open only from tray actions or explicit automation flags and remain absent from the taskbar.
+- Preserve this fork's content-sized tray flyout at standard scale, with the dedicated app icon used by the EXE, About view, and per-user NSIS installer while retaining the existing tray icon.
 
 ### Fixed
 - Claude: prefer `weekly_all` over misleading `seven_day.utilization`; last-good CLI usage on parse fail; probe session-id reuse (#210, #216).
 - OpenCode: do not rescale sub-1% computed usage to 100% (#211, #215 / upstream #2331).
 - Cursor: map Cli to web cookie path; clamp plan usage at 100% (#212, #217 / upstream #2255).
 - Cost scanner: process incomplete final JSONL lines for Claude transcripts.
+- Keep provider order indices contiguous when deprecated providers are hidden.
+
+---
+
+## [Windows] 0.44.1 - 2026-07-19
+
+### Changed
+- Size the system-tray flyout automatically from its visible provider content instead of using a remembered user-resizable window with internal scrolling.
+- Remove the tray flyout zoom control and its persisted setting so the panel always renders at the standard scale.
+
+### Fixed
+- Stabilize the all-providers flyout height with a small measurement margin so fractional pixel rounding cannot repeatedly toggle the scrollbar.
+
+---
+
+## [Windows] 0.44.0 - 2026-07-19
+
+### Changed
+- Update the Windows/Tauri base to Win-CodexBar 0.43.0, including sub2api, Factory API-key fallback, Kimi CLI credentials, account-scoped quota alerts, improved cost scanning, Japanese localization, and tray/FloatBar reliability fixes.
+- Align the Windows release version with upstream CodexBar 0.44.0 while keeping macOS-only Swift, WidgetKit, and menu-bar changes out of the Windows build.
+
+### Fixed
+- Retain incomplete Codex JSONL tails for incremental resume instead of advancing past a partially written usage record.
+- Show StepFun credit-plan consumption from weighted credit buckets instead of false exhausted five-hour/weekly quotas, and derive the required device ID from the stored token.
+- Treat explicitly unlimited Copilot quotas as informational instead of rendering a misleading usage bar.
 
 ---
 

@@ -82,10 +82,17 @@ pub fn install(app: tauri::AppHandle) {
 }
 
 fn resolve_refresh_interval(settings: &Settings) -> Option<Duration> {
-    if settings.adaptive_refresh {
-        return Some(adaptive_delay_now());
-    }
-    refresh_interval(settings.refresh_interval_secs)
+    resolve_refresh_interval_with(settings, adaptive_delay_now)
+}
+
+fn resolve_refresh_interval_with(
+    settings: &Settings,
+    adaptive_delay: impl FnOnce() -> Duration,
+) -> Option<Duration> {
+    settings
+        .adaptive_refresh
+        .then(adaptive_delay)
+        .or_else(|| refresh_interval(settings.refresh_interval_secs))
 }
 
 fn adaptive_delay_now() -> Duration {
@@ -205,21 +212,11 @@ mod tests {
 
     #[test]
     fn adaptive_enabled_uses_policy_delay() {
-        // Clear shared activity slots so parallel/prior tests cannot shrink the delay.
-        *LAST_MENU_OPEN
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-        *LAST_CODING_ACTIVITY
-            .get_or_init(|| Mutex::new(None))
-            .lock()
-            .unwrap_or_else(|e| e.into_inner()) = None;
-
         let mut settings = Settings::default();
         settings.adaptive_refresh = true;
         settings.refresh_interval_secs = 0;
-        let delay = resolve_refresh_interval(&settings).expect("adaptive always schedules");
-        // No menu open → long idle 30m
+        let delay = resolve_refresh_interval_with(&settings, || Duration::from_secs(30 * 60))
+            .expect("adaptive always schedules");
         assert_eq!(delay, Duration::from_secs(30 * 60));
     }
 

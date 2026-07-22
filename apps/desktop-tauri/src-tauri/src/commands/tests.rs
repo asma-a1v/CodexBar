@@ -155,10 +155,15 @@ fn apply_provider_order_ignores_unknown_ids() {
 
 #[test]
 fn provider_summaries_reflect_settings_order() {
-    let canonical_len = codexbar::core::ProviderId::all().len();
     let s = Settings::default();
+    let visible_len = ProviderId::all()
+        .iter()
+        .filter(|provider| {
+            !provider.is_deprecated() || s.enabled_providers.contains(provider.cli_name())
+        })
+        .count();
     let summaries: Vec<ProviderSummary> = super::build_provider_summaries(&s);
-    assert_eq!(summaries.len(), canonical_len);
+    assert_eq!(summaries.len(), visible_len);
     // Index is assigned in emission order.
     for (i, s) in summaries.iter().enumerate() {
         assert_eq!(s.order, i as u32);
@@ -1236,14 +1241,13 @@ fn external_url_validator_rejects_non_web_and_control_urls() {
 
 // ── Phase 13 — E2E IPC harness ─────────────────────────────────
 //
-// Build the full bootstrap payload and prove that every shared
-// `ProviderId` variant ends up in the provider catalog with a
-// non-empty id + display name. If a new provider is added to the
-// enum but never wired through the desktop catalog, this test will
-// fail with `missing provider in bootstrap catalog: <id>`.
+// Build the full bootstrap payload and prove that every visible shared
+// `ProviderId` variant ends up in the provider catalog with a non-empty id +
+// display name. Soft-removed providers remain hidden unless already enabled.
 
 #[test]
-fn bootstrap_payload_exposes_every_provider_variant() {
+fn bootstrap_payload_exposes_every_visible_provider_variant() {
+    let settings = Settings::load();
     let payload = super::get_bootstrap_state();
 
     let catalog_ids: std::collections::HashSet<String> = payload
@@ -1263,16 +1267,26 @@ fn bootstrap_payload_exposes_every_provider_variant() {
 
     for provider in ProviderId::all() {
         let expected = provider.cli_name().to_string();
-        assert!(
+        let expected_visible = !provider.is_deprecated()
+            || settings.enabled_providers.contains(&expected);
+        assert_eq!(
             catalog_ids.contains(&expected),
-            "missing provider in bootstrap catalog: {expected}"
+            expected_visible,
+            "bootstrap visibility mismatch for provider: {expected}"
         );
     }
 
+    let expected_len = ProviderId::all()
+        .iter()
+        .filter(|provider| {
+            !provider.is_deprecated()
+                || settings.enabled_providers.contains(provider.cli_name())
+        })
+        .count();
     assert_eq!(
         catalog_ids.len(),
-        ProviderId::all().len(),
-        "bootstrap catalog size drifted from ProviderId::all()"
+        expected_len,
+        "bootstrap catalog size drifted from visible providers"
     );
 
     // Sanity — payload must also round-trip through JSON cleanly so
