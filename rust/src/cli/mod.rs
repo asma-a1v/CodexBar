@@ -13,6 +13,8 @@ pub mod autostart;
 pub mod config;
 pub mod cost;
 pub mod diagnose;
+pub mod guard;
+pub mod hooks;
 pub mod serve;
 pub mod sessions;
 pub mod tty_runner;
@@ -24,10 +26,15 @@ use clap::{Parser, Subcommand};
 pub mod exit_codes {
     pub const SUCCESS: i32 = 0;
     pub const UNEXPECTED_FAILURE: i32 = 1;
+    /// Guard: remaining quota below `--min-remaining` threshold.
+    pub const GUARD_BLOCKED: i32 = 1;
     pub const PROVIDER_MISSING: i32 = 2;
     pub const PARSE_ERROR: i32 = 3;
     pub const CLI_TIMEOUT: i32 = 4;
+    /// Invalid CLI arguments (`EX_USAGE`).
     pub const USAGE_ERROR: i32 = 64;
+    /// Quota could not be checked (`EX_UNAVAILABLE`); used by `codexbar guard`.
+    pub const UNAVAILABLE: i32 = 69;
 }
 
 /// CodexBar - Monitor AI provider usage limits
@@ -82,6 +89,10 @@ pub struct Cli {
     #[arg(long = "all-accounts")]
     pub all_accounts: bool,
 
+    /// Token-account label or 1-based index (requires a single provider)
+    #[arg(long = "account")]
+    pub account: Option<String>,
+
     /// Skip credits line in output
     #[arg(long = "no-credits")]
     pub no_credits: bool,
@@ -115,6 +126,9 @@ pub enum Commands {
     /// Print local token cost usage (Claude + Codex) without web/CLI access
     Cost(cost::CostArgs),
 
+    /// Gate automation on one provider's remaining quota
+    Guard(guard::GuardArgs),
+
     /// Export safe provider diagnostics as JSON
     Diagnose(diagnose::DiagnoseArgs),
 
@@ -132,6 +146,9 @@ pub enum Commands {
 
     /// Configuration utilities
     Config(config::ConfigArgs),
+
+    /// List, enable, disable, or test external hooks
+    Hooks(hooks::HooksArgs),
 }
 
 impl Cli {
@@ -152,6 +169,7 @@ impl Cli {
             pretty: self.pretty,
             status: self.status,
             all_accounts: self.all_accounts,
+            account: self.account.clone(),
             source: self.source.clone(),
             web_timeout: self.web_timeout,
             web_debug_dump_html: self.web_debug_dump_html,

@@ -1,7 +1,9 @@
 //! Core data models and traits
 
+mod adaptive_refresh;
 mod cost_pricing;
 mod credential_migration;
+mod hooks;
 mod http;
 mod jsonl_scanner;
 mod models_dev_pricing;
@@ -16,8 +18,10 @@ mod usage_pace;
 mod usage_snapshot;
 mod widget_snapshot;
 
+pub use adaptive_refresh::*;
 pub use cost_pricing::*;
 pub use credential_migration::*;
+pub use hooks::*;
 pub use http::*;
 pub use jsonl_scanner::*;
 pub use models_dev_pricing::*;

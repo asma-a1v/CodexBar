@@ -532,14 +532,11 @@ fn contained_total_delta(
 }
 
 /// Read one JSONL line, discarding content when it exceeds `max_bytes`.
-/// Returns `(line_without_newline, bytes_consumed, terminated_by_newline)`.
-///
-/// The termination bit lets incremental callers retain an unfinished writer
-/// tail instead of advancing their cache offset past a partial JSON value.
+/// Returns `(line_without_newline, bytes_consumed_including_newline)`.
 fn read_bounded_jsonl_line<R: BufRead>(
     reader: &mut R,
     max_bytes: usize,
-) -> std::io::Result<Option<(Vec<u8>, usize, bool)>> {
+) -> std::io::Result<Option<(Vec<u8>, usize)>> {
     let mut line = Vec::new();
     let mut saw_bytes = false;
     let mut discarding = false;
@@ -548,11 +545,9 @@ fn read_bounded_jsonl_line<R: BufRead>(
     loop {
         let chunk = reader.fill_buf()?;
         if chunk.is_empty() {
-            return Ok(saw_bytes.then_some((
-                if discarding { Vec::new() } else { line },
-                consumed_total,
-                false,
-            )));
+            return Ok(
+                saw_bytes.then_some((if discarding { Vec::new() } else { line }, consumed_total))
+            );
         }
         let newline = chunk.iter().position(|byte| *byte == b'\n');
         let segment_end = newline.unwrap_or(chunk.len());
@@ -576,7 +571,6 @@ fn read_bounded_jsonl_line<R: BufRead>(
             return Ok(Some((
                 if discarding { Vec::new() } else { line },
                 consumed_total,
-                true,
             )));
         }
     }
@@ -806,22 +800,9 @@ impl JsonlScanner {
         let mut parser = CodexParserState::new(initial_model, initial_totals);
         let mut parsed_bytes = start_offset;
 
-        while let Some((line_bytes, consumed, terminated)) =
+        while let Some((line_bytes, consumed)) =
             read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)?
         {
-            // A valid final JSON object is a complete JSONL record even when
-            // the writer omitted the trailing newline. Invalid or oversized
-            // tails remain uncommitted so an incremental scan can retry them
-            // after the active process finishes appending the record.
-            let valid_unterminated_json = !terminated
-                && !line_bytes.is_empty()
-                && std::str::from_utf8(&line_bytes)
-                    .ok()
-                    .is_some_and(|line| serde_json::from_str::<Value>(line).is_ok());
-            if !terminated && !valid_unterminated_json {
-                break;
-            }
-
             parsed_bytes += consumed as i64;
             if line_bytes.is_empty() {
                 continue;
@@ -835,7 +816,7 @@ impl JsonlScanner {
 
         Ok(CodexParseResult {
             records: parser.records,
-            parsed_bytes: parsed_bytes.min(file_size),
+            parsed_bytes: file_size.max(parsed_bytes),
             last_model: parser.current_model,
             last_totals: parser.previous_totals,
         })
@@ -1103,94 +1084,15 @@ mod tests {
         input.extend_from_slice(b"{\"type\":\"event_msg\"}\n");
         let mut reader = BufReader::with_capacity(64 * 1024, std::io::Cursor::new(input));
 
-        let (exact, _, exact_terminated) =
-            read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
-                .expect("read")
-                .expect("line");
-        let (later, _, later_terminated) =
-            read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
-                .expect("read")
-                .expect("line");
+        let (exact, _) = read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
+            .expect("read")
+            .expect("line");
+        let (later, _) = read_bounded_jsonl_line(&mut reader, CODEX_JSONL_MAX_LINE_BYTES)
+            .expect("read")
+            .expect("line");
 
         assert_eq!(exact.len(), CODEX_JSONL_MAX_LINE_BYTES);
-        assert!(exact_terminated);
         assert_eq!(later, br#"{"type":"event_msg"}"#);
-        assert!(later_terminated);
-    }
-
-    #[test]
-    fn codex_parser_retains_incomplete_jsonl_tail_for_resume() {
-        let first = concat!(
-            r#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":9,"cached_input_tokens":2,"output_tokens":1}}}}"#,
-            "\n"
-        );
-        let partial = r#"{"timestamp":"2026-05-31T10:00:02Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":7"#;
-        let mut file = tempfile::NamedTempFile::new().expect("temp file");
-        write!(file, "{first}{partial}").unwrap();
-        file.flush().unwrap();
-
-        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
-        let range = CostUsageDayRange::new(day, day);
-        let first_pass = JsonlScanner::parse_codex_file(file.path(), &range, 0, None, None)
-            .expect("first parse");
-
-        assert_eq!(first_pass.records.len(), 1);
-        assert_eq!(first_pass.parsed_bytes, first.len() as i64);
-
-        file.write_all(
-            br#","cached_input_tokens":1,"output_tokens":3}}}}
-"#,
-        )
-        .unwrap();
-        file.flush().unwrap();
-        let resumed = JsonlScanner::parse_codex_file(
-            file.path(),
-            &range,
-            first_pass.parsed_bytes,
-            first_pass.last_model,
-            first_pass.last_totals,
-        )
-        .expect("resumed parse");
-
-        assert_eq!(resumed.records.len(), 1);
-        assert_eq!(
-            (
-                resumed.records[0].input,
-                resumed.records[0].cached,
-                resumed.records[0].output
-            ),
-            (7, 1, 3)
-        );
-        assert_eq!(
-            resumed.parsed_bytes,
-            file.as_file().metadata().unwrap().len() as i64
-        );
-    }
-
-    #[test]
-    fn codex_parser_commits_valid_final_record_without_newline() {
-        let mut file = tempfile::NamedTempFile::new().expect("temp file");
-        file.write_all(
-            br#"{"timestamp":"2026-05-31T10:00:01Z","type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":4,"cached_input_tokens":1,"output_tokens":2}}}}"#,
-        )
-        .unwrap();
-        file.flush().unwrap();
-
-        let day = NaiveDate::from_ymd_opt(2026, 5, 31).unwrap();
-        let parsed = JsonlScanner::parse_codex_file(
-            file.path(),
-            &CostUsageDayRange::new(day, day),
-            0,
-            None,
-            None,
-        )
-        .expect("parse");
-
-        assert_eq!(parsed.records.len(), 1);
-        assert_eq!(
-            parsed.parsed_bytes,
-            file.as_file().metadata().unwrap().len() as i64
-        );
     }
 
     #[test]

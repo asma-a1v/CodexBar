@@ -31,6 +31,10 @@ impl CursorApi {
         }
     }
 
+    pub(super) fn client(&self) -> &reqwest::Client {
+        &self.client
+    }
+
     /// Fetch usage information from Cursor API
     /// Returns (primary, secondary, model_specific, cost, email, plan_type)
     pub async fn fetch_usage(&self) -> Result<CursorUsageResult, ProviderError> {
@@ -143,21 +147,23 @@ impl CursorApi {
                         .or_else(|| plan.breakdown.as_ref().and_then(|b| b.total))
                         .unwrap_or(0) as f64;
 
+                    // Upstream #2255: clamp plan usage at 100% when included usage
+                    // exceeds the plan limit (overage must not paint >100% bars).
                     let percent = if let Some(percent) = plan.total_percent_used {
-                        percent
+                        clamp_percent(percent)
                     } else if limit_cents > 0.0 {
-                        (used_cents / limit_cents) * 100.0
+                        clamp_percent((used_cents / limit_cents) * 100.0)
                     } else {
                         0.0
                     };
 
-                    let secondary = plan
-                        .auto_percent_used
-                        .map(|v| RateWindow::with_details(v, None, billing_end, None));
+                    let secondary = plan.auto_percent_used.map(|v| {
+                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                    });
 
-                    let model_specific = plan
-                        .api_percent_used
-                        .map(|v| RateWindow::with_details(v, None, billing_end, None));
+                    let model_specific = plan.api_percent_used.map(|v| {
+                        RateWindow::with_details(clamp_percent(v), None, billing_end, None)
+                    });
 
                     let cost = Self::on_demand_cost(individual.on_demand.as_ref(), billing_end)
                         .or_else(|| {
@@ -166,7 +172,12 @@ impl CursorApi {
                             })
                         })
                         .unwrap_or_else(|| {
-                            let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "Monthly");
+                            // Plan-included spend (cents → USD) when on-demand is off.
+                            let mut cost = CostSnapshot::new(
+                                used_cents / 100.0,
+                                "USD",
+                                plan_period_label(summary.billing_cycle_start.as_deref()),
+                            );
                             if limit_cents > 0.0 {
                                 cost = cost.with_limit(limit_cents / 100.0);
                             }
@@ -244,7 +255,9 @@ impl CursorApi {
             return None;
         }
 
-        let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "Monthly");
+        // usage-summary exposes on-demand spend in cents for the billing cycle.
+        // Label it explicitly so the tray/detail cost line is not a vague "Monthly".
+        let mut cost = CostSnapshot::new(used_cents / 100.0, "USD", "On-demand (billing cycle)");
         if limit_cents > 0.0 {
             cost = cost.with_limit(limit_cents / 100.0);
         }
@@ -264,7 +277,22 @@ impl CursorApi {
                     .map(|remaining| remaining + usage.used.unwrap_or(0))
             })
             .unwrap_or(0) as f64;
-        (limit > 0.0).then_some(used / limit * 100.0)
+        (limit > 0.0).then_some(clamp_percent(used / limit * 100.0))
+    }
+}
+
+fn clamp_percent(value: f64) -> f64 {
+    if !value.is_finite() {
+        return 0.0;
+    }
+    value.clamp(0.0, 100.0)
+}
+
+/// Period label for plan-included spend from usage-summary (no new network calls).
+fn plan_period_label(billing_cycle_start: Option<&str>) -> String {
+    match billing_cycle_start {
+        Some(start) if !start.is_empty() => format!("Plan (since {start})"),
+        _ => "Plan (billing cycle)".to_string(),
     }
 }
 
@@ -417,6 +445,29 @@ mod tests {
     }
 
     #[test]
+    fn clamps_plan_usage_percent_at_100_when_over_limit() {
+        // Upstream #2255: included usage past limit must not paint >100%.
+        let json = r#"{
+            "membershipType": "pro",
+            "individualUsage": {
+                "plan": {
+                    "used": 6000,
+                    "limit": 5000,
+                    "totalPercentUsed": 120.0,
+                    "autoPercentUsed": 110.0,
+                    "apiPercentUsed": 105.0
+                }
+            }
+        }"#;
+        let summary = parse_summary(json);
+        let (primary, secondary, model_specific, _, _, _) =
+            api().build_result(summary, None).unwrap();
+        assert!((primary.used_percent - 100.0).abs() < 0.01);
+        assert!((secondary.unwrap().used_percent - 100.0).abs() < 0.01);
+        assert!((model_specific.unwrap().used_percent - 100.0).abs() < 0.01);
+    }
+
+    #[test]
     fn test_cursor_build_result_prefers_api_percent_fields() {
         let json = r#"{
             "membershipType": "pro",
@@ -517,7 +568,28 @@ mod tests {
         let cost = cost.expect("cost should exist from on-demand usage");
         assert!((cost.used - 3.5).abs() < 0.01);
         assert_eq!(cost.limit, Some(10.0));
-        assert_eq!(cost.period, "Monthly");
+        assert_eq!(cost.period, "On-demand (billing cycle)");
+    }
+
+    #[test]
+    fn plan_cost_period_uses_billing_cycle_start() {
+        let json = r#"{
+            "billingCycleStart": "2026-03-01T00:00:00Z",
+            "billingCycleEnd": "2026-04-01T00:00:00Z",
+            "membershipType": "pro",
+            "individualUsage": {
+                "plan": {
+                    "used": 2500,
+                    "limit": 5000
+                }
+            }
+        }"#;
+        let summary = parse_summary(json);
+        let (_, _, _, cost, _, _) = api().build_result(summary, None).unwrap();
+        let cost = cost.expect("plan cost");
+        assert!((cost.used - 25.0).abs() < 0.01);
+        assert_eq!(cost.limit, Some(50.0));
+        assert_eq!(cost.period, "Plan (since 2026-03-01T00:00:00Z)");
     }
 
     #[test]

@@ -199,6 +199,67 @@ impl TokenAccountSupport {
                 requires_manual_cookie_source: false,
                 cookie_name: None,
             }),
+            ProviderId::DeepInfra => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple DeepInfra API keys.",
+                placeholder: "API key from deepinfra.com/dash",
+                injection: TokenInjection::Environment {
+                    key: "DEEPINFRA_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::AiAnd => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ai& API keys.",
+                placeholder: "API key from console.aiand.com",
+                injection: TokenInjection::Environment {
+                    key: "AIAND_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::ZenMux => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ZenMux Management API keys.",
+                placeholder: "Management API key",
+                injection: TokenInjection::Environment {
+                    key: "ZENMUX_MANAGEMENT_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::ClinePass => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple ClinePass API keys.",
+                placeholder: "API key",
+                injection: TokenInjection::Environment {
+                    key: "CLINEPASS_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            ProviderId::Neuralwatt => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple Neuralwatt API keys.",
+                placeholder: "API key",
+                injection: TokenInjection::Environment {
+                    key: "NEURALWATT_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
+            // Upstream 0.45 #2271: labeled OpenRouter API keys via token accounts.
+            ProviderId::OpenRouter => Some(TokenAccountSupport {
+                title: "API keys",
+                subtitle: "Store multiple OpenRouter API keys.",
+                placeholder: "sk-or-v1-...",
+                injection: TokenInjection::Environment {
+                    key: "OPENROUTER_API_KEY".to_string(),
+                },
+                requires_manual_cookie_source: false,
+                cookie_name: None,
+            }),
             ProviderId::Copilot => Some(TokenAccountSupport {
                 title: "GitHub accounts",
                 subtitle: "Store GitHub OAuth tokens for Copilot plan usage.",
@@ -220,7 +281,6 @@ impl TokenAccountSupport {
             | ProviderId::JetBrains
             | ProviderId::Warp
             | ProviderId::AzureOpenAI
-            | ProviderId::OpenRouter
             | ProviderId::NanoGPT
             | ProviderId::Infini
             | ProviderId::Perplexity
@@ -247,6 +307,7 @@ impl TokenAccountSupport {
             | ProviderId::Devin
             | ProviderId::Zed
             | ProviderId::CrossModel
+            | ProviderId::LongCat
             | ProviderId::Wayfinder => None,
         }
     }
@@ -636,8 +697,46 @@ mod tests {
         assert!(TokenAccountSupport::is_supported(ProviderId::Claude));
         assert!(TokenAccountSupport::is_supported(ProviderId::Cursor));
         assert!(TokenAccountSupport::is_supported(ProviderId::Copilot));
+        assert!(TokenAccountSupport::is_supported(ProviderId::OpenRouter));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Codex));
         assert!(!TokenAccountSupport::is_supported(ProviderId::Gemini));
+    }
+
+    #[test]
+    fn openrouter_token_accounts_inject_api_key_env() {
+        let support = TokenAccountSupport::for_provider(ProviderId::OpenRouter).unwrap();
+        assert_eq!(support.title, "API keys");
+        assert_eq!(support.placeholder, "sk-or-v1-...");
+        assert!(!support.requires_manual_cookie_source);
+        match &support.injection {
+            TokenInjection::Environment { key } => assert_eq!(key, "OPENROUTER_API_KEY"),
+            other => panic!("expected environment injection, got {other:?}"),
+        }
+
+        let mut data = ProviderAccountData::new();
+        data.add_account(TokenAccount::new("Personal", "sk-or-v1-personal"));
+        data.add_account(TokenAccount::new("Work", "sk-or-v1-work"));
+        data.set_active(1);
+
+        let active = data.active_account().unwrap();
+        assert_eq!(active.label, "Work");
+        let env = TokenAccountSupport::env_override(ProviderId::OpenRouter, &active.token).unwrap();
+        assert_eq!(
+            env.get("OPENROUTER_API_KEY").map(String::as_str),
+            Some("sk-or-v1-work")
+        );
+
+        let override_data =
+            TokenAccountOverride::from_account(ProviderId::OpenRouter, active.clone());
+        assert_eq!(
+            override_data
+                .env_override
+                .as_ref()
+                .and_then(|m| m.get("OPENROUTER_API_KEY"))
+                .map(String::as_str),
+            Some("sk-or-v1-work")
+        );
+        assert!(override_data.cookie_header.is_none());
     }
 
     #[test]

@@ -4,7 +4,6 @@
 //! stored by the Codex CLI in ~/.codex/auth.json
 
 mod api;
-mod rpc;
 
 use async_trait::async_trait;
 #[cfg(windows)]
@@ -21,7 +20,6 @@ pub use api::CodexApi;
 pub struct CodexProvider {
     metadata: ProviderMetadata,
     api: CodexApi,
-    cli: rpc::CodexCli,
 }
 
 impl CodexProvider {
@@ -40,7 +38,6 @@ impl CodexProvider {
                 status_page_url: Some("https://status.openai.com"),
             },
             api: CodexApi::new(),
-            cli: rpc::CodexCli::new(),
         }
     }
 }
@@ -61,21 +58,21 @@ impl Provider for CodexProvider {
         &self.metadata
     }
 
-    async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
-        match ctx.source_mode {
-            SourceMode::OAuth => self.fetch_oauth(ctx.include_credits).await,
-            SourceMode::Cli => self.cli.fetch_usage(ctx.include_credits).await,
-            SourceMode::Auto => match self.fetch_oauth(ctx.include_credits).await {
-                Ok(result) => Ok(result),
-                Err(error) if should_fallback_to_cli(&error) => {
-                    tracing::info!(
-                        "Codex OAuth credentials were unavailable; trying the local Codex CLI"
-                    );
-                    self.cli.fetch_usage(ctx.include_credits).await
+    async fn fetch_usage(&self, _ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        tracing::debug!("Fetching Codex usage via OAuth API");
+
+        match self.api.fetch_usage().await {
+            Ok((usage, cost)) => {
+                let mut result = ProviderFetchResult::new(usage, "oauth");
+                if let Some(c) = cost {
+                    result = result.with_cost(c);
                 }
-                Err(error) => Err(error),
-            },
-            SourceMode::Web => Err(ProviderError::UnsupportedSource(SourceMode::Web)),
+                Ok(result)
+            }
+            Err(e) => {
+                tracing::warn!("Codex API fetch failed: {}", e);
+                Err(e)
+            }
         }
     }
 
@@ -96,50 +93,12 @@ impl Provider for CodexProvider {
     }
 }
 
-impl CodexProvider {
-    async fn fetch_oauth(
-        &self,
-        include_credits: bool,
-    ) -> Result<ProviderFetchResult, ProviderError> {
-        tracing::debug!("Fetching Codex usage via OAuth API");
-        let (usage, cost) = self
-            .api
-            .fetch_usage(include_credits)
-            .await
-            .map_err(|error| {
-                tracing::warn!("Codex OAuth fetch failed: {error}");
-                error
-            })?;
-        let mut result = ProviderFetchResult::new(usage, "oauth");
-        if let Some(cost) = cost {
-            result = result.with_cost(cost);
-        }
-        Ok(result)
-    }
-}
-
-fn should_fallback_to_cli(error: &ProviderError) -> bool {
-    matches!(
-        error,
-        ProviderError::AuthRequired | ProviderError::NotInstalled(_) | ProviderError::OAuth(_)
-    )
-}
-
 /// Try to find the codex CLI binary
-pub(super) fn which_codex() -> Option<std::path::PathBuf> {
+fn which_codex() -> Option<std::path::PathBuf> {
     // Check common locations on Windows
     let possible_paths = [
         // In PATH
         which::which("codex").ok(),
-        which::which("codex.exe").ok(),
-        // Current Codex desktop app
-        dirs::data_local_dir().map(|p| {
-            p.join("Programs")
-                .join("OpenAI")
-                .join("Codex")
-                .join("bin")
-                .join("codex.exe")
-        }),
         // npm global install
         dirs::data_dir().map(|p| p.join("npm").join("codex.cmd")),
         // AppData locations
@@ -175,27 +134,4 @@ fn detect_codex_version() -> Option<String> {
 fn extract_version(s: &str) -> Option<String> {
     let re = regex_lite::Regex::new(r"(\d+(?:\.\d+)+)").ok()?;
     re.find(s).map(|m| m.as_str().to_string())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn auto_falls_back_only_for_authentication_and_installation_errors() {
-        assert!(should_fallback_to_cli(&ProviderError::AuthRequired));
-        assert!(should_fallback_to_cli(&ProviderError::OAuth(
-            "expired".to_string()
-        )));
-        assert!(should_fallback_to_cli(&ProviderError::NotInstalled(
-            "missing".to_string()
-        )));
-        assert!(!should_fallback_to_cli(&ProviderError::Timeout));
-        assert!(!should_fallback_to_cli(&ProviderError::Parse(
-            "changed response".to_string()
-        )));
-        assert!(!should_fallback_to_cli(&ProviderError::Other(
-            "server failed".to_string()
-        )));
-    }
 }

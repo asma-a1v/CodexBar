@@ -9,6 +9,7 @@ use super::*;
 pub struct SettingsUpdate {
     pub enabled_providers: Option<Vec<String>>,
     pub refresh_interval_secs: Option<u64>,
+    pub adaptive_refresh: Option<bool>,
     pub refresh_all_providers_on_menu_open: Option<bool>,
     pub start_at_login: Option<bool>,
     pub start_minimized: Option<bool>,
@@ -38,6 +39,7 @@ pub struct SettingsUpdate {
     pub codex_custom_sessions_dirs: Option<Vec<String>>,
     pub agent_sessions_enabled: Option<bool>,
     pub agent_session_ssh_hosts: Option<Vec<String>>,
+    pub hooks_enabled: Option<bool>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
@@ -123,6 +125,9 @@ impl SettingsUpdate {
         }
         if let Some(v) = self.refresh_interval_secs {
             settings.refresh_interval_secs = v;
+        }
+        if let Some(v) = self.adaptive_refresh {
+            settings.adaptive_refresh = v;
         }
         if let Some(v) = self.refresh_all_providers_on_menu_open {
             settings.refresh_all_providers_on_menu_open = v;
@@ -245,6 +250,9 @@ impl SettingsUpdate {
         if let Some(v) = self.agent_session_ssh_hosts.clone() {
             settings.agent_session_ssh_hosts =
                 codexbar::agent_sessions::RemoteSessionFetcher::sanitized_hosts(&v);
+        }
+        if let Some(v) = self.hooks_enabled {
+            settings.hooks_enabled = v;
         }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;

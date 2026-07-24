@@ -155,10 +155,15 @@ fn apply_provider_order_ignores_unknown_ids() {
 
 #[test]
 fn provider_summaries_reflect_settings_order() {
-    let canonical_len = codexbar::core::ProviderId::all().len();
     let s = Settings::default();
+    let visible_len = ProviderId::all()
+        .iter()
+        .filter(|provider| {
+            !provider.is_deprecated() || s.enabled_providers.contains(provider.cli_name())
+        })
+        .count();
     let summaries: Vec<ProviderSummary> = super::build_provider_summaries(&s);
-    assert_eq!(summaries.len(), canonical_len);
+    assert_eq!(summaries.len(), visible_len);
     // Index is assigned in emission order.
     for (i, s) in summaries.iter().enumerate() {
         assert_eq!(s.order, i as u32);
@@ -293,8 +298,47 @@ fn fetch_context_defaults_to_manual_cookies_without_browser_import() {
         &token_accounts,
     );
 
+    // Cursor does not support Cli; empty manual cookie remaps to Web (browser attempt).
+    assert_eq!(ctx.source_mode, SourceMode::Web);
+}
+
+#[test]
+fn fetch_context_cursor_cookie_off_stays_cli() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Cursor, "off");
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Cursor,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    // Explicit cookie-off keeps Cli (no browser scrape).
     assert_eq!(ctx.source_mode, SourceMode::Cli);
     assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
+fn fetch_context_opencode_empty_manual_remaps_to_web() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenCode,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Web);
 }
 
 #[test]
@@ -538,6 +582,51 @@ fn fetch_context_token_account_takes_precedence_over_manual_cookie() {
         ctx.manual_cookie_header.as_deref(),
         Some("WorkosCursorSessionToken=new")
     );
+}
+
+#[test]
+fn fetch_context_openrouter_token_account_overrides_stored_api_key() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let mut api_keys = ApiKeys::default();
+    api_keys.set("openrouter", "sk-or-v1-stored-decoy", None);
+    let mut token_accounts = HashMap::new();
+    let mut data = ProviderAccountData::new();
+    data.add_account(TokenAccount::new("Personal", "sk-or-v1-personal"));
+    data.add_account(TokenAccount::new("Work", "sk-or-v1-work"));
+    data.set_active(1);
+    token_accounts.insert(ProviderId::OpenRouter, data);
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenRouter,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert!(ctx.manual_cookie_header.is_none());
+    assert_eq!(ctx.api_key.as_deref(), Some("sk-or-v1-work"));
+}
+
+#[test]
+fn fetch_context_openrouter_falls_back_to_stored_api_key_without_token_accounts() {
+    let settings = Settings::default();
+    let cookies = ManualCookies::default();
+    let mut api_keys = ApiKeys::default();
+    api_keys.set("openrouter", "sk-or-v1-stored", None);
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::OpenRouter,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.api_key.as_deref(), Some("sk-or-v1-stored"));
 }
 
 #[test]
@@ -818,6 +907,68 @@ fn claude_repeated_auth_failure_surfaces_error() {
 }
 
 #[test]
+fn claude_cli_parse_failure_keeps_last_good_every_time() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "CLI".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let err = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "Parse error: Empty output from Claude CLI".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good.clone());
+
+    let first = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err.clone(),
+    );
+    let second = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+    );
+
+    assert_eq!(first.error, None);
+    assert_eq!(first.primary.used_percent, 17.0);
+    // Parse failures keep last-good on every refresh (upstream #2247), unlike one-shot auth.
+    assert_eq!(second.error, None);
+    assert_eq!(second.primary.used_percent, 17.0);
+}
+
+#[test]
+fn claude_hard_credentials_missing_does_not_preserve_stale() {
+    let metadata = instantiate_provider(ProviderId::Claude).metadata().clone();
+    let result = ProviderFetchResult {
+        usage: codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(17.0)),
+        cost: None,
+        wayfinder_usage: None,
+        source_label: "OAuth".to_string(),
+    };
+    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let err = ProviderUsageSnapshot::from_error(
+        ProviderId::Claude,
+        &metadata,
+        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+    );
+    let mut state = crate::state::AppState::new();
+    state.provider_cache.push(good);
+
+    let out = super::providers::preserve_last_good_transient_failure(
+        &mut state,
+        ProviderId::Claude,
+        err,
+    );
+    assert!(out.error.is_some());
+}
+
+#[test]
 fn claude_error_message_removes_upstream_swift_cancellation() {
     let message = super::friendly_provider_error(
         ProviderId::Claude,
@@ -1090,14 +1241,13 @@ fn external_url_validator_rejects_non_web_and_control_urls() {
 
 // ── Phase 13 — E2E IPC harness ─────────────────────────────────
 //
-// Build the full bootstrap payload and prove that every shared
-// `ProviderId` variant ends up in the provider catalog with a
-// non-empty id + display name. If a new provider is added to the
-// enum but never wired through the desktop catalog, this test will
-// fail with `missing provider in bootstrap catalog: <id>`.
+// Build the full bootstrap payload and prove that every visible shared
+// `ProviderId` variant ends up in the provider catalog with a non-empty id +
+// display name. Soft-removed providers remain hidden unless already enabled.
 
 #[test]
-fn bootstrap_payload_exposes_every_provider_variant() {
+fn bootstrap_payload_exposes_every_visible_provider_variant() {
+    let settings = Settings::load();
     let payload = super::get_bootstrap_state();
 
     let catalog_ids: std::collections::HashSet<String> = payload
@@ -1117,16 +1267,26 @@ fn bootstrap_payload_exposes_every_provider_variant() {
 
     for provider in ProviderId::all() {
         let expected = provider.cli_name().to_string();
-        assert!(
+        let expected_visible = !provider.is_deprecated()
+            || settings.enabled_providers.contains(&expected);
+        assert_eq!(
             catalog_ids.contains(&expected),
-            "missing provider in bootstrap catalog: {expected}"
+            expected_visible,
+            "bootstrap visibility mismatch for provider: {expected}"
         );
     }
 
+    let expected_len = ProviderId::all()
+        .iter()
+        .filter(|provider| {
+            !provider.is_deprecated()
+                || settings.enabled_providers.contains(provider.cli_name())
+        })
+        .count();
     assert_eq!(
         catalog_ids.len(),
-        ProviderId::all().len(),
-        "bootstrap catalog size drifted from ProviderId::all()"
+        expected_len,
+        "bootstrap catalog size drifted from visible providers"
     );
 
     // Sanity — payload must also round-trip through JSON cleanly so

@@ -29,11 +29,12 @@ pub(crate) fn build_fetch_context(
         .and_then(|override_data| override_data.env_override.as_ref());
     let active_token_api_key = active_token_env.and_then(|env| env.values().next().cloned());
     let usage_source = SourceMode::parse(settings.usage_source(id)).unwrap_or_default();
-    let api_key = stored_api_key.or(active_token_api_key);
+    // Selected token-account key overrides a stored provider apiKey (upstream #2271 / #1183).
+    let api_key = active_token_api_key.or(stored_api_key);
     let has_kimi_code_api_key =
         id == ProviderId::Kimi && api_key.as_deref().is_some_and(|key| !key.trim().is_empty());
 
-    let (source_mode, cookie_header) = if id.cookie_domain().is_none() {
+    let (mut source_mode, mut cookie_header) = if id.cookie_domain().is_none() {
         let source_mode = if active_token_env.is_some() {
             SourceMode::OAuth
         } else {
@@ -83,10 +84,35 @@ pub(crate) fn build_fetch_context(
         }
     };
 
+    // Cookie-web providers (Cursor, OpenCode, …) reject SourceMode::Cli. The shell
+    // historically mapped "manual + no cookie" to Cli, which surfaces as
+    // "Source mode 'Cli' not supported". Remap to Web and try browser cookies
+    // unless the user explicitly disabled cookies ("off").
+    if source_mode == SourceMode::Cli
+        && cookie_source != "off"
+        && !instantiate_provider(id).supports_cli()
+    {
+        if cookie_header
+            .as_deref()
+            .map(str::trim)
+            .is_none_or(|s| s.is_empty())
+        {
+            cookie_header = provider_cookie_domain(id, settings).and_then(|domain| {
+                codexbar::browser::cookies::get_cookie_header(domain)
+                    .ok()
+                    .filter(|h| !h.is_empty())
+            });
+        }
+        source_mode = SourceMode::Web;
+    }
+
     let workspace_id = settings.workspace_id(id).trim().to_string();
     let api_region = settings.api_region(id).trim().to_string();
     let gateway_url = (id == ProviderId::Wayfinder && !settings.gateway_url(id).is_empty())
         .then(|| settings.gateway_url(id).to_string());
+    // Local-first Auto providers (OpenCode Go) flip to web-first when a
+    // token account or manual cookie source scopes the session to web creds.
+    let auto_prefer_web = token_override.is_some() || cookie_source == "manual";
 
     FetchContext {
         source_mode,
@@ -95,6 +121,7 @@ pub(crate) fn build_fetch_context(
         workspace_id: (!workspace_id.is_empty()).then_some(workspace_id),
         api_region: (!api_region.is_empty()).then_some(api_region),
         gateway_url,
+        auto_prefer_web,
         ..FetchContext::default()
     }
 }
@@ -370,7 +397,23 @@ pub(super) fn preserve_last_good_transient_failure(
         return snapshot;
     }
 
-    if id != ProviderId::Claude || !is_transient_claude_auth_error(snapshot.error.as_deref()) {
+    if id != ProviderId::Claude {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let error = snapshot.error.as_deref();
+    // Hard auth loss / subscription-unavailable answers should not keep stale bars.
+    if is_hard_claude_auth_loss(error) {
+        guard.transient_provider_failure_counts.remove(&id);
+        return snapshot;
+    }
+
+    let preservable = is_transient_claude_auth_error(error)
+        || is_claude_cli_usage_parse_failure(error)
+        || is_claude_cli_rate_limit_failure(error)
+        || is_claude_timeout_failure(error);
+    if !preservable {
         guard.transient_provider_failure_counts.remove(&id);
         return snapshot;
     }
@@ -384,15 +427,24 @@ pub(super) fn preserve_last_good_transient_failure(
         return snapshot;
     };
 
+    // Parse / rate-limit / timeout: keep last-good every time (upstream #2247).
+    // Transient auth (unauthorized-ish) still only preserves once so real logout surfaces.
+    let parse_or_rate = is_claude_cli_usage_parse_failure(error)
+        || is_claude_cli_rate_limit_failure(error)
+        || is_claude_timeout_failure(error);
+
     let count = guard
         .transient_provider_failure_counts
         .entry(id)
         .or_insert(0);
-    if *count == 0 {
-        *count = 1;
+    if parse_or_rate || *count == 0 {
+        if !parse_or_rate {
+            *count = 1;
+        }
         tracing::warn!(
             provider = id.cli_name(),
-            "preserving last good provider snapshot after transient auth failure"
+            error = error.unwrap_or(""),
+            "preserving last good Claude snapshot after transient failure"
         );
         previous
     } else {
@@ -409,7 +461,46 @@ fn is_transient_claude_auth_error(error: Option<&str>) -> bool {
     lower.contains("unauthorized")
         || lower.contains("authentication required")
         || lower.contains("auth required")
-        || lower.contains("oauth")
+}
+
+fn is_hard_claude_auth_loss(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    // Credentials truly missing / login required — clear stale usage.
+    lower.contains("credentials not found")
+        || lower.contains("run `claude` to authenticate")
+        || (lower.contains("not installed") && lower.contains("claude"))
+        || (lower.contains("subscription") && lower.contains("unavailable"))
+}
+
+fn is_claude_cli_usage_parse_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("parse error")
+        || lower.contains("empty output")
+        || lower.contains("missing current session")
+        || lower.contains("treated /usage as a normal prompt")
+        || lower.contains("local activity stats")
+        || lower.contains("could not parse")
+}
+
+fn is_claude_cli_rate_limit_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    let lower = error.to_ascii_lowercase();
+    lower.contains("rate limit") || lower.contains("rate_limit") || lower.contains("ratelimited")
+}
+
+fn is_claude_timeout_failure(error: Option<&str>) -> bool {
+    let Some(error) = error else {
+        return false;
+    };
+    error.eq_ignore_ascii_case("timeout") || error.to_ascii_lowercase().contains("timed out")
 }
 
 async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderUsageSnapshot {
@@ -530,6 +621,13 @@ fn notify_usage_thresholds(
                         snapshot.primary.used_percent,
                         settings,
                     );
+                    dispatch_quota_hooks(
+                        settings,
+                        provider,
+                        &account,
+                        "session",
+                        snapshot.primary.used_percent,
+                    );
                 }
                 if let Some(weekly) = &snapshot.secondary
                     && !weekly.is_informational
@@ -540,6 +638,13 @@ fn notify_usage_thresholds(
                         "weekly",
                         weekly.used_percent,
                         settings,
+                    );
+                    dispatch_quota_hooks(
+                        settings,
+                        provider,
+                        &account,
+                        "weekly",
+                        weekly.used_percent,
                     );
                 }
                 notify_predictive_pace(
@@ -552,6 +657,35 @@ fn notify_usage_thresholds(
             }
         }
     }
+}
+
+fn dispatch_quota_hooks(
+    settings: &Settings,
+    provider: ProviderId,
+    account: &str,
+    window: &str,
+    used_percent: f64,
+) {
+    if !settings.hooks_enabled {
+        return;
+    }
+    let thresholds = settings.usage_thresholds(provider, window);
+    let account = if settings.hide_personal_info {
+        None
+    } else if account.is_empty() {
+        None
+    } else {
+        Some(account)
+    };
+    codexbar::core::emit_quota_threshold_hooks(
+        true,
+        provider.cli_name(),
+        window,
+        used_percent,
+        thresholds.high,
+        thresholds.critical,
+        account,
+    );
 }
 
 /// Stable account discriminator for threshold/session toast dedupe.

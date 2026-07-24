@@ -1,7 +1,7 @@
 {
   "name": "desktop-tauri",
   "private": true,
-  "version": "0.44.1",
+  "version": "0.45.2",
   "packageManager": "pnpm@10.18.1",
   "type": "module",
   "scripts": {
@@ -18,7 +18,7 @@
     "tauri:build:debug": "tauri build --debug --no-bundle"
   },
   "dependencies": {
-    "@tauri-apps/api": "2.11.1",
+    "@tauri-apps/api": "2.10.1",
     "react": "18.3.1",
     "react-dom": "18.3.1"
   },
@@ -30,7 +30,7 @@
     "@types/react-dom": "18.3.1",
     "@vitejs/plugin-react": "4.7.0",
     "jsdom": "25.0.1",
-    "typescript": "7.0.2",
+    "typescript": "5.6.3",
     "vite": "6.4.2",
     "vitest": "3.2.4"
   }

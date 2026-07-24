@@ -16,6 +16,8 @@ use super::*;
 pub(super) struct RawSettings {
     enabled_providers: HashSet<String>,
     refresh_interval_secs: u64,
+    #[serde(default)]
+    adaptive_refresh: bool,
     refresh_all_providers_on_menu_open: bool,
     start_minimized: bool,
     start_at_login: bool,
@@ -110,6 +112,8 @@ pub(super) struct RawSettings {
     codex_custom_sessions_dirs: Vec<String>,
     agent_sessions_enabled: bool,
     agent_session_ssh_hosts: Vec<String>,
+    #[serde(default)]
+    hooks_enabled: bool,
     auto_download_updates: bool,
     install_updates_on_quit: bool,
     ui_language: Language,
@@ -149,6 +153,7 @@ impl Default for RawSettings {
         Self {
             enabled_providers: s.enabled_providers,
             refresh_interval_secs: s.refresh_interval_secs,
+            adaptive_refresh: s.adaptive_refresh,
             refresh_all_providers_on_menu_open: s.refresh_all_providers_on_menu_open,
             start_minimized: s.start_minimized,
             start_at_login: s.start_at_login,
@@ -208,6 +213,7 @@ impl Default for RawSettings {
             codex_custom_sessions_dirs: s.codex_custom_sessions_dirs,
             agent_sessions_enabled: s.agent_sessions_enabled,
             agent_session_ssh_hosts: s.agent_session_ssh_hosts,
+            hooks_enabled: s.hooks_enabled,
             auto_download_updates: s.auto_download_updates,
             install_updates_on_quit: s.install_updates_on_quit,
             ui_language: s.ui_language,
@@ -438,6 +444,7 @@ impl From<RawSettings> for Settings {
         Settings {
             enabled_providers: raw.enabled_providers,
             refresh_interval_secs: raw.refresh_interval_secs,
+            adaptive_refresh: raw.adaptive_refresh,
             refresh_all_providers_on_menu_open: raw.refresh_all_providers_on_menu_open,
             start_minimized: raw.start_minimized,
             start_at_login: raw.start_at_login,
@@ -475,6 +482,7 @@ impl From<RawSettings> for Settings {
             codex_custom_sessions_dirs: raw.codex_custom_sessions_dirs,
             agent_sessions_enabled: raw.agent_sessions_enabled,
             agent_session_ssh_hosts: raw.agent_session_ssh_hosts,
+            hooks_enabled: raw.hooks_enabled,
             auto_download_updates: raw.auto_download_updates,
             install_updates_on_quit: raw.install_updates_on_quit,
             ui_language: raw.ui_language,

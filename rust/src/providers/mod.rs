@@ -3,6 +3,7 @@
 #![allow(dead_code)]
 
 pub mod abacus;
+pub mod aiand;
 pub mod alibaba;
 pub mod alibabatokenplan;
 pub mod amp;
@@ -11,6 +12,7 @@ pub mod augment;
 pub mod azureopenai;
 pub mod bedrock;
 pub mod chutes;
+pub mod clinepass;
 pub mod claude;
 pub mod codebuff;
 pub mod codex;
@@ -20,6 +22,7 @@ pub mod crof;
 pub mod crossmodel;
 pub mod cursor;
 pub mod deepgram;
+pub mod deepinfra;
 pub mod deepseek;
 pub mod devin;
 pub mod doubao;
@@ -36,11 +39,13 @@ pub mod kimik2;
 pub mod kiro;
 pub mod litellm;
 pub mod llmproxy;
+pub mod longcat;
 pub mod manus;
 pub mod mimo;
 pub mod minimax;
 pub mod mistral;
 pub mod nanogpt;
+pub mod neuralwatt;
 pub mod ollama;
 pub mod openai;
 pub mod openaiapi;
@@ -61,9 +66,11 @@ pub mod wayfinder;
 pub mod windsurf;
 pub mod zai;
 pub mod zed;
+pub mod zenmux;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
+pub use aiand::AiAndProvider;
 pub use alibaba::{AlibabaProvider, AlibabaRegion};
 pub use alibabatokenplan::AlibabaTokenPlanProvider;
 pub use amp::AmpProvider;
@@ -72,6 +79,7 @@ pub use augment::AugmentProvider;
 pub use azureopenai::AzureOpenAIProvider;
 pub use bedrock::BedrockProvider;
 pub use chutes::ChutesProvider;
+pub use clinepass::ClinePassProvider;
 pub use claude::ClaudeProvider;
 pub use codebuff::CodebuffProvider;
 pub use codex::CodexProvider;
@@ -81,6 +89,7 @@ pub use crof::CrofProvider;
 pub use crossmodel::CrossModelProvider;
 pub use cursor::CursorProvider;
 pub use deepgram::DeepgramProvider;
+pub use deepinfra::DeepInfraProvider;
 pub use deepseek::DeepSeekProvider;
 pub use devin::DevinProvider;
 pub use doubao::DoubaoProvider;
@@ -96,12 +105,14 @@ pub use kimi::KimiProvider;
 pub use kimik2::KimiK2Provider;
 pub use kiro::KiroProvider;
 pub use litellm::LiteLLMProvider;
+pub use longcat::LongCatProvider;
 pub use llmproxy::LLMProxyProvider;
 pub use manus::ManusProvider;
 pub use mimo::MiMoProvider;
 pub use minimax::{MiniMaxProvider, MiniMaxRegion};
 pub use mistral::MistralProvider;
 pub use nanogpt::NanoGPTProvider;
+pub use neuralwatt::NeuralwattProvider;
 pub use ollama::OllamaProvider;
 pub use openaiapi::OpenAIApiProvider;
 pub use opencode::OpenCodeProvider;
@@ -121,6 +132,7 @@ pub use wayfinder::WayfinderProvider;
 pub use windsurf::WindsurfProvider;
 pub use zai::ZaiProvider;
 pub use zed::ZedProvider;
+pub use zenmux::ZenMuxProvider;
 
 pub(crate) fn browser_cookie_header(
     domains: &[&str],

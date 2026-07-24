@@ -229,6 +229,11 @@ function providerSourceHintShort(
     case "bedrock":
     case "nanogpt":
     case "warp":
+    case "deepinfra":
+    case "aiand":
+    case "zenmux":
+    case "clinepass":
+    case "neuralwatt":
     case "doubao":
     case "crof":
     case "stepfun":

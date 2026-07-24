@@ -408,6 +408,7 @@ pub struct SettingsSnapshot {
     enabled_providers: Vec<String>,
     provider_order: Vec<String>,
     refresh_interval_secs: u64,
+    adaptive_refresh: bool,
     refresh_all_providers_on_menu_open: bool,
     start_at_login: bool,
     start_minimized: bool,
@@ -437,6 +438,7 @@ pub struct SettingsSnapshot {
     codex_custom_sessions_dirs: Vec<String>,
     agent_sessions_enabled: bool,
     agent_session_ssh_hosts: Vec<String>,
+    hooks_enabled: bool,
     ui_language: &'static str,
     theme: &'static str,
     window_scale_percent: u16,
@@ -502,6 +504,7 @@ impl From<Settings> for SettingsSnapshot {
             enabled_providers,
             provider_order,
             refresh_interval_secs: settings.refresh_interval_secs,
+            adaptive_refresh: settings.adaptive_refresh,
             refresh_all_providers_on_menu_open: settings.refresh_all_providers_on_menu_open,
             start_at_login: settings.start_at_login,
             start_minimized: settings.start_minimized,
@@ -530,6 +533,7 @@ impl From<Settings> for SettingsSnapshot {
             codex_custom_sessions_dirs: settings.codex_custom_sessions_dirs,
             agent_sessions_enabled: settings.agent_sessions_enabled,
             agent_session_ssh_hosts: settings.agent_session_ssh_hosts,
+            hooks_enabled: settings.hooks_enabled,
             ui_language: language_label(settings.ui_language),
             theme: theme_label(settings.theme),
             window_scale_percent: settings.window_scale_percent,
@@ -555,9 +559,16 @@ impl From<Settings> for SettingsSnapshot {
 }
 
 pub(crate) fn provider_catalog_for(settings: &Settings) -> Vec<ProviderCatalogEntry> {
+    // Soft-removed providers (upstream #2254) stay hidden in Settings unless already enabled.
     settings
         .provider_display_order()
         .into_iter()
+        .filter(|provider| {
+            !provider.is_deprecated()
+                || settings
+                    .enabled_providers
+                    .contains(provider.cli_name())
+        })
         .map(|provider| ProviderCatalogEntry {
             id: provider.cli_name().to_string(),
             display_name: provider.display_name().to_string(),

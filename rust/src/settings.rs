@@ -38,8 +38,13 @@ pub struct Settings {
     /// Enabled provider IDs (by CLI name)
     pub enabled_providers: HashSet<String>,
 
-    /// Refresh interval in seconds (0 = manual only)
+    /// Refresh interval in seconds (0 = manual only).
+    /// Ignored when [`Self::adaptive_refresh`] is true.
     pub refresh_interval_secs: u64,
+
+    /// When true, ignore the fixed interval and use adaptive refresh delays.
+    #[serde(default)]
+    pub adaptive_refresh: bool,
 
     /// Force-refresh enabled providers whenever the tray/menu surface opens.
     #[serde(default)]
@@ -154,6 +159,10 @@ pub struct Settings {
     /// SSH targets queried for remote agent sessions.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub agent_session_ssh_hosts: Vec<String>,
+
+    /// Master switch for external hooks (`hooks.json` next to settings).
+    #[serde(default)]
+    pub hooks_enabled: bool,
 
     /// Automatically download updates in the background
     #[serde(default)]
@@ -355,6 +364,7 @@ impl Default for Settings {
         Self {
             enabled_providers: enabled,
             refresh_interval_secs: 300, // 5 minutes
+            adaptive_refresh: false,
             refresh_all_providers_on_menu_open: false,
             start_minimized: false,
             start_at_login: false,
@@ -386,6 +396,7 @@ impl Default for Settings {
             codex_custom_sessions_dirs: Vec::new(),
             agent_sessions_enabled: false,
             agent_session_ssh_hosts: Vec::new(),
+            hooks_enabled: false,
             auto_download_updates: false, // Require explicit opt-in for background downloads
             install_updates_on_quit: false, // Don't auto-install on quit by default
             ui_language: Language::default(), // English by default
