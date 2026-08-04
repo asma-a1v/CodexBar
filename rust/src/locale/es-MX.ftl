@@ -481,7 +481,6 @@ PanelAllProviders = Todos los proveedores
 PanelAllProvidersShort = Todos
 PanelShowAllProviders = Mostrar todos los proveedores
 PanelShowFewerProviders = Mostrar menos proveedores
-PanelZoom = Zoom
 PanelMenu = Menú
 PanelCopied = Copiado
 PanelToday = Hoy

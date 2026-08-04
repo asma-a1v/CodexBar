@@ -6,7 +6,7 @@ import { Field, Select, Toggle } from "../../../components/FormControls";
 import type { AppInfoBridge, UpdateChannel } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
 import type { TabProps } from "../../Settings";
-import codexbarIcon from "../../../assets/codexbar-icon.png";
+import codexbarIcon from "../../../assets/codexbar-app-icon.png";
 
 const ABOUT_LINKS: ReadonlyArray<{ labelKey: LocaleKey; url: string }> = [
   {

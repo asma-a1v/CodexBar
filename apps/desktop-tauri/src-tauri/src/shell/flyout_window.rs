@@ -1,4 +1,4 @@
-//! Detached "Pop Out Dashboard" flyout window: a resizable, always-on-top,
+//! Detached "Pop Out Dashboard" flyout window: a content-sized, always-on-top,
 //! tray-anchored panel that auto-hides on click-outside (blur-dismiss).
 //!
 //! Runs as an auxiliary Tauri window labeled `flyout`, independent of the
@@ -90,9 +90,7 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
     // from, rather than duplicating these values as independent constants
     // that could silently drift from `surface.rs`.
     let props = SurfaceMode::TrayPanel.window_properties();
-    let (width, height) = stored_size()
-        .map(|(w, h)| (w as f64, h as f64))
-        .unwrap_or((props.width, props.height));
+    let (width, height) = (props.width, props.height);
 
     let url = WebviewUrl::App("index.html?window=flyout".into());
 
@@ -117,9 +115,9 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
     }
     let win = builder.build().map_err(|e| e.to_string())?;
 
-    // Force DWM caption dark; keep WS_THICKFRAME (resizable) like the
-    // Settings window.
-    super::dwm::force_dark_caption_resizable(&win);
+    // Keep the flyout borderless and non-resizable; the frontend owns its
+    // content-driven size and re-anchors it after each change.
+    super::dwm::force_dark_caption(&win);
 
     let target_position =
         position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel));
@@ -369,9 +367,9 @@ mod tests {
         let props = SurfaceMode::TrayPanel.window_properties();
         assert_eq!(props.width, 328.0);
         assert_eq!(props.height, 776.0);
-        assert_eq!(props.min_width, Some(300.0));
-        assert_eq!(props.min_height, Some(360.0));
-        assert!(props.resizable);
+        assert_eq!(props.min_width, None);
+        assert_eq!(props.min_height, None);
+        assert!(!props.resizable);
         assert!(props.always_on_top);
         assert!(props.skip_taskbar);
         assert!(!props.decorations);
