@@ -6,11 +6,10 @@ use async_trait::async_trait;
 use chrono::{Datelike, Duration, TimeZone, Utc};
 use reqwest::Client;
 use serde_json::{Value, json};
-use sha2::{Digest, Sha256};
 
 use crate::core::{
     CostSnapshot, FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId,
-    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot,
+    ProviderMetadata, RateWindow, SourceMode, UsageSnapshot, hex, hmac_sha256, sha256_hex,
 };
 
 const COST_EXPLORER_URL: &str = "https://ce.us-east-1.amazonaws.com";
@@ -346,7 +345,7 @@ impl BedrockProvider {
                 service: CLOUDWATCH_SERVICE,
             },
         )?;
-        let host = url::Url::parse(&endpoint)
+        let host = reqwest::Url::parse(&endpoint)
             .ok()
             .and_then(|u| u.host_str().map(str::to_string))
             .unwrap_or_else(|| format!("monitoring.{region}.amazonaws.com"));
@@ -737,7 +736,7 @@ fn sign_authorization_for(
     credentials: &AwsCredentials,
     request: AwsSigningRequest<'_>,
 ) -> Result<String, ProviderError> {
-    let parsed = url::Url::parse(request.url)
+    let parsed = reqwest::Url::parse(request.url)
         .map_err(|e| ProviderError::Other(format!("Invalid AWS endpoint URL: {e}")))?;
     let host = parsed.host_str().unwrap_or("ce.us-east-1.amazonaws.com");
     let (canonical_headers, signed_headers) = if let Some(session_token) =
@@ -797,52 +796,8 @@ fn sign_authorization_for(
         credentials.access_key_id, credential_scope, signed_headers, signature
     ))
 }
-
-fn sha256_hex(data: &[u8]) -> String {
-    hex(&Sha256::digest(data))
-}
-
-fn hmac_sha256(key: &[u8], data: &[u8]) -> Vec<u8> {
-    const BLOCK_SIZE: usize = 64;
-    let mut key_block = [0u8; BLOCK_SIZE];
-    if key.len() > BLOCK_SIZE {
-        key_block[..32].copy_from_slice(&Sha256::digest(key));
-    } else {
-        key_block[..key.len()].copy_from_slice(key);
-    }
-
-    let mut outer = [0x5cu8; BLOCK_SIZE];
-    let mut inner = [0x36u8; BLOCK_SIZE];
-    for i in 0..BLOCK_SIZE {
-        outer[i] ^= key_block[i];
-        inner[i] ^= key_block[i];
-    }
-
-    let mut inner_hash = Sha256::new();
-    inner_hash.update(inner);
-    inner_hash.update(data);
-    let inner_digest = inner_hash.finalize();
-
-    let mut outer_hash = Sha256::new();
-    outer_hash.update(outer);
-    outer_hash.update(inner_digest);
-    outer_hash.finalize().to_vec()
-}
-
-fn hex(bytes: &[u8]) -> String {
-    bytes.iter().map(|byte| format!("{byte:02x}")).collect()
-}
-
 fn sanitized_body(body: &str) -> String {
-    let collapsed = body.split_whitespace().collect::<Vec<_>>().join(" ");
-    if collapsed.chars().count() > 240 {
-        let preview: String = collapsed.chars().take(240).collect();
-        format!("{preview}... [truncated]")
-    } else if collapsed.is_empty() {
-        "empty body".to_string()
-    } else {
-        collapsed
-    }
+    crate::core::sanitized_body(body, 240)
 }
 
 #[cfg(test)]

@@ -155,15 +155,16 @@ fn apply_provider_order_ignores_unknown_ids() {
 
 #[test]
 fn provider_summaries_reflect_settings_order() {
-    let s = Settings::default();
-    let visible_len = ProviderId::all()
+    // Deprecated providers (KimiK2, CrossModel) are soft-removed from the
+    // Settings catalog unless already enabled, so the default Settings
+    // surface omits them (upstream #2254).
+    let canonical_len = codexbar::core::ProviderId::all()
         .iter()
-        .filter(|provider| {
-            !provider.is_deprecated() || s.enabled_providers.contains(provider.cli_name())
-        })
+        .filter(|p| !p.is_deprecated())
         .count();
+    let s = Settings::default();
     let summaries: Vec<ProviderSummary> = super::build_provider_summaries(&s);
-    assert_eq!(summaries.len(), visible_len);
+    assert_eq!(summaries.len(), canonical_len);
     // Index is assigned in emission order.
     for (i, s) in summaries.iter().enumerate() {
         assert_eq!(s.order, i as u32);
@@ -929,11 +930,8 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         ProviderId::Claude,
         err.clone(),
     );
-    let second = super::providers::preserve_last_good_transient_failure(
-        &mut state,
-        ProviderId::Claude,
-        err,
-    );
+    let second =
+        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
 
     assert_eq!(first.error, None);
     assert_eq!(first.primary.used_percent, 17.0);
@@ -955,16 +953,14 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
-        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate.".to_string(),
+        "OAuth error: Claude OAuth credentials not found. Run `claude` to authenticate."
+            .to_string(),
     );
     let mut state = crate::state::AppState::new();
     state.provider_cache.push(good);
 
-    let out = super::providers::preserve_last_good_transient_failure(
-        &mut state,
-        ProviderId::Claude,
-        err,
-    );
+    let out =
+        super::providers::preserve_last_good_transient_failure(&mut state, ProviderId::Claude, err);
     assert!(out.error.is_some());
 }
 
@@ -1154,6 +1150,23 @@ fn region_options_for_regional_provider() {
 }
 
 #[test]
+fn alibaba_token_plan_region_options() {
+    let opts = super::region_options_for("alibabatokenplan");
+    let values: Vec<_> = opts.iter().map(|o| o.value.as_str()).collect();
+    let labels: Vec<_> = opts.iter().map(|o| o.label.as_str()).collect();
+    assert_eq!(values, vec!["cn", "intl", "cn-personal", "intl-personal"]);
+    assert_eq!(
+        labels,
+        vec![
+            "China Team",
+            "International Team",
+            "China Personal/Solo",
+            "International Personal/Solo"
+        ]
+    );
+}
+
+#[test]
 fn minimax_region_options_match_upstream_hosts() {
     let opts = super::region_options_for("minimax");
     let values: Vec<_> = opts.iter().map(|o| o.value.as_str()).collect();
@@ -1241,13 +1254,14 @@ fn external_url_validator_rejects_non_web_and_control_urls() {
 
 // ── Phase 13 — E2E IPC harness ─────────────────────────────────
 //
-// Build the full bootstrap payload and prove that every visible shared
-// `ProviderId` variant ends up in the provider catalog with a non-empty id +
-// display name. Soft-removed providers remain hidden unless already enabled.
+// Build the full bootstrap payload and prove that every shared
+// `ProviderId` variant ends up in the provider catalog with a
+// non-empty id + display name. If a new provider is added to the
+// enum but never wired through the desktop catalog, this test will
+// fail with `missing provider in bootstrap catalog: <id>`.
 
 #[test]
-fn bootstrap_payload_exposes_every_visible_provider_variant() {
-    let settings = Settings::load();
+fn bootstrap_payload_exposes_every_provider_variant() {
     let payload = super::get_bootstrap_state();
 
     let catalog_ids: std::collections::HashSet<String> = payload
@@ -1265,28 +1279,27 @@ fn bootstrap_payload_exposes_every_visible_provider_variant() {
         );
     }
 
-    for provider in ProviderId::all() {
+    // Deprecated providers (KimiK2, CrossModel) are soft-removed from the
+    // desktop catalog unless already enabled (upstream #2254); they are
+    // intentionally absent from the default bootstrap payload.
+    let active: Vec<ProviderId> = ProviderId::all()
+        .iter()
+        .copied()
+        .filter(|p| !p.is_deprecated())
+        .collect();
+
+    for provider in &active {
         let expected = provider.cli_name().to_string();
-        let expected_visible = !provider.is_deprecated()
-            || settings.enabled_providers.contains(&expected);
-        assert_eq!(
+        assert!(
             catalog_ids.contains(&expected),
-            expected_visible,
-            "bootstrap visibility mismatch for provider: {expected}"
+            "missing provider in bootstrap catalog: {expected}"
         );
     }
 
-    let expected_len = ProviderId::all()
-        .iter()
-        .filter(|provider| {
-            !provider.is_deprecated()
-                || settings.enabled_providers.contains(provider.cli_name())
-        })
-        .count();
     assert_eq!(
         catalog_ids.len(),
-        expected_len,
-        "bootstrap catalog size drifted from visible providers"
+        active.len(),
+        "bootstrap catalog size drifted from the active (non-deprecated) providers"
     );
 
     // Sanity — payload must also round-trip through JSON cleanly so

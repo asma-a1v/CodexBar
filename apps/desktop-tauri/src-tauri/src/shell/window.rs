@@ -157,10 +157,6 @@ pub fn show_window(window: &WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
-pub fn hide_to_tray(app: &AppHandle) -> Result<SurfaceMode, String> {
-    hide_to_tray_if_current(app, |_| true).map(|mode| mode.unwrap_or(SurfaceMode::Hidden))
-}
-
 pub fn hide_to_tray_if_current<P>(
     app: &AppHandle,
     is_eligible: P,
@@ -190,11 +186,6 @@ where
         let _ = window.hide();
         Ok(Some(SurfaceMode::Hidden))
     }
-}
-
-#[allow(dead_code)]
-pub fn hide_to_tray_state(state: &mut AppState) {
-    let _ = prepare_hide_to_tray_if_current(state, |_| true);
 }
 
 pub(super) fn prepare_hide_to_tray_if_current<P>(

@@ -58,14 +58,6 @@ pub struct UsageArgs {
     #[arg(long = "web-timeout", default_value = "60")]
     pub web_timeout: u64,
 
-    /// Save HTML snapshots to temp dir when data is missing (debug)
-    #[arg(long = "web-debug-dump-html")]
-    pub web_debug_dump_html: bool,
-
-    /// Send Antigravity planInfo fields to stderr (debug)
-    #[arg(long = "antigravity-plan-debug")]
-    pub antigravity_plan_debug: bool,
-
     /// Print one compact line per provider
     #[arg(long)]
     pub brief: bool,

@@ -197,7 +197,7 @@ impl OpenCodeProvider {
             .or_else(|_| self.extract_usage_regex(text, "weekUsage"))
             .or_else(|_| self.extract_usage_regex(text, "sevenDayUsage"))
             .ok();
-        self.snapshot_from_windows(rolling, weekly, now, self.extract_renewal_regex(text))
+        self.snapshot_from_windows(rolling, weekly, now, super::extract_renewal(text))
             .ok_or_else(|| {
                 let has_usage_hint = text.contains("usagePercent")
                     || text.contains("usedPercent")
@@ -486,15 +486,6 @@ impl OpenCodeProvider {
         DateTime::<Utc>::from_timestamp(seconds as i64, 0)
     }
 
-    fn extract_renewal_regex(&self, text: &str) -> Option<DateTime<Utc>> {
-        let re = regex_lite::Regex::new(
-            r#"(?:"renewAt"|"renew_at"|renewAt|renew_at)\s*[:=]\s*"?([^",}\s]+)"?"#,
-        )
-        .ok()?;
-        let raw = re.captures(text)?.get(1)?.as_str();
-        Self::date_from_value(&Value::String(raw.to_string()))
-    }
-
     /// Extract usage via regex patterns (JS-object and JSON-ish payloads).
     fn extract_usage_regex(&self, text: &str, prefix: &str) -> Result<(f64, i64), ProviderError> {
         // Allow optional quotes around the window key and percent field names,
@@ -506,23 +497,14 @@ impl OpenCodeProvider {
             r#"{prefix}[^}}]{{0,500}}?(?:"resetInSec"|resetInSec|"resetInSeconds"|resetInSeconds)\s*[:=]\s*"?([0-9]+)"?"#
         );
 
-        let percent = self
-            .extract_number(&percent_pattern, text)
+        let percent = super::extract_number(&percent_pattern, text)
             .ok_or_else(|| ProviderError::Parse(format!("Missing {} percent", prefix)))?;
 
-        let reset = self
-            .extract_number(&reset_pattern, text)
+        let reset = super::extract_number(&reset_pattern, text)
             .map(|n| n as i64)
             .unwrap_or(0);
 
         Ok((percent, reset))
-    }
-
-    /// Extract a number using regex
-    fn extract_number(&self, pattern: &str, text: &str) -> Option<f64> {
-        let re = regex_lite::Regex::new(pattern).ok()?;
-        let caps = re.captures(text)?;
-        caps.get(1)?.as_str().parse().ok()
     }
 
     /// Parse workspace IDs from response

@@ -24,17 +24,26 @@ pub(crate) fn build_provider_summaries(settings: &Settings) -> Vec<ProviderSumma
     order
         .iter()
         .filter_map(|id| {
-            let provider = *by_id.get(id)?;
-            let enabled = settings.enabled_providers.contains(id);
-            // Soft-removed providers (upstream #2254) stay hidden unless already enabled.
-            (!provider.is_deprecated() || enabled).then_some((id, provider, enabled))
+            by_id.get(id).and_then(|p| {
+                let enabled = settings.enabled_providers.contains(id);
+                // Soft-removed providers (upstream #2254) stay hidden unless already enabled.
+                if p.is_deprecated() && !enabled {
+                    return None;
+                }
+                Some(ProviderSummary {
+                    id: id.clone(),
+                    display_name: p.display_name().to_string(),
+                    enabled,
+                    // `order` is assigned below, over the emitted (post-filter) list,
+                    // so deprecated gaps never leave holes in the display indices.
+                    order: 0,
+                })
+            })
         })
         .enumerate()
-        .map(|(idx, (id, provider, enabled))| ProviderSummary {
-            id: id.clone(),
-            display_name: provider.display_name().to_string(),
-            enabled,
-            order: idx as u32,
+        .map(|(idx, mut s)| {
+            s.order = idx as u32;
+            s
         })
         .collect()
 }
@@ -114,18 +123,11 @@ pub fn set_provider_cookie_source(provider_id: String, source: String) -> Result
     settings.save().map_err(|e| e.to_string())
 }
 
-#[tauri::command]
-pub fn get_provider_cookie_source(provider_id: String) -> Result<Option<String>, String> {
-    Ok(provider_cookie_source_lookup(
-        &Settings::load(),
-        &provider_id,
-    ))
-}
-
 fn region_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
     use codexbar::core::ProviderId;
     Some(match provider_id {
         "alibaba" => ProviderId::Alibaba,
+        "alibabatokenplan" => ProviderId::AlibabaTokenPlan,
         "zai" => ProviderId::Zai,
         "minimax" => ProviderId::MiniMax,
         _ => return None,
@@ -172,11 +174,6 @@ pub fn set_provider_region(provider_id: String, region: String) -> Result<(), St
     let mut settings = Settings::load();
     provider_region_set(&mut settings, &provider_id, region.to_string())?;
     settings.save().map_err(|e| e.to_string())
-}
-
-#[tauri::command]
-pub fn get_provider_region(provider_id: String) -> Result<Option<String>, String> {
-    Ok(provider_region_lookup(&Settings::load(), &provider_id))
 }
 
 fn workspace_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
@@ -304,14 +301,6 @@ pub fn get_provider_workspace_id(provider_id: String) -> Result<Option<String>, 
 
 fn gateway_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
     (provider_id == "wayfinder").then_some(codexbar::core::ProviderId::Wayfinder)
-}
-
-#[tauri::command]
-pub fn get_provider_gateway_url(provider_id: String) -> Result<Option<String>, String> {
-    let Some(id) = gateway_provider(&provider_id) else {
-        return Ok(None);
-    };
-    Ok(Some(Settings::load().gateway_url(id).to_string()))
 }
 
 #[tauri::command]
@@ -598,6 +587,14 @@ pub fn region_options_for(provider_id: &str) -> Vec<RegionOption> {
                     .to_string(),
             },
         ],
+        "alibabatokenplan" => codexbar::providers::AlibabaTokenPlanRegion::ALL
+            .iter()
+            .copied()
+            .map(|region| RegionOption {
+                value: region.as_str().to_string(),
+                label: region.display_name().to_string(),
+            })
+            .collect(),
         _ => Vec::new(),
     }
 }

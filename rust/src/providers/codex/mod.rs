@@ -124,14 +124,8 @@ fn detect_codex_version() -> Option<String> {
 
     if output.status.success() {
         let version_str = String::from_utf8_lossy(&output.stdout);
-        extract_version(&version_str)
+        super::extract_semver(&version_str)
     } else {
         None
     }
-}
-
-/// Extract version number from a string like "codex 1.2.3"
-fn extract_version(s: &str) -> Option<String> {
-    let re = regex_lite::Regex::new(r"(\d+(?:\.\d+)+)").ok()?;
-    re.find(s).map(|m| m.as_str().to_string())
 }

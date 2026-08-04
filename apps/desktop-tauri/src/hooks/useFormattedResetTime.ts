@@ -1,25 +1,25 @@
 import { useEffect, useState } from "react";
 import { useLocale } from "./useLocale";
 
+export type ResetTimeFormatMode = "reset" | "expires";
+
 /**
  * Format a provider's reset timestamp for display.
  *
- * When `relative` is true, returns a live "Resets in 3h 42m" style string
- * and includes the reset label because the locale strings include it.
+ * When `relative` is true, returns a live countdown string. `mode` selects
+ * reset wording ("Resets in …") vs expiry wording ("Next expires in …").
  *
  * When `relative` is false, returns the absolute reset time converted to
- * the user's local timezone via `Intl.DateTimeFormat`, fixing the issue
- * where the backend-supplied `reset_description` was pre-formatted as UTC
- * wall time (e.g., `Mar 5 at 3:00PM`).
+ * the user's local timezone via `Intl.DateTimeFormat`.
  *
  * Falls back to `fallback` (typically the backend's `resetDescription`) when
- * `resetsAt` is absent or unparseable. Some providers use that fallback for
- * non-time details, so callers should not assume it is safe to prefix.
+ * `resetsAt` is absent or unparseable.
  */
 export function useFormattedResetTime(
   resetsAt: string | null,
   fallback: string | null,
   relative: boolean,
+  mode: ResetTimeFormatMode = "reset",
 ): string | null {
   const { t } = useLocale();
   const [now, setNow] = useState(() => Date.now());
@@ -40,20 +40,24 @@ export function useFormattedResetTime(
 
   if (relative) {
     const diffMs = target - now;
-    if (diffMs <= 0) return t("TrayResetsDueNow");
+    const dueNowKey = mode === "expires" ? "NextExpiresDueNow" : "TrayResetsDueNow";
+    if (diffMs <= 0) return t(dueNowKey);
     const totalMinutes = Math.floor(diffMs / 60_000);
     const days = Math.floor(totalMinutes / 1440);
     const hours = Math.floor((totalMinutes % 1440) / 60);
     const minutes = totalMinutes % 60;
     if (days > 0) {
-      return t("ResetsInDaysHours")
+      const key = mode === "expires" ? "NextExpiresInDaysHours" : "ResetsInDaysHours";
+      return t(key)
         .replace("{}", String(days))
         .replace("{}", String(hours));
     }
     if (hours === 0) {
-      return t("ResetsInMinutes").replace("{}", String(minutes));
+      const key = mode === "expires" ? "NextExpiresInMinutes" : "ResetsInMinutes";
+      return t(key).replace("{}", String(minutes));
     }
-    return t("ResetsInHoursMinutes")
+    const key = mode === "expires" ? "NextExpiresInHoursMinutes" : "ResetsInHoursMinutes";
+    return t(key)
       .replace("{}", String(hours))
       .replace("{}", String(minutes));
   }

@@ -2,7 +2,10 @@ import { act, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { LocaleProvider } from "../i18n/LocaleProvider";
 import { buildBundle } from "../test/localeHarness";
-import { useFormattedResetTime } from "./useFormattedResetTime";
+import {
+  useFormattedResetTime,
+  type ResetTimeFormatMode,
+} from "./useFormattedResetTime";
 import * as tauri from "../lib/tauri";
 
 vi.mock("../lib/tauri", () => ({
@@ -18,12 +21,14 @@ function Probe({
   resetsAt,
   fallback,
   relative,
+  mode,
 }: {
   resetsAt: string | null;
   fallback: string | null;
   relative: boolean;
+  mode?: ResetTimeFormatMode;
 }) {
-  const text = useFormattedResetTime(resetsAt, fallback, relative);
+  const text = useFormattedResetTime(resetsAt, fallback, relative, mode);
   return <span data-testid="reset">{text ?? "null"}</span>;
 }
 
@@ -35,6 +40,10 @@ async function mountWithLocale(ui: React.ReactNode) {
       ResetsInMinutes: "Resets in {}m",
       ResetsInDaysHours: "Resets in {}d {}h",
       TrayResetsDueNow: "Resetting",
+      NextExpiresInHoursMinutes: "Next expires in {}h {}m",
+      NextExpiresInMinutes: "Next expires in {}m",
+      NextExpiresInDaysHours: "Next expires in {}d {}h",
+      NextExpiresDueNow: "Expires now",
     }),
   );
   const rendered = render(<LocaleProvider>{ui}</LocaleProvider>);
@@ -81,5 +90,13 @@ describe("useFormattedResetTime", () => {
       <Probe resetsAt={target} fallback="later" relative={false} />,
     );
     expect(screen.getByTestId("reset")).not.toHaveTextContent("Resets in");
+  });
+
+  it('uses Next expires wording when mode is "expires"', async () => {
+    const target = new Date("2024-06-01T03:42:00Z").toISOString();
+    await mountWithLocale(
+      <Probe resetsAt={target} fallback="later" relative={true} mode="expires" />,
+    );
+    expect(screen.getByTestId("reset")).toHaveTextContent("Next expires in 3h 42m");
   });
 });

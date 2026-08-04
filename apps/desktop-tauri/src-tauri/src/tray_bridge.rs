@@ -293,25 +293,34 @@ pub fn setup(app: &mut tauri::App) -> Result<(), Box<dyn std::error::Error>> {
         .build(app)?;
 
     // Apply tray promotion on startup. The NotifyIconSettings entry is created
-    // by Windows only after the icon is first registered, so on the very first
-    // run the subkey may not exist yet — apply_promotion tolerates that
-    // (returns EntryNotFound, logs a debug message). A one-time retry task is
-    // spawned so that subsequent refreshes of the icon on first-run also work.
-    let promote = codexbar::settings::Settings::load().promote_tray_icon;
-    if promote {
-        crate::tray_visibility::apply_promotion(true);
-        let app_handle = app.handle().clone();
-        tauri::async_runtime::spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
-            let still_promote = codexbar::settings::Settings::load().promote_tray_icon;
-            if still_promote {
-                crate::tray_visibility::apply_promotion(true);
-            }
-            drop(app_handle);
-        });
-    }
+    // by Windows only after the icon is first registered, so on first run /
+    // post-upgrade the subkey may not exist yet — apply_promotion tolerates
+    // EntryNotFound. Retry a few times while explorer finishes registration.
+    schedule_tray_promotion_retries(app.handle().clone());
 
     Ok(())
+}
+
+/// Re-apply Win11 tray promotion a few times after startup.
+///
+/// Windows often creates the NotifyIconSettings subkey only after the first
+/// successful NIM_ADD (and sometimes only after the icon is refreshed). A
+/// single immediate write is not enough after upgrades.
+fn schedule_tray_promotion_retries(app_handle: AppHandle) {
+    if !codexbar::settings::Settings::load().promote_tray_icon {
+        return;
+    }
+    crate::tray_visibility::apply_promotion(true);
+    tauri::async_runtime::spawn(async move {
+        for secs in [1_u64, 3, 8] {
+            tokio::time::sleep(std::time::Duration::from_secs(secs)).await;
+            if !codexbar::settings::Settings::load().promote_tray_icon {
+                break;
+            }
+            crate::tray_visibility::apply_promotion(true);
+        }
+        drop(app_handle);
+    });
 }
 
 /// Route a native menu-item click to the corresponding shell action.
@@ -671,43 +680,64 @@ fn automatic_metric_percent(
     provider: Option<ProviderId>,
 ) -> Option<f64> {
     match provider {
-        Some(ProviderId::Cursor) => max_metric_percent([
-            Some(snapshot.primary.used_percent),
-            snapshot.secondary.as_ref().map(|w| w.used_percent),
-            snapshot.tertiary.as_ref().map(|w| w.used_percent),
-        ]),
-        Some(ProviderId::Zai) => max_metric_percent([
-            Some(snapshot.primary.used_percent),
-            snapshot.tertiary.as_ref().map(|w| w.used_percent),
-            None,
-        ])
-        .or_else(|| snapshot.secondary.as_ref().map(|w| w.used_percent)),
-        Some(ProviderId::Factory) | Some(ProviderId::Kimi) => snapshot
-            .secondary
-            .as_ref()
-            .filter(|w| !w.is_informational)
-            .map(|w| w.used_percent)
-            .or_else(|| {
-                (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent)
-            }),
-        Some(ProviderId::Copilot) => max_metric_percent([
-            (!snapshot.primary.is_informational).then_some(snapshot.primary.used_percent),
-            snapshot
-                .secondary
-                .as_ref()
-                .filter(|w| !w.is_informational)
-                .map(|w| w.used_percent),
-            extra_rate_window_percent(snapshot),
-        ]),
-        // Informational primary (e.g. Claude null five_hour) is not a real quota —
-        // prefer secondary / non-informational signals for every provider.
-        _ if snapshot.primary.is_informational => snapshot
-            .secondary
-            .as_ref()
-            .filter(|w| !w.is_informational)
-            .map(|w| w.used_percent),
-        _ => Some(snapshot.primary.used_percent),
+        // When a model carve-out is exhausted but account weekly still has
+        // remaining, prefer weekly for Automatic display (upstream 0.46).
+        Some(ProviderId::Claude) => claude_automatic_metric_percent(snapshot),
+        // Highest used_percent across windows so exhausted (≥100%) surfaces first
+        // (upstream #2352). Provider-specific overrides above stay intact.
+        _ => highest_window_metric_percent(snapshot),
     }
+}
+
+fn claude_automatic_metric_percent(
+    snapshot: &crate::commands::ProviderUsageSnapshot,
+) -> Option<f64> {
+    let weekly = snapshot.secondary.as_ref().filter(|w| !w.is_informational);
+    let model = snapshot.model_specific.as_ref();
+
+    if let (Some(model), Some(weekly)) = (model, weekly) {
+        let model_exhausted = model.is_exhausted || model.used_percent >= 100.0;
+        let weekly_has_remaining = !weekly.is_exhausted && weekly.used_percent < 100.0;
+        if model_exhausted && weekly_has_remaining {
+            return Some(weekly.used_percent);
+        }
+    }
+
+    if snapshot.primary.is_informational {
+        return weekly.map(|w| w.used_percent);
+    }
+
+    // Fall through to highest-window among Claude lanes when no carve-out rule hits.
+    highest_window_metric_percent(snapshot)
+}
+
+/// Automatic tray metric: highest used_percent across non-informational windows.
+fn highest_window_metric_percent(snapshot: &crate::commands::ProviderUsageSnapshot) -> Option<f64> {
+    let mut values = Vec::with_capacity(4 + snapshot.extra_rate_windows.len());
+    if !snapshot.primary.is_informational {
+        values.push(snapshot.primary.used_percent);
+    }
+    if let Some(w) = snapshot.secondary.as_ref().filter(|w| !w.is_informational) {
+        values.push(w.used_percent);
+    }
+    if let Some(w) = snapshot
+        .model_specific
+        .as_ref()
+        .filter(|w| !w.is_informational)
+    {
+        values.push(w.used_percent);
+    }
+    if let Some(w) = snapshot.tertiary.as_ref().filter(|w| !w.is_informational) {
+        values.push(w.used_percent);
+    }
+    for extra in &snapshot.extra_rate_windows {
+        if !extra.window.is_informational {
+            values.push(extra.window.used_percent);
+        }
+    }
+    values
+        .into_iter()
+        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
 }
 
 fn average_metric_percent(snapshot: &crate::commands::ProviderUsageSnapshot) -> Option<f64> {
@@ -732,13 +762,6 @@ fn extra_rate_window_percent(snapshot: &crate::commands::ProviderUsageSnapshot) 
         .extra_rate_windows
         .iter()
         .map(|extra| extra.window.used_percent)
-        .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
-}
-
-fn max_metric_percent<const N: usize>(values: [Option<f64>; N]) -> Option<f64> {
-    values
-        .into_iter()
-        .flatten()
         .max_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal))
 }
 
@@ -1127,6 +1150,8 @@ mod tests {
                 resets_at: None,
                 formatted_used: format!("${used:.2}"),
                 formatted_limit: Some(format!("${limit:.2}")),
+                balance: None,
+                formatted_balance: None,
             }),
             plan_name: None,
             account_email: None,
@@ -1138,6 +1163,7 @@ mod tests {
             tray_status_label: None,
             fetch_duration_ms: None,
             wayfinder_usage: None,
+            session_equivalent_forecast: None,
         }
     }
 
@@ -1445,5 +1471,72 @@ mod tests {
             ),
             None
         );
+    }
+
+    #[test]
+    fn claude_automatic_prefers_weekly_when_model_exhausted() {
+        let settings = Settings::default();
+        let mut snapshot = fake_snapshot_with("claude", "Claude", 40.0, Some(22.0), None, None);
+        snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
+            used_percent: 100.0,
+            remaining_percent: 0.0,
+            window_minutes: Some(10080),
+            resets_at: None,
+            reset_description: None,
+            is_exhausted: true,
+            is_informational: false,
+            reserve_percent: None,
+            reserve_description: None,
+            reserve_will_last_to_reset: false,
+            reserve_eta_seconds: None,
+        });
+
+        let (primary, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(primary, 22.0);
+
+        // Explicit model override is untouched.
+        let mut overridden = settings.clone();
+        overridden.set_provider_metric(ProviderId::Claude, MetricPreference::Model);
+        let (primary, _) = selected_tray_percents(&snapshot, &overridden);
+        assert_eq!(primary, 100.0);
+    }
+
+    #[test]
+    fn automatic_prefers_exhausted_weekly_over_low_session() {
+        let settings = Settings::default();
+        let snapshot = fake_snapshot_with("codex", "Codex", 20.0, Some(100.0), None, None);
+
+        let (primary, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(primary, 100.0);
+
+        // Explicit session override still wins.
+        let mut overridden = settings.clone();
+        overridden.set_provider_metric(ProviderId::Codex, MetricPreference::Session);
+        let (primary, _) = selected_tray_percents(&snapshot, &overridden);
+        assert_eq!(primary, 20.0);
+    }
+
+    #[test]
+    fn automatic_picks_highest_among_model_and_extra_windows() {
+        let settings = Settings::default();
+        let mut snapshot =
+            fake_snapshot_with("gemini", "Gemini", 10.0, Some(30.0), Some(40.0), None);
+        snapshot.model_specific = Some(crate::commands::RateWindowSnapshot {
+            used_percent: 55.0,
+            remaining_percent: 45.0,
+            window_minutes: None,
+            resets_at: None,
+            reset_description: None,
+            is_exhausted: false,
+            is_informational: false,
+            reserve_percent: None,
+            reserve_description: None,
+            reserve_will_last_to_reset: false,
+            reserve_eta_seconds: None,
+        });
+        snapshot.extra_rate_windows.push(fake_extra_window(90.0));
+
+        let (primary, _) = selected_tray_percents(&snapshot, &settings);
+        assert_eq!(primary, 90.0);
     }
 }

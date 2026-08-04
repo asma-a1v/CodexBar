@@ -740,16 +740,10 @@ fn detect_claude_version() -> Option<String> {
 
     if output.status.success() {
         let version_str = String::from_utf8_lossy(&output.stdout);
-        extract_version(&version_str)
+        super::extract_semver(&version_str)
     } else {
         None
     }
-}
-
-/// Extract version number from a string like "claude 1.2.3"
-fn extract_version(s: &str) -> Option<String> {
-    let re = regex_lite::Regex::new(r"(\d+(?:\.\d+)+)").ok()?;
-    re.find(s).map(|m| m.as_str().to_string())
 }
 
 /// Strip ANSI escape codes from text
@@ -975,7 +969,10 @@ mod tests {
     #[test]
     fn passive_probe_env_disables_autoupdater_and_color() {
         let env = claude_passive_probe_env(HashMap::new());
-        assert_eq!(env.get("DISABLE_AUTOUPDATER").map(String::as_str), Some("1"));
+        assert_eq!(
+            env.get("DISABLE_AUTOUPDATER").map(String::as_str),
+            Some("1")
+        );
         assert_eq!(env.get("NO_COLOR").map(String::as_str), Some("1"));
     }
 
@@ -987,8 +984,14 @@ mod tests {
         assert_eq!(first, second);
         assert!(uuid::Uuid::parse_str(&first).is_ok());
         let args = claude_probe_launch_args(&first);
-        assert!(args.windows(2).any(|w| w[0] == "--session-id" && w[1] == first));
-        assert!(args.windows(2).any(|w| w[0] == "--allowed-tools" && w[1].is_empty()));
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--session-id" && w[1] == first)
+        );
+        assert!(
+            args.windows(2)
+                .any(|w| w[0] == "--allowed-tools" && w[1].is_empty())
+        );
     }
 
     #[test]

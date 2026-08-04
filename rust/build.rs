@@ -1,6 +1,6 @@
 //! Build script for CodexBar
 //!
-//! Injects build metadata (git commit, build date) at compile time.
+//! Injects build metadata (git commit) at compile time.
 
 use std::process::Command;
 
@@ -20,11 +20,7 @@ fn main() {
         .map(|s| s.trim().to_string())
         .unwrap_or_else(|| "unknown".to_string());
 
-    // Get build date
-    let build_date = chrono::Utc::now().format("%Y-%m-%d").to_string();
-
     println!("cargo:rustc-env=GIT_COMMIT={}", git_commit);
-    println!("cargo:rustc-env=BUILD_DATE={}", build_date);
 
     // Re-run if git HEAD changes
     println!("cargo:rerun-if-changed=.git/HEAD");

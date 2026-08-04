@@ -263,7 +263,7 @@ impl OpenCodeUsageFetcher {
         }
 
         // Try to parse as URL
-        if let Ok(url) = url::Url::parse(trimmed) {
+        if let Ok(url) = reqwest::Url::parse(trimmed) {
             let parts: Vec<&str> = url.path_segments().map(|s| s.collect()).unwrap_or_default();
             if let Some(idx) = parts.iter().position(|&p| p == "workspace")
                 && parts.len() > idx + 1
@@ -407,7 +407,7 @@ impl OpenCodeUsageFetcher {
                 weekly_usage_percent: wp,
                 rolling_reset_in_sec: rr,
                 weekly_reset_in_sec: wr,
-                renews_at: Self::extract_renewal(text),
+                renews_at: crate::providers::extract_renewal(text),
                 updated_at: now,
             }),
             _ => Err(OpenCodeError::ParseFailed(
@@ -629,14 +629,6 @@ impl OpenCodeUsageFetcher {
         let captures = regex.captures(text)?;
         let value_str = captures.get(1)?.as_str();
         value_str.parse().ok()
-    }
-
-    fn extract_renewal(text: &str) -> Option<DateTime<Utc>> {
-        let regex =
-            Regex::new(r#"(?:"renewAt"|"renew_at"|renewAt|renew_at)\s*[:=]\s*"?([^",}\s]+)"?"#)
-                .ok()?;
-        let raw = regex.captures(text)?.get(1)?.as_str();
-        Self::date_from_value(&serde_json::Value::String(raw.to_string()))
     }
 }
 

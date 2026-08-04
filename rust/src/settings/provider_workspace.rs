@@ -89,7 +89,7 @@ fn validate_token_endpoint(
         ));
     }
 
-    let url = url::Url::parse(raw).map_err(|e| format!("Invalid {label}: {e}"))?;
+    let url = reqwest::Url::parse(raw).map_err(|e| format!("Invalid {label}: {e}"))?;
     let host = url
         .host_str()
         .ok_or_else(|| format!("{label} must include a host"))?

@@ -134,19 +134,6 @@ pub fn flyout_stored_size() -> Result<Option<(u32, u32)>, String> {
 }
 
 #[tauri::command]
-pub fn get_current_surface_mode(
-    state: tauri::State<'_, Mutex<AppState>>,
-) -> Result<String, String> {
-    Ok(state
-        .lock()
-        .map_err(|e| e.to_string())?
-        .surface_machine
-        .current()
-        .as_str()
-        .to_string())
-}
-
-#[tauri::command]
 pub fn get_current_surface_state(
     state: tauri::State<'_, Mutex<AppState>>,
 ) -> Result<CurrentSurfaceState, String> {
@@ -155,22 +142,6 @@ pub fn get_current_surface_state(
         mode: guard.surface_machine.current().as_str().to_string(),
         target: guard.current_target.clone(),
     })
-}
-
-#[tauri::command]
-pub fn get_proof_state(app: tauri::AppHandle) -> Result<ProofStatePayload, String> {
-    proof_harness::ensure_proof_mode(&app)?;
-    proof_harness::capture_state(&app)
-}
-
-#[tauri::command]
-pub fn run_proof_command(
-    app: tauri::AppHandle,
-    command: String,
-) -> Result<ProofStatePayload, String> {
-    let command =
-        ProofCommand::parse(&command).ok_or_else(|| format!("unknown proof command: {command}"))?;
-    proof_harness::run_command(&app, command)
 }
 
 pub(crate) fn validate_surface_target(

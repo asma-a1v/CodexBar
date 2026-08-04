@@ -39,6 +39,7 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["clinepass", "ClinePass"],
   ["longcat", "LongCat"],
   ["neuralwatt", "Neuralwatt"],
+  ["zoommate", "ZoomMate"],
   ["windsurf", "Windsurf"],
   ["manus", "Manus"],
   ["mimo", "Xiaomi MiMo"],
@@ -62,4 +63,5 @@ export const TEST_PROVIDER_CATALOG: Array<[string, string]> = [
   ["qoder", "Qoder"],
   ["sakana", "Sakana AI"],
   ["sub2api", "sub2api"],
+  ["qwencloud", "Qwen Cloud"],
 ];

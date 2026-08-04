@@ -131,16 +131,6 @@ pub struct WorkAreaRect {
 }
 
 #[tauri::command]
-pub fn is_remote_session() -> Result<bool, String> {
-    Ok(codexbar::host::session::is_ssh_session() || codexbar::host::session::is_remote_session())
-}
-
-#[tauri::command]
-pub fn get_launch_block_reason() -> Result<Option<String>, String> {
-    Ok(codexbar::host::session::current_launch_block_reason().map(|s| s.to_string()))
-}
-
-#[tauri::command]
 pub fn get_work_area_rect(app: tauri::AppHandle) -> Result<WorkAreaRect, String> {
     use tauri::Manager;
 

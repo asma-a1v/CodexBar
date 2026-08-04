@@ -1,11 +1,7 @@
-// Placeholder emitters for vertical slices — suppress dead-code until wired.
-#![allow(dead_code)]
-
 use serde::Serialize;
 use tauri::{AppHandle, Emitter};
 
 use crate::commands::ProviderUsageSnapshot;
-use crate::proof_harness::ProofStatePayload;
 use crate::state::UpdateStatePayload;
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
@@ -17,8 +13,6 @@ pub const PROVIDER_UPDATED: &str = "provider-updated";
 pub const REFRESH_STARTED: &str = "refresh-started";
 pub const REFRESH_COMPLETE: &str = "refresh-complete";
 pub const UPDATE_STATE_CHANGED: &str = "update-state-changed";
-pub const LOGIN_PHASE_CHANGED: &str = "login-phase-changed";
-pub const PROOF_STATE_CHANGED: &str = "proof-state-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 
@@ -88,14 +82,6 @@ pub fn emit_refresh_complete(app: &AppHandle, provider_count: usize, error_count
 
 pub fn emit_update_state_changed(app: &AppHandle, payload: &UpdateStatePayload) {
     let _ = app.emit(UPDATE_STATE_CHANGED, payload);
-}
-
-pub fn emit_login_phase_changed(app: &AppHandle) {
-    let _ = app.emit(LOGIN_PHASE_CHANGED, ());
-}
-
-pub fn emit_proof_state_changed(app: &AppHandle, payload: &ProofStatePayload) {
-    let _ = app.emit(PROOF_STATE_CHANGED, payload);
 }
 
 /// Broadcast to every window that persisted settings changed, so surfaces in

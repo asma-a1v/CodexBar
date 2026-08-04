@@ -585,6 +585,12 @@ html {
   border-color: rgba(0, 0, 0, 0.28);
   background: rgba(255, 255, 255, 0.9);
 }
+/* Checked state must beat the light base rule above (equal specificity,
+   source order would otherwise paint checked toggles white-on-white). */
+[data-theme="light"] .toggle:checked {
+  background: var(--accent, #007aff);
+  border-color: var(--accent, #007aff);
+}
 
 .toggle-label {
   display: inline-flex;

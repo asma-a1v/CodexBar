@@ -1,6 +1,7 @@
-# Browser Cookie Extraction
+# Browser Cookie Extraction (Windows)
 
-Win-CodexBar can automatically extract browser cookies for providers that use web authentication (Claude, Cursor, Kimi, etc.).
+Win-CodexBar can extract browser cookies for providers that use web authentication (Claude, Cursor, Kimi, and others). This is the Windows rewrite of upstream cookie/Keychain concepts: **DPAPI + browser profiles**, not macOS Keychain prompts.
+
 
 ## Supported Browsers
 
@@ -40,3 +41,10 @@ If automatic extraction fails (e.g., browser is locked, profile is encrypted, or
 - **"Cookie decryption failed"**: Close the browser and retry — some browsers lock the cookie database while running
 - **Empty cookies**: Make sure you're logged into the provider's web interface in that browser
 - **WSL**: Chromium DPAPI cookies cannot be decrypted from WSL. Use manual cookies or CLI-based auth instead
+
+## Related
+
+- [CONFIGURATION.md](./CONFIGURATION.md) — where manual cookies and settings live on disk
+- [PROVIDERS.md](./PROVIDERS.md) — web vs cli vs oauth sources
+- [WSL.md](./WSL.md) — why automatic Chromium decrypt fails in WSL
+

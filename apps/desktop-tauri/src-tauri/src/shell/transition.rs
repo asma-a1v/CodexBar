@@ -6,7 +6,6 @@ use std::sync::Mutex;
 use tauri::{AppHandle, Manager, WebviewWindow};
 
 use crate::events;
-use crate::proof_harness;
 use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition, WindowProperties};
 use crate::surface_target::SurfaceTarget;
@@ -26,19 +25,14 @@ fn os_position(_window: &WebviewWindow, x: i32, y: i32) -> tauri::PhysicalPositi
     tauri::PhysicalPosition::new(x, y)
 }
 
-// `should_force_tray_panel_reveal` is retained below purely because the
-// already-dead (pre-existing, `#[allow(dead_code)]`-marked)
-// `schedule_startup_tray_panel_reveal_fallback` still references it — see
-// that function's own doc comment. The ACTIVE reveal-fallback path
-// (`schedule_tray_panel_reveal_fallback`, formerly called from
-// `apply_transition` below) was removed here: `main` can no longer transition
-// into `SurfaceMode::TrayPanel` (that mode now only opens as the dedicated
-// `flyout` window — see `shell::flyout_window`), so `apply_transition`'s
-// `transition.to != SurfaceMode::TrayPanel` branch always took the `if`
-// side in practice; the check itself was removed as unreachable dead weight
-// once `main`'s transitions were audited for TrayPanel producers (none
-// remain — see `tray_bridge.rs`'s `MenuAction::OpenFlyout` and
-// `flyout_window::toggle_with_blur_consume`).
+// `should_force_tray_panel_reveal` is the predicate the (now-removed)
+// startup tray-panel reveal fallback used to decide whether to force-show
+// a hidden/tiny `main` window. The fallback itself was deleted once `main`
+// could no longer transition into `SurfaceMode::TrayPanel` (that mode opens
+// as the dedicated `flyout` window — see `shell::flyout_window`). The
+// predicate is retained under `#[cfg(test)]` because `shell::tests` still
+// exercises it as a pure unit.
+#[cfg(test)]
 pub(super) fn should_force_tray_panel_reveal(
     current: SurfaceMode,
     main_window_visible: bool,
@@ -55,56 +49,6 @@ fn mark_tray_panel_shown(app: &AppHandle) {
     {
         guard.mark_tray_panel_shown(std::time::Instant::now());
     }
-}
-
-#[allow(dead_code)]
-// Retained for the legacy TrayPanel surface mode; current default launches PopOut.
-pub fn schedule_startup_tray_panel_reveal_fallback(app: &AppHandle) {
-    const DELAY: std::time::Duration = std::time::Duration::from_millis(750);
-    let app = app.clone();
-    let _ = std::thread::spawn(move || {
-        std::thread::sleep(DELAY);
-        let app_on_main = app.clone();
-        if let Err(error) = app.run_on_main_thread(move || {
-            let Some(state) = app_on_main.try_state::<Mutex<AppState>>() else {
-                return;
-            };
-            let should_reveal = state
-                .lock()
-                .map(|mut guard| guard.take_startup_tray_reveal_fallback())
-                .unwrap_or(false);
-            if !should_reveal {
-                return;
-            }
-            let Some(window) = app_on_main.get_webview_window("main") else {
-                return;
-            };
-            let current = state
-                .lock()
-                .map(|guard| guard.surface_machine.current())
-                .unwrap_or(SurfaceMode::Hidden);
-            let visible = window.is_visible().unwrap_or(false);
-            let size = window
-                .outer_size()
-                .ok()
-                .map(|size| (size.width, size.height));
-            if should_force_tray_panel_reveal(current, visible, size) {
-                let layout_result = apply_window_layout(
-                    &window,
-                    SurfaceMode::TrayPanel,
-                    &SurfaceMode::TrayPanel.window_properties(),
-                );
-                match layout_result.and_then(|_| show_window(&window)) {
-                    Ok(()) => mark_tray_panel_shown(&app_on_main),
-                    Err(error) => {
-                        tracing::debug!("shell: startup tray reveal fallback show failed: {error}")
-                    }
-                }
-            }
-        }) {
-            tracing::debug!("shell: startup tray reveal fallback could not run: {error}");
-        }
-    });
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -504,7 +448,6 @@ fn apply_same_mode_target_update(
     if show_window(window).is_ok() && mode == SurfaceMode::TrayPanel {
         mark_tray_panel_shown(app);
     }
-    proof_harness::sync_after_surface_transition(app);
     Ok(mode)
 }
 
@@ -546,7 +489,6 @@ pub(super) fn apply_transition(
             }
             clamp_current_window_to_work_area(window);
 
-            proof_harness::sync_after_surface_transition(app);
             Ok(transition.to)
         }
         Err(err) => {
@@ -578,7 +520,6 @@ pub(super) fn apply_transition(
                     hidden.mode,
                     hidden.target.clone(),
                 );
-                proof_harness::sync_after_surface_transition(app);
                 tracing::warn!(
                     "shell: failed to restore recovery surface during {:?} -> {:?} after reverting to {:?}; forcing hidden surface: apply error: {}; recovery error: {}",
                     transition.from,
@@ -596,7 +537,6 @@ pub(super) fn apply_transition(
                 recovery.mode,
                 recovery.target.clone(),
             );
-            proof_harness::sync_after_surface_transition(app);
             tracing::warn!(
                 "shell: recovered from window-property failure during {:?} -> {:?} by reapplying {:?}: {}",
                 transition.from,

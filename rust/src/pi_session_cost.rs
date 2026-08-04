@@ -4,7 +4,7 @@
 //! and attributes openai-codex / anthropic assistant rows into cost summaries
 //! without double-counting the same entry id across shared files.
 
-use chrono::{DateTime, Duration, Local, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::fs::File;
@@ -79,7 +79,10 @@ fn apply_entry(summary: &mut CostSummary, entry: &PiEntry) {
     summary.cached_tokens += entry.cache_read + entry.cache_create;
     summary.total_cost_usd += entry.cost;
     *summary.by_model.entry(entry.model.clone()).or_insert(0.0) += entry.cost;
-    let tokens = summary.by_model_tokens.entry(entry.model.clone()).or_default();
+    let tokens = summary
+        .by_model_tokens
+        .entry(entry.model.clone())
+        .or_default();
     tokens.input_tokens += entry.input;
     tokens.output_tokens += entry.output;
     tokens.cached_tokens += entry.cache_read + entry.cache_create;
@@ -129,10 +132,10 @@ fn for_each_pi_entry(
         let Some(entry) = parse_pi_assistant_entry(&value, target) else {
             continue;
         };
-        if let Some(ts) = entry_timestamp(&value) {
-            if ts < cutoff {
-                continue;
-            }
+        if let Some(ts) = entry_timestamp(&value)
+            && ts < cutoff
+        {
+            continue;
         }
         let entry_id = entry_dedup_key(&value, path, counted);
         if !seen.insert(entry_id) {
@@ -153,7 +156,7 @@ fn entry_dedup_key(value: &Value, path: &Path, ordinal: u32) -> String {
         .map(str::trim)
         .filter(|s| !s.is_empty())
     {
-        return format!("{id}");
+        return id.to_string();
     }
     format!("{}#{ordinal}", path.display())
 }
@@ -172,7 +175,7 @@ fn entry_timestamp(value: &Value) -> Option<DateTime<Utc>> {
             value
                 .get("timestamp")
                 .and_then(|v| v.as_i64())
-                .and_then(|ms| DateTime::from_timestamp_millis(ms))
+                .and_then(DateTime::from_timestamp_millis)
         })
 }
 
@@ -233,14 +236,27 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         .cloned()
         .unwrap_or(Value::Null);
 
-    let input = num(&usage, &["input", "inputTokens", "input_tokens", "promptTokens"]);
+    let input = num(
+        &usage,
+        &["input", "inputTokens", "input_tokens", "promptTokens"],
+    );
     let output = num(
         &usage,
-        &["output", "outputTokens", "output_tokens", "completionTokens"],
+        &[
+            "output",
+            "outputTokens",
+            "output_tokens",
+            "completionTokens",
+        ],
     );
     let cache_read = num(
         &usage,
-        &["cacheRead", "cache_read", "cache_read_input_tokens", "cached"],
+        &[
+            "cacheRead",
+            "cache_read",
+            "cache_read_input_tokens",
+            "cached",
+        ],
     );
     let cache_create = num(
         &usage,
@@ -278,7 +294,6 @@ fn parse_pi_assistant_entry(value: &Value, target: PiMappedProvider) -> Option<P
         }),
     };
 
-    let _ = Local::now();
     Some(PiEntry {
         model,
         input,
@@ -301,10 +316,10 @@ fn num(usage: &Value, keys: &[&str]) -> u64 {
             if let Some(n) = v.as_f64() {
                 return n.max(0.0) as u64;
             }
-            if let Some(s) = v.as_str() {
-                if let Ok(n) = s.parse::<u64>() {
-                    return n;
-                }
+            if let Some(s) = v.as_str()
+                && let Ok(n) = s.parse::<u64>()
+            {
+                return n;
             }
         }
     }
@@ -379,7 +394,11 @@ mod tests {
     #[test]
     fn session_roots_include_pi_and_omp() {
         let roots = pi_compatible_session_roots(Some(PathBuf::from("/home/user")));
-        assert!(roots.iter().any(|p| p.ends_with(".pi/agent/sessions") || p.ends_with(".pi\\agent\\sessions")));
+        assert!(
+            roots
+                .iter()
+                .any(|p| p.ends_with(".pi/agent/sessions") || p.ends_with(".pi\\agent\\sessions"))
+        );
         assert!(roots.iter().any(|p| p.ends_with(".omp/agent/sessions") || p.ends_with(".omp\\agent\\sessions")));
     }
 }

@@ -4,6 +4,19 @@ const limits = {
   issue: { count: 10, label: "issues" },
   pull_request: { count: 4, label: "pull requests" },
 };
+// Must match the fromJSON list in the guard job's `if:` in
+// .github/workflows/interaction-guard.yml.
+const trustedAssociations = new Set(["OWNER", "MEMBER", "COLLABORATOR"]);
+
+export function isTrustedAuthor(authorAssociation) {
+  return trustedAssociations.has(authorAssociation);
+}
+
+export function closePayload(kind) {
+  // state_reason is only valid for issues; PATCHing it on a pull request
+  // fails with 403 "Insufficient permissions to update the state_reason".
+  return kind === "pull_request" ? { state: "closed" } : { state: "closed", state_reason: "not_planned" };
+}
 
 export function evaluateInteraction({ kind, userCreatedAt, now, recentCount }) {
   const created = Date.parse(userCreatedAt);
@@ -41,6 +54,7 @@ function eventTarget(payload) {
       kind: "pull_request",
       number: payload.pull_request.number,
       author: payload.pull_request.user.login,
+      authorAssociation: payload.pull_request.author_association,
     };
   }
   if (payload.issue && !payload.issue.pull_request) {
@@ -48,6 +62,7 @@ function eventTarget(payload) {
       kind: "issue",
       number: payload.issue.number,
       author: payload.issue.user.login,
+      authorAssociation: payload.issue.author_association,
     };
   }
   return null;
@@ -80,6 +95,7 @@ async function main() {
   const payload = JSON.parse(await fs.readFile(process.env.GITHUB_EVENT_PATH, "utf8"));
   const target = eventTarget(payload);
   if (!target) return;
+  if (isTrustedAuthor(target.authorAssociation)) return;
 
   const repo = process.env.GITHUB_REPOSITORY;
   const now = new Date().toISOString();
@@ -103,7 +119,7 @@ async function main() {
   });
   await github(`/repos/${repo}/issues/${target.number}`, {
     method: "PATCH",
-    body: JSON.stringify({ state: "closed", state_reason: "not_planned" }),
+    body: JSON.stringify(closePayload(target.kind)),
   });
 }
 

@@ -40,6 +40,10 @@ pub struct SettingsUpdate {
     pub agent_sessions_enabled: Option<bool>,
     pub agent_session_ssh_hosts: Option<Vec<String>>,
     pub hooks_enabled: Option<bool>,
+    pub http_proxy_enabled: Option<bool>,
+    pub http_proxy_url: Option<String>,
+    pub http_proxy_username: Option<String>,
+    pub http_proxy_password: Option<String>,
     pub ui_language: Option<String>,
     pub theme: Option<String>,
     pub window_scale_percent: Option<u16>,
@@ -60,11 +64,17 @@ pub struct SettingsUpdate {
     pub float_bar_show_reset_inline: Option<bool>,
     pub float_bar_show_cost: Option<bool>,
     pub promote_tray_icon: Option<bool>,
+    pub claude_daily_routines_usage_visible: Option<bool>,
+    pub alibaba_token_plan_region: Option<String>,
+    pub weekly_progress_work_days: Option<u8>,
 }
 
 impl SettingsUpdate {
     fn refreshes_provider_data(&self) -> bool {
         self.enabled_providers.is_some()
+            || self.claude_daily_routines_usage_visible.is_some()
+            || self.alibaba_token_plan_region.is_some()
+            || self.weekly_progress_work_days.is_some()
     }
 
     fn notifies_float_bar(&self) -> bool {
@@ -254,6 +264,18 @@ impl SettingsUpdate {
         if let Some(v) = self.hooks_enabled {
             settings.hooks_enabled = v;
         }
+        if let Some(v) = self.http_proxy_enabled {
+            settings.http_proxy_enabled = v;
+        }
+        if let Some(v) = self.http_proxy_url.clone() {
+            settings.http_proxy_url = v.trim().to_string();
+        }
+        if let Some(v) = self.http_proxy_username.clone() {
+            settings.http_proxy_username = v.trim().to_string();
+        }
+        if let Some(v) = self.http_proxy_password.clone() {
+            settings.http_proxy_password = v;
+        }
         if let Some(v) = self.install_updates_on_quit {
             settings.install_updates_on_quit = v;
         }
@@ -271,6 +293,19 @@ impl SettingsUpdate {
             if v {
                 settings.set_claude_avoid_keychain_prompts(true);
             }
+        }
+        if let Some(v) = self.claude_daily_routines_usage_visible {
+            settings.claude_daily_routines_usage_visible = v;
+        }
+        if let Some(v) = self.alibaba_token_plan_region.as_deref() {
+            let region = codexbar::providers::AlibabaTokenPlanRegion::from_settings_value(Some(v));
+            settings.set_api_region(
+                codexbar::core::ProviderId::AlibabaTokenPlan,
+                region.as_str(),
+            );
+        }
+        if let Some(v) = self.weekly_progress_work_days {
+            settings.weekly_progress_work_days = if (2..=6).contains(&v) { Some(v) } else { None };
         }
         self
     }

@@ -12,8 +12,8 @@ pub mod augment;
 pub mod azureopenai;
 pub mod bedrock;
 pub mod chutes;
-pub mod clinepass;
 pub mod claude;
+pub mod clinepass;
 pub mod codebuff;
 pub mod codex;
 pub mod commandcode;
@@ -55,6 +55,7 @@ pub mod openrouter;
 pub mod perplexity;
 pub mod poe;
 pub mod qoder;
+pub mod qwencloud;
 pub mod sakana;
 pub mod stepfun;
 pub mod sub2api;
@@ -67,20 +68,21 @@ pub mod windsurf;
 pub mod zai;
 pub mod zed;
 pub mod zenmux;
+pub mod zoommate;
 
 // Re-export provider implementations
 pub use abacus::AbacusProvider;
 pub use aiand::AiAndProvider;
 pub use alibaba::{AlibabaProvider, AlibabaRegion};
-pub use alibabatokenplan::AlibabaTokenPlanProvider;
+pub use alibabatokenplan::{AlibabaTokenPlanProvider, AlibabaTokenPlanRegion};
 pub use amp::AmpProvider;
 pub use antigravity::AntigravityProvider;
 pub use augment::AugmentProvider;
 pub use azureopenai::AzureOpenAIProvider;
 pub use bedrock::BedrockProvider;
 pub use chutes::ChutesProvider;
-pub use clinepass::ClinePassProvider;
 pub use claude::ClaudeProvider;
+pub use clinepass::ClinePassProvider;
 pub use codebuff::CodebuffProvider;
 pub use codex::CodexProvider;
 pub use commandcode::CommandCodeProvider;
@@ -105,8 +107,8 @@ pub use kimi::KimiProvider;
 pub use kimik2::KimiK2Provider;
 pub use kiro::KiroProvider;
 pub use litellm::LiteLLMProvider;
-pub use longcat::LongCatProvider;
 pub use llmproxy::LLMProxyProvider;
+pub use longcat::LongCatProvider;
 pub use manus::ManusProvider;
 pub use mimo::MiMoProvider;
 pub use minimax::{MiniMaxProvider, MiniMaxRegion};
@@ -121,6 +123,7 @@ pub use openrouter::OpenRouterProvider;
 pub use perplexity::PerplexityProvider;
 pub use poe::PoeProvider;
 pub use qoder::QoderProvider;
+pub use qwencloud::QwenCloudProvider;
 pub use sakana::SakanaProvider;
 pub use stepfun::StepFunProvider;
 pub use sub2api::Sub2ApiProvider;
@@ -133,6 +136,7 @@ pub use windsurf::WindsurfProvider;
 pub use zai::ZaiProvider;
 pub use zed::ZedProvider;
 pub use zenmux::ZenMuxProvider;
+pub use zoommate::ZoomMateProvider;
 
 pub(crate) fn browser_cookie_header(
     domains: &[&str],
@@ -228,4 +232,45 @@ pub(crate) fn validated_https_url(
         )));
     }
     Ok(url)
+}
+
+/// Extract the first semver-like substring (`\d+(?:\.\d+)+`) from `s`.
+pub(crate) fn extract_semver(s: &str) -> Option<String> {
+    let re = regex_lite::Regex::new(r"(\d+(?:\.\d+)+)").ok()?;
+    re.find(s).map(|m| m.as_str().to_string())
+}
+
+/// Extract the first capture group of `pattern` from `text` as an `f64`.
+pub(crate) fn extract_number(pattern: &str, text: &str) -> Option<f64> {
+    let re = regex_lite::Regex::new(pattern).ok()?;
+    re.captures(text)?.get(1)?.as_str().parse().ok()
+}
+
+/// Extract a `renewAt`/`renew_at` timestamp from a JS/JSON-ish payload.
+///
+/// Accepts either a numeric epoch (seconds or milliseconds) or an RFC 3339
+/// date string. Returns the parsed instant in UTC.
+pub(crate) fn extract_renewal(text: &str) -> Option<chrono::DateTime<chrono::Utc>> {
+    let re = regex_lite::Regex::new(
+        r#"(?:"renewAt"|"renew_at"|renewAt|renew_at)\s*[:=]\s*"?([^",}\s]+)"?"#,
+    )
+    .ok()?;
+    let raw = re.captures(text)?.get(1)?.as_str().trim();
+    if raw.is_empty() {
+        return None;
+    }
+    if let Ok(number) = raw.parse::<f64>()
+        && number.is_finite()
+        && number > 0.0
+    {
+        let seconds = if number > 10_000_000_000.0 {
+            number / 1000.0
+        } else {
+            number
+        };
+        return chrono::DateTime::<chrono::Utc>::from_timestamp(seconds as i64, 0);
+    }
+    chrono::DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&chrono::Utc))
 }

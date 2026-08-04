@@ -71,9 +71,10 @@ Useful release flags:
 .\scripts\release-doctor.ps1 -Version 0.27.5
 ```
 
-There is no hosted CI/CD for this repository right now. Run local checks before
-PRs; the Windows release script is the primary path for installer and portable
-artifacts.
+A hosted **PR check** runs on Blacksmith Windows for pull requests and pushes
+to `main`/`master`; see `.github/CI.md` for its scope and budget modes. The
+Windows release script remains the primary path for installer and portable
+artifacts; there is no hosted release workflow.
 
 ## macOS Windows Cross Build
 
@@ -117,6 +118,23 @@ Win-CodexBar/
 ├── docs/                        # Documentation
 └── scripts/                     # Dev/release helper scripts
 ```
+
+## Documentation map
+
+| Doc | Contents |
+|-----|----------|
+| [ARCHITECTURE.md](./ARCHITECTURE.md) | Modules, entry points, data flow (Windows/Tauri) |
+| [CLI.md](./CLI.md) | `codexbar.exe` commands |
+| [CONFIGURATION.md](./CONFIGURATION.md) | Config paths, `codexbar config`, settings tabs |
+| [PROVIDERS.md](./PROVIDERS.md) | Provider factory and sources |
+| [COOKIES.md](./COOKIES.md) | Browser cookie import (DPAPI) |
+| [WSL.md](./WSL.md) | WSL limitations |
+| [WINDOWS_PROOF.md](./WINDOWS_PROOF.md) | Manual/runtime proof checklist |
+| [release/ci-cd.md](./release/ci-cd.md) | Hosted PR check + local release |
+| [../AGENTS.md](../AGENTS.md) | Agent/contributor guidelines |
+
+Upstream macOS docs (`steipete/CodexBar`) are a **read-only** concept source. Do not copy Swift/Keychain/Sparkle instructions here without a Windows rewrite.
+
 
 ## Running Tests
 

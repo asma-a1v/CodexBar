@@ -54,10 +54,7 @@ fn windows_agent_running() -> bool {
 
     #[link(name = "kernel32")]
     unsafe extern "system" {
-        fn CreateToolhelp32Snapshot(
-            dw_flags: u32,
-            th32_process_id: u32,
-        ) -> *mut std::ffi::c_void;
+        fn CreateToolhelp32Snapshot(dw_flags: u32, th32_process_id: u32) -> *mut std::ffi::c_void;
         fn Process32FirstW(snapshot: *mut std::ffi::c_void, entry: *mut ProcessEntry32W) -> i32;
         fn Process32NextW(snapshot: *mut std::ffi::c_void, entry: *mut ProcessEntry32W) -> i32;
         fn CloseHandle(handle: *mut std::ffi::c_void) -> i32;
@@ -92,7 +89,7 @@ fn windows_agent_running() -> bool {
                     .to_string_lossy()
                     .to_ascii_lowercase();
                 let stem = name.strip_suffix(".exe").unwrap_or(&name);
-                if AGENT_PROCESS_NAMES.iter().any(|n| *n == stem) {
+                if AGENT_PROCESS_NAMES.contains(&stem) {
                     found = true;
                     break;
                 }

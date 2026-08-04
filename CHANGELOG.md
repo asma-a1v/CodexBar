@@ -1,5 +1,50 @@
 # Changelog
 
+## [Windows] 0.46.0 - 2026-07-30
+
+Windows port of upstream CodexBar **0.45.2 → 0.46.0**. macOS-only shell items (WidgetKit, Sparkle, AppKit menu layout, Homebrew, Safari cookie APIs) remain deferred.
+
+### Added
+- Providers: Qwen Cloud (Individual Token Plans with 5-hour and weekly rolling windows) and ZoomMate (credit status with host failover, cURL/cookie auth, bearer mint).
+- Alibaba Token Plan: Personal/Solo variants for mainland (Bailian) and international (Model Studio) accounts via `alibaba_token_plan_region` setting.
+- Claude: prepaid credit balance in cost surfaces from cached/manual web sessions.
+- Claude: setting to hide the Daily Routines row (`claude_daily_routines_usage_visible`, default on).
+- Menu: fractional session-quota estimates on the weekly row ("Estimated: N session quotas left") when session+weekly history qualifies; optional `weekly_progress_work_days`.
+- Codex: local Workspaces indexing foundation — per-project/session/model usage attribution with a local sidecar index; new `codexbar workspaces` CLI and desktop snapshot bridge.
+- CLI: `config dump` redacts stored credentials by default; `--show-secrets` restores raw output.
+
+### Changed
+- Codex local cost scans use the disk cache: unchanged files skipped by mtime/size, grown logs resumed mid-file, 256 KiB line bound — repeat scans are incremental.
+- Automatic tray metric surfaces the highest-used (exhausted) window across providers, preserving per-provider overrides.
+- CLI alias `qwen` now resolves to Qwen Cloud (use `alibaba` for the Coding Plan).
+- Preserve this fork's tray-only startup, taskbar-hidden surfaces, content-sized flyout without zoom, and dedicated EXE/About/per-user Installer icon while retaining the existing tray icon.
+
+### Fixed
+- Claude: model-scoped weekly rows above Daily Routines; automatic metric prefers account Weekly over exhausted model carve-outs; learned full-session estimate stays visible while the session window is idle.
+- Amp: subscription plans (e.g. Megawatt) parse into Other/Orb percentage windows instead of a misleading cookie error.
+- Grok: explicit cookie refresh with validated session caching for background reuse.
+- Chutes: quota counts render as detail text instead of being misread as reset schedules.
+- LLMProxy: skip already-elapsed reset times when picking the next reset.
+- Ollama: reuse validated browser sessions across refreshes.
+
+---
+
+## [Windows] 0.45.3 - 2026-07-29
+
+### Added
+- Settings: global HTTP proxy for provider traffic (#235, #236).
+- Codex tray: reset-credit **next expiry** on the Reset credits row (count + “Next expires …”; honors Relative reset time) (#241).
+
+### Fixed
+- Tray icon missing from the taskbar after upgrade (#237, #238).
+- Float bar window flipping Settings Auto theme to light (pin WebView2 dark on float bar) (#240).
+
+### Changed
+- Hosted PR check on Blacksmith Windows (fmt, clippy, tests, frontend build); release packaging remains local.
+- Dead-code and helper cleanup (shared SigV4/parse helpers, drop unused CLI args/bridge bindings/icons registry, simplify build scripts).
+
+---
+
 ## [Windows] 0.45.2 - 2026-07-21
 
 Windows port of upstream CodexBar **0.43.0 → 0.45.2** (providers, CLI, cost, and settings surfaces).

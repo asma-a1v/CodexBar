@@ -18,13 +18,11 @@ use std::collections::HashMap;
 use tauri::{Emitter, Manager};
 
 use crate::events;
-use crate::proof_harness::{self, ProofCommand, ProofStatePayload};
 use crate::state::AppState;
 use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 
 mod chart;
-mod diagnostics;
 mod tokens;
 mod updater;
 mod usage_spend;
@@ -32,6 +30,7 @@ mod usage_spend;
 mod agent_sessions;
 mod bridge;
 mod browser_import;
+mod codex_workspaces;
 mod credential_detection;
 mod credentials;
 mod locale_cmd;
@@ -46,6 +45,7 @@ mod system;
 pub use agent_sessions::*;
 pub(crate) use bridge::*;
 pub use browser_import::*;
+pub use codex_workspaces::*;
 pub use credential_detection::*;
 pub use credentials::*;
 pub use locale_cmd::*;
@@ -61,7 +61,6 @@ pub use system::*;
 mod tests;
 
 pub use chart::*;
-pub use diagnostics::*;
 pub use tokens::*;
 pub use updater::*;
 pub use usage_spend::*;

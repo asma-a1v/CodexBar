@@ -14,9 +14,7 @@ use super::transition::{
     resolve_transition_request, restore_recovery_surface, restore_surface_snapshot,
     should_force_tray_panel_reveal, should_synthesize_default_position,
 };
-use super::window::{
-    hide_to_tray_state, logical_size_from_geometry, prepare_hide_to_tray_if_current,
-};
+use super::window::{logical_size_from_geometry, prepare_hide_to_tray_if_current};
 
 use crate::state::AppState;
 use crate::surface::{SurfaceMode, SurfaceTransition};
@@ -30,7 +28,7 @@ fn hide_to_tray_resets_hidden_target_to_summary() {
         tab: "about".into(),
     };
 
-    hide_to_tray_state(&mut state);
+    let _ = super::window::prepare_hide_to_tray_if_current(&mut state, |_| true);
 
     assert_eq!(state.surface_machine.current(), SurfaceMode::Hidden);
     assert_eq!(state.current_target, SurfaceTarget::Summary);

@@ -20,6 +20,8 @@ static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceL
 pub struct CodexApi {
     client: reqwest::Client,
     home_dir: PathBuf,
+    /// When set, overrides CODEX_HOME / ~/.codex for auth.json + config.toml (tests).
+    codex_home_override: Option<PathBuf>,
 }
 
 impl CodexApi {
@@ -34,7 +36,27 @@ impl CodexApi {
         Self {
             client,
             home_dir: dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")),
+            codex_home_override: None,
         }
+    }
+
+    /// Point the client at a specific Codex home directory (contains auth.json / config.toml).
+    pub fn with_codex_home(mut self, codex_home: impl Into<PathBuf>) -> Self {
+        self.codex_home_override = Some(codex_home.into());
+        self
+    }
+
+    fn codex_dir(&self) -> PathBuf {
+        if let Some(override_dir) = &self.codex_home_override {
+            return override_dir.clone();
+        }
+        if let Ok(codex_home) = std::env::var("CODEX_HOME") {
+            let trimmed = codex_home.trim();
+            if !trimmed.is_empty() {
+                return PathBuf::from(trimmed);
+            }
+        }
+        self.home_dir.join(".codex")
     }
 
     /// Fetch usage information from Codex API
@@ -87,16 +109,7 @@ impl CodexApi {
         if let Ok(reset_credits) = self.fetch_rate_limit_reset_credits(&creds, &base_url).await
             && reset_credits.available_count > 0
         {
-            let mut window = RateWindow::new(0.0);
-            window.reset_description = Some(format!(
-                "{} reset credit{} available",
-                reset_credits.available_count,
-                if reset_credits.available_count == 1 {
-                    ""
-                } else {
-                    "s"
-                }
-            ));
+            let window = reset_credits_rate_window(&reset_credits, Utc::now());
             usage = usage.with_extra_rate_window("reset-credits", "Reset credits", window);
         }
         Ok((usage, cost))
@@ -230,29 +243,11 @@ impl CodexApi {
     }
 
     fn get_auth_path(&self) -> PathBuf {
-        // Check CODEX_HOME env var
-        if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-            let trimmed = codex_home.trim();
-            if !trimmed.is_empty() {
-                return PathBuf::from(trimmed).join("auth.json");
-            }
-        }
-
-        self.home_dir.join(".codex").join("auth.json")
+        self.codex_dir().join("auth.json")
     }
 
     fn resolve_base_url(&self) -> String {
-        // Check CODEX_HOME for config.toml
-        let config_path = if let Ok(codex_home) = std::env::var("CODEX_HOME") {
-            let trimmed = codex_home.trim();
-            if !trimmed.is_empty() {
-                PathBuf::from(trimmed).join("config.toml")
-            } else {
-                self.home_dir.join(".codex").join("config.toml")
-            }
-        } else {
-            self.home_dir.join(".codex").join("config.toml")
-        };
+        let config_path = self.codex_dir().join("config.toml");
 
         if let Ok(content) = std::fs::read_to_string(&config_path)
             && let Some(base_url) = parse_chatgpt_base_url(&content)
@@ -662,9 +657,17 @@ struct SpendControlLimitSnapshot {
 }
 
 #[derive(Debug, Clone, Deserialize)]
+struct ResetCredit {
+    #[serde(default)]
+    status: Option<String>,
+    #[serde(default)]
+    expires_at: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
 struct ResetCredits {
     #[serde(default)]
-    credits: Vec<serde_json::Value>,
+    credits: Vec<ResetCredit>,
     #[serde(default)]
     available_count: u32,
 }
@@ -672,6 +675,42 @@ struct ResetCredits {
 fn decode_reset_credits(data: &[u8]) -> Result<ResetCredits, ProviderError> {
     serde_json::from_slice(data)
         .map_err(|e| ProviderError::Parse(format!("Failed to parse Codex reset credits: {e}")))
+}
+
+fn parse_credit_expiry(raw: &str) -> Option<DateTime<Utc>> {
+    DateTime::parse_from_rfc3339(raw)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+}
+
+fn is_available_credit(credit: &ResetCredit) -> bool {
+    match credit.status.as_deref() {
+        None | Some("") => true,
+        Some(status) => status.eq_ignore_ascii_case("available"),
+    }
+}
+
+fn next_available_reset_credit_expiry(
+    credits: &[ResetCredit],
+    now: DateTime<Utc>,
+) -> Option<DateTime<Utc>> {
+    credits
+        .iter()
+        .filter(|credit| is_available_credit(credit))
+        .filter_map(|credit| credit.expires_at.as_deref().and_then(parse_credit_expiry))
+        .filter(|expires_at| *expires_at > now)
+        .min()
+}
+
+fn reset_credits_rate_window(reset: &ResetCredits, now: DateTime<Utc>) -> RateWindow {
+    let description = format!(
+        "{} reset credit{} available",
+        reset.available_count,
+        if reset.available_count == 1 { "" } else { "s" }
+    );
+    let mut window = RateWindow::informational(description);
+    window.resets_at = next_available_reset_credit_expiry(&reset.credits, now);
+    window
 }
 
 impl CreditDetails {
@@ -883,10 +922,238 @@ mod tests {
 
     #[test]
     fn decodes_reset_credits() {
-        let credits = decode_reset_credits(br#"{"available_count":2,"credits":[{"id":"a"}]}"#)
-            .expect("reset credits");
+        let credits = decode_reset_credits(
+            br#"{"available_count":2,"credits":[{"id":"a","status":"available","expires_at":"2026-08-01T12:00:00Z"}]}"#,
+        )
+        .expect("reset credits");
         assert_eq!(credits.available_count, 2);
         assert_eq!(credits.credits.len(), 1);
+        assert_eq!(credits.credits[0].status.as_deref(), Some("available"));
+        assert_eq!(
+            credits.credits[0].expires_at.as_deref(),
+            Some("2026-08-01T12:00:00Z")
+        );
+    }
+
+    #[test]
+    fn next_expiry_picks_soonest_available() {
+        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let credits = vec![
+            ResetCredit {
+                status: Some("available".into()),
+                expires_at: Some("2026-07-10T00:00:00Z".into()),
+            },
+            ResetCredit {
+                status: Some("available".into()),
+                expires_at: Some("2026-07-05T00:00:00Z".into()),
+            },
+            ResetCredit {
+                status: Some("available".into()),
+                expires_at: Some("2026-07-20T00:00:00Z".into()),
+            },
+        ];
+        let expiry = next_available_reset_credit_expiry(&credits, now).expect("expiry");
+        assert_eq!(
+            expiry,
+            DateTime::parse_from_rfc3339("2026-07-05T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    #[test]
+    fn next_expiry_skips_past_and_non_available() {
+        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let credits = vec![
+            ResetCredit {
+                status: Some("available".into()),
+                expires_at: Some("2026-06-01T00:00:00Z".into()),
+            },
+            ResetCredit {
+                status: Some("used".into()),
+                expires_at: Some("2026-07-03T00:00:00Z".into()),
+            },
+            ResetCredit {
+                status: Some("AVAILABLE".into()),
+                expires_at: Some("2026-07-08T00:00:00Z".into()),
+            },
+            ResetCredit {
+                status: None,
+                expires_at: Some("2026-07-09T00:00:00Z".into()),
+            },
+        ];
+        let expiry = next_available_reset_credit_expiry(&credits, now).expect("expiry");
+        assert_eq!(
+            expiry,
+            DateTime::parse_from_rfc3339("2026-07-08T00:00:00Z")
+                .unwrap()
+                .with_timezone(&Utc)
+        );
+    }
+
+    #[test]
+    fn reset_credits_window_sets_informational_and_expiry() {
+        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let reset = ResetCredits {
+            available_count: 2,
+            credits: vec![
+                ResetCredit {
+                    status: Some("available".into()),
+                    expires_at: Some("2026-07-15T12:00:00Z".into()),
+                },
+                ResetCredit {
+                    status: Some("available".into()),
+                    expires_at: Some("2026-07-10T12:00:00Z".into()),
+                },
+            ],
+        };
+        let window = reset_credits_rate_window(&reset, now);
+        assert!(window.is_informational);
+        assert_eq!(
+            window.reset_description.as_deref(),
+            Some("2 reset credits available")
+        );
+        assert_eq!(
+            window.resets_at,
+            Some(
+                DateTime::parse_from_rfc3339("2026-07-10T12:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc)
+            )
+        );
+    }
+
+    #[test]
+    fn reset_credits_window_count_only_without_expiry() {
+        let now = DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&Utc);
+        let reset = ResetCredits {
+            available_count: 1,
+            credits: vec![],
+        };
+        let window = reset_credits_rate_window(&reset, now);
+        assert!(window.is_informational);
+        assert_eq!(
+            window.reset_description.as_deref(),
+            Some("1 reset credit available")
+        );
+        assert!(window.resets_at.is_none());
+    }
+
+    fn write_codex_home(base_url: &str) -> tempfile::TempDir {
+        let dir = tempfile::tempdir().expect("temp codex home");
+        std::fs::write(
+            dir.path().join("auth.json"),
+            r#"{"tokens":{"access_token":"test-token","account_id":"acct_test"}}"#,
+        )
+        .expect("auth.json");
+        std::fs::write(
+            dir.path().join("config.toml"),
+            format!("chatgpt_base_url = \"{base_url}\""),
+        )
+        .expect("config.toml");
+        dir
+    }
+
+    #[tokio::test]
+    async fn fetch_usage_attaches_reset_credits_from_http() {
+        let mut server = mockito::Server::new_async().await;
+        let soonest = (Utc::now() + chrono::Duration::days(5)).to_rfc3339();
+        let later = (Utc::now() + chrono::Duration::days(12)).to_rfc3339();
+
+        let usage_mock = server
+            .mock("GET", "/wham/usage")
+            .match_header("authorization", "Bearer test-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#,
+            )
+            .create_async()
+            .await;
+
+        let reset_body = format!(
+            r#"{{"available_count":2,"credits":[
+                {{"status":"available","expires_at":"{later}"}},
+                {{"status":"available","expires_at":"{soonest}"}}
+            ]}}"#
+        );
+        let reset_mock = server
+            .mock("GET", "/wham/rate-limit-reset-credits")
+            .match_header("authorization", "Bearer test-token")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(reset_body)
+            .create_async()
+            .await;
+
+        let home = write_codex_home(&server.url());
+        let api = CodexApi::new().with_codex_home(home.path());
+        let (usage, _) = api.fetch_usage().await.expect("fetch_usage");
+
+        usage_mock.assert_async().await;
+        reset_mock.assert_async().await;
+
+        let extra = usage
+            .extra_rate_windows
+            .iter()
+            .find(|w| w.id == "reset-credits")
+            .expect("reset-credits window attached");
+        assert_eq!(extra.title, "Reset credits");
+        assert!(extra.window.is_informational);
+        assert_eq!(
+            extra.window.reset_description.as_deref(),
+            Some("2 reset credits available")
+        );
+        let expected = DateTime::parse_from_rfc3339(&soonest)
+            .unwrap()
+            .with_timezone(&Utc);
+        assert_eq!(extra.window.resets_at, Some(expected));
+    }
+
+    #[tokio::test]
+    async fn fetch_usage_skips_reset_credits_when_available_count_zero() {
+        let mut server = mockito::Server::new_async().await;
+
+        let usage_mock = server
+            .mock("GET", "/wham/usage")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(
+                r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":10,"limit_window_seconds":18000}}}"#,
+            )
+            .create_async()
+            .await;
+
+        let reset_mock = server
+            .mock("GET", "/wham/rate-limit-reset-credits")
+            .with_status(200)
+            .with_header("content-type", "application/json")
+            .with_body(r#"{"available_count":0,"credits":[]}"#)
+            .create_async()
+            .await;
+
+        let home = write_codex_home(&server.url());
+        let api = CodexApi::new().with_codex_home(home.path());
+        let (usage, _) = api.fetch_usage().await.expect("fetch_usage");
+
+        usage_mock.assert_async().await;
+        reset_mock.assert_async().await;
+
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .all(|w| w.id != "reset-credits"),
+            "available_count=0 must not attach reset-credits"
+        );
     }
 
     #[test]

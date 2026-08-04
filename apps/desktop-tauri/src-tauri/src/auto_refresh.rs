@@ -82,17 +82,10 @@ pub fn install(app: tauri::AppHandle) {
 }
 
 fn resolve_refresh_interval(settings: &Settings) -> Option<Duration> {
-    resolve_refresh_interval_with(settings, adaptive_delay_now)
-}
-
-fn resolve_refresh_interval_with(
-    settings: &Settings,
-    adaptive_delay: impl FnOnce() -> Duration,
-) -> Option<Duration> {
-    settings
-        .adaptive_refresh
-        .then(adaptive_delay)
-        .or_else(|| refresh_interval(settings.refresh_interval_secs))
+    if settings.adaptive_refresh {
+        return Some(adaptive_delay_now());
+    }
+    refresh_interval(settings.refresh_interval_secs)
 }
 
 fn adaptive_delay_now() -> Duration {
@@ -147,7 +140,7 @@ fn low_power_mode_enabled() -> bool {
         let low_pct = status.battery_life_percent <= 20;
         // system_status_flag bit 0x01 = Battery Saver is on (Win10+)
         let battery_saver = status.system_status_flag & 0x01 != 0;
-        return on_battery && (low_pct || battery_saver);
+        on_battery && (low_pct || battery_saver)
     }
     #[cfg(not(windows))]
     {
@@ -205,18 +198,31 @@ fn refresh_interval(seconds: u64) -> Option<Duration> {
 mod tests {
     use super::*;
 
-    #[test]
-    fn manual_refresh_setting_disables_background_refresh() {
-        assert_eq!(refresh_interval(0), None);
-    }
+    /// Serializes tests that mutate the shared `LAST_MENU_OPEN` /
+    /// `LAST_CODING_ACTIVITY` globals so parallel `#[test]` threads can't
+    /// interpose a write between one test's clear and its read.
+    static ADAPTIVE_TEST_LOCK: Mutex<()> = Mutex::new(());
 
     #[test]
     fn adaptive_enabled_uses_policy_delay() {
-        let mut settings = Settings::default();
-        settings.adaptive_refresh = true;
-        settings.refresh_interval_secs = 0;
-        let delay = resolve_refresh_interval_with(&settings, || Duration::from_secs(30 * 60))
-            .expect("adaptive always schedules");
+        let _guard = ADAPTIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        // Clear shared activity slots so parallel/prior tests cannot shrink the delay.
+        *LAST_MENU_OPEN
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+        *LAST_CODING_ACTIVITY
+            .get_or_init(|| Mutex::new(None))
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = None;
+
+        let settings = Settings {
+            adaptive_refresh: true,
+            refresh_interval_secs: 0,
+            ..Default::default()
+        };
+        let delay = resolve_refresh_interval(&settings).expect("adaptive always schedules");
+        // No menu open → long idle 30m
         assert_eq!(delay, Duration::from_secs(30 * 60));
     }
 
@@ -254,6 +260,7 @@ mod tests {
 
     #[test]
     fn note_menu_open_sets_recent_age() {
+        let _guard = ADAPTIVE_TEST_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         note_menu_open();
         let age = age_since(&LAST_MENU_OPEN).expect("menu open recorded");
         assert!(age < Duration::from_secs(5));

@@ -22,6 +22,7 @@ import aiand from "./icons/ProviderIcon-aiand.svg?raw";
 import clinepass from "./icons/ProviderIcon-clinepass.svg?raw";
 import longcat from "./icons/ProviderIcon-longcat.svg?raw";
 import neuralwatt from "./icons/ProviderIcon-neuralwatt.svg?raw";
+import zoommate from "./icons/ProviderIcon-zoommate.svg?raw";
 import zenmux from "./icons/ProviderIcon-zenmux.svg?raw";
 import deepseek from "./icons/ProviderIcon-deepseek.svg?raw";
 import doubao from "./icons/ProviderIcon-doubao.svg?raw";
@@ -100,6 +101,7 @@ const RAW: Record<string, string> = {
   clinepass: tint(clinepass),
   longcat: tint(longcat),
   neuralwatt: tint(neuralwatt),
+  zoommate: tint(zoommate),
   zenmux: tint(zenmux),
   deepseek: tint(deepseek),
   doubao: tint(doubao),
@@ -156,6 +158,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   clinepass:   { id: "clinepass",   brandColor: "#61a3fa", fallbackLetter: "C", svgPath: RAW.clinepass },
   longcat:     { id: "longcat",     brandColor: "#ffd100", fallbackLetter: "L", svgPath: RAW.longcat },
   neuralwatt:  { id: "neuralwatt",  brandColor: "#38d98c", fallbackLetter: "N", svgPath: RAW.neuralwatt },
+  zoommate:    { id: "zoommate",    brandColor: "#0B5CFF", fallbackLetter: "Z", svgPath: RAW.zoommate },
   zenmux:      { id: "zenmux",      brandColor: "#6c5ce7", fallbackLetter: "Z", svgPath: RAW.zenmux },
   deepseek:    { id: "deepseek",    brandColor: "#527df0", fallbackLetter: "D", svgPath: RAW.deepseek },
   elevenlabs:  { id: "elevenlabs",  brandColor: "#111827", fallbackLetter: "E", svgPath: RAW.elevenlabs },
@@ -205,6 +208,7 @@ export const PROVIDER_ICON_REGISTRY: Record<string, ProviderIcon> = {
   poe:         { id: "poe",         brandColor: "#5d5fef", fallbackLetter: "P" },
   devin:       { id: "devin",       brandColor: "#111827", fallbackLetter: "D" },
   zed:         { id: "zed",         brandColor: "#084ccf", fallbackLetter: "Z" },
+  qwencloud:   { id: "qwencloud",   brandColor: "#615CED", fallbackLetter: "Q" },
 };
 
 const ALIASES: Record<string, string> = {
@@ -214,7 +218,9 @@ const ALIASES: Record<string, string> = {
   "jetbrains ai": "jetbrains",
   "kimi k2": "kimik2",
   tongyi: "alibaba",
-  qwen: "alibaba",
+  qwen: "qwencloud",
+  "qwen cloud": "qwencloud",
+  "qwen-cloud": "qwencloud",
   qianwen: "alibaba",
   "alibaba token plan": "alibabatokenplan",
   "alibaba-token-plan": "alibabatokenplan",
@@ -241,6 +247,8 @@ const ALIASES: Record<string, string> = {
   lc: "longcat",
   "neural-watt": "neuralwatt",
   nw: "neuralwatt",
+  "zoom-mate": "zoommate",
+  "zoom mate": "zoommate",
   codeium: "windsurf",
   "xiaomi mimo": "mimo",
   xiaomimimo: "mimo",

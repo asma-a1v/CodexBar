@@ -155,7 +155,6 @@ Winget 分發已透過 [microsoft/winget-pkgs](https://github.com/microsoft/wing
 
 ```powershell
 .\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCacheOnly
-.\scripts\windows-release-build.ps1 -Ref v0.32.2 -WarmCliCache
 .\scripts\windows-release-build.ps1 -Ref v0.32.2 -SmokeInstall
 .\scripts\windows-release-build.ps1 -Ref v0.32.2 -UploadRelease v0.32.2
 .\scripts\release-doctor.ps1 -Version 0.32.2

@@ -147,8 +147,6 @@ pub struct AppState {
     /// One-shot grace for a blur event caused while revealing the tray panel
     /// during explicit startup.
     pub startup_tray_blur_grace_until: Option<std::time::Instant>,
-    /// Whether the explicit startup path may use its delayed shell fallback.
-    pub startup_tray_reveal_pending: bool,
     /// One-shot permission for frontend layout code to reveal a newly opened flyout.
     pub flyout_reveal_pending: bool,
     /// Active while a user gesture (resize drag, HTML5 drag-reorder) is
@@ -199,7 +197,6 @@ impl AppState {
             last_shown_at: None,
             last_blur_dismissed_at: None,
             startup_tray_blur_grace_until: None,
-            startup_tray_reveal_pending: false,
             flyout_reveal_pending: false,
             gesture_blur_guard: None,
         }
@@ -232,21 +229,10 @@ impl AppState {
             .is_some_and(|dismissed_at| now.duration_since(dismissed_at) <= max_age)
     }
 
-    #[allow(dead_code)]
-    // Retained for the legacy startup TrayPanel reveal fallback.
-    pub fn arm_startup_tray_reveal(&mut self, grace_until: std::time::Instant) {
-        self.startup_tray_blur_grace_until = Some(grace_until);
-        self.startup_tray_reveal_pending = true;
-    }
-
     pub fn take_startup_tray_blur_grace(&mut self, now: std::time::Instant) -> bool {
         self.startup_tray_blur_grace_until
             .take()
             .is_some_and(|until| now <= until)
-    }
-
-    pub fn take_startup_tray_reveal_fallback(&mut self) -> bool {
-        std::mem::take(&mut self.startup_tray_reveal_pending)
     }
 
     pub fn arm_flyout_reveal(&mut self) {
@@ -459,28 +445,6 @@ mod tests {
     }
 
     #[test]
-    fn startup_tray_blur_grace_is_consumed_once() {
-        let mut state = AppState::new();
-        let now = std::time::Instant::now();
-
-        state.arm_startup_tray_reveal(now + std::time::Duration::from_secs(1));
-
-        assert!(state.take_startup_tray_blur_grace(now));
-        assert!(!state.take_startup_tray_blur_grace(now));
-    }
-
-    #[test]
-    fn startup_tray_reveal_fallback_is_consumed_once() {
-        let mut state = AppState::new();
-        let now = std::time::Instant::now();
-
-        state.arm_startup_tray_reveal(now + std::time::Duration::from_secs(1));
-
-        assert!(state.take_startup_tray_reveal_fallback());
-        assert!(!state.take_startup_tray_reveal_fallback());
-    }
-
-    #[test]
     fn hidden_flyout_cannot_be_revealed_by_stale_layout_work() {
         let mut state = AppState::new();
 
@@ -505,17 +469,6 @@ mod tests {
         state.clear_flyout_reveal();
 
         assert!(!state.take_pending_flyout_reveal());
-    }
-
-    #[test]
-    fn expired_startup_tray_blur_grace_is_consumed_without_suppressing() {
-        let mut state = AppState::new();
-        let now = std::time::Instant::now();
-
-        state.arm_startup_tray_reveal(now - std::time::Duration::from_secs(1));
-
-        assert!(!state.take_startup_tray_blur_grace(now));
-        assert!(!state.take_startup_tray_blur_grace(now));
     }
 
     #[test]

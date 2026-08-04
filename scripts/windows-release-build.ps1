@@ -28,11 +28,6 @@
 .PARAMETER WarmCacheOnly
     Build the desktop binary and stop before installer packaging. Use this to
     warm the Windows Cargo and pnpm caches after a large port.
-
-.PARAMETER WarmCliCache
-    Also build the CLI in a separate Cargo target cache. This keeps CLI warming
-    from invalidating or competing with desktop release artifacts.
-
 .PARAMETER SmokeInstall
     After packaging, run scripts/windows-smoke-install.ps1 against the generated
     installer and uninstall it again.
@@ -54,7 +49,6 @@ param(
     [string]$WorkRoot = "C:\code\Win-CodexBar-release",
     [switch]$RefreshInstallerDependencies,
     [switch]$WarmCacheOnly,
-    [switch]$WarmCliCache,
     [switch]$SmokeInstall,
     [string]$UploadRelease = ""
 )
@@ -236,10 +230,6 @@ try {
     Write-Host "Source: $SourceDir"
     Write-Host "Cargo target cache: $DesktopCargoTargetDir"
     Write-Host "pnpm store cache: $PnpmStoreDir"
-
-    if ($WarmCliCache) {
-        Write-Host "WarmCliCache requested; the CLI is now built during every release packaging run."
-    }
 
     Invoke-Native $pnpm.Source @(
         "--dir", "apps\desktop-tauri",

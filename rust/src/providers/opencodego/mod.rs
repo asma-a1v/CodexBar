@@ -8,7 +8,7 @@
 mod local;
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
+use chrono::Utc;
 use reqwest::Client;
 use uuid::Uuid;
 
@@ -165,7 +165,7 @@ impl OpenCodeGoProvider {
             ));
         }
 
-        if let Some(renews_at) = Self::extract_renewal(text) {
+        if let Some(renews_at) = super::extract_renewal(text) {
             snap = snap.with_extra_rate_window(
                 "renewal",
                 "Renews",
@@ -188,9 +188,9 @@ impl OpenCodeGoProvider {
                 name
             );
 
-            let percent = Self::extract_number(&percent_pattern, text);
+            let percent = super::extract_number(&percent_pattern, text);
             if let Some(p) = percent {
-                let reset = Self::extract_number(&reset_pattern, text)
+                let reset = super::extract_number(&reset_pattern, text)
                     .map(|n| n as i64)
                     .unwrap_or(0);
                 // Regex path only matches direct percent field names — fraction
@@ -214,58 +214,18 @@ impl OpenCodeGoProvider {
                 name
             );
             if let (Some(used), Some(limit)) = (
-                Self::extract_number(&used_pattern, text),
-                Self::extract_number(&limit_pattern, text),
-            ) {
-                if limit > 0.0 {
-                    let reset = Self::extract_number(&reset_pattern, text)
-                        .map(|n| n as i64)
-                        .unwrap_or(0);
-                    let p = (used / limit) * 100.0;
-                    return Some((p.clamp(0.0, 100.0), reset.max(0)));
-                }
+                super::extract_number(&used_pattern, text),
+                super::extract_number(&limit_pattern, text),
+            ) && limit > 0.0
+            {
+                let reset = super::extract_number(&reset_pattern, text)
+                    .map(|n| n as i64)
+                    .unwrap_or(0);
+                let p = (used / limit) * 100.0;
+                return Some((p.clamp(0.0, 100.0), reset.max(0)));
             }
         }
         None
-    }
-
-    fn extract_number(pattern: &str, text: &str) -> Option<f64> {
-        let re = regex_lite::Regex::new(pattern).ok()?;
-        re.captures(text)?.get(1)?.as_str().parse().ok()
-    }
-
-    fn extract_renewal(text: &str) -> Option<DateTime<Utc>> {
-        let re = regex_lite::Regex::new(
-            r#"(?:"renewAt"|"renew_at"|renewAt|renew_at)\s*[:=]\s*"?([^",}\s]+)"?"#,
-        )
-        .ok()?;
-        let raw = re.captures(text)?.get(1)?.as_str();
-        Self::date_from_text(raw)
-    }
-
-    fn date_from_text(raw: &str) -> Option<DateTime<Utc>> {
-        let text = raw.trim();
-        if text.is_empty() {
-            return None;
-        }
-        if let Ok(number) = text.parse::<f64>() {
-            return Self::date_from_timestamp(number);
-        }
-        DateTime::parse_from_rfc3339(text)
-            .ok()
-            .map(|dt| dt.with_timezone(&Utc))
-    }
-
-    fn date_from_timestamp(number: f64) -> Option<DateTime<Utc>> {
-        if !number.is_finite() || number <= 0.0 {
-            return None;
-        }
-        let seconds = if number > 10_000_000_000.0 {
-            number / 1000.0
-        } else {
-            number
-        };
-        DateTime::<Utc>::from_timestamp(seconds as i64, 0)
     }
 
     fn parse_workspace_ids(text: &str) -> Vec<String> {

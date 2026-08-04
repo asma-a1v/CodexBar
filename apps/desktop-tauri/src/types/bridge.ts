@@ -55,71 +55,6 @@ export interface TrayVisibilityStatusDto {
   support: TrayVisibilitySupport;
   state: TrayVisibilityState;
 }
-export type ProofProviderId =
-  | "codex"
-  | "claude"
-  | "cursor"
-  | "factory"
-  | "gemini"
-  | "antigravity"
-  | "copilot"
-  | "zai"
-  | "minimax"
-  | "kiro"
-  | "vertexai"
-  | "augment"
-  | "opencode"
-  | "kimi"
-  | "kimik2"
-  | "amp"
-  | "warp"
-  | "ollama"
-  | "azureopenai"
-  | "t3chat"
-  | "openrouter"
-  | "jetbrains"
-  | "alibaba"
-  | "alibabatokenplan"
-  | "nanogpt"
-  | "infini"
-  | "perplexity"
-  | "abacus"
-  | "opencodego"
-  | "kilo"
-  | "bedrock"
-  | "mistral"
-  | "codebuff"
-  | "deepseek"
-  | "deepinfra"
-  | "aiand"
-  | "zenmux"
-  | "clinepass"
-  | "longcat"
-  | "neuralwatt"
-  | "windsurf"
-  | "manus"
-  | "mimo"
-  | "doubao"
-  | "commandcode"
-  | "crof"
-  | "stepfun"
-  | "venice"
-  | "openaiapi"
-  | "grok"
-  | "elevenlabs"
-  | "deepgram"
-  | "groq"
-  | "llmproxy"
-  | "chutes"
-  | "litellm"
-  | "poe"
-  | "devin"
-  | "zed"
-  | "crossmodel"
-  | "qoder"
-  | "sakana"
-  | "sub2api"
-  | "wayfinder";
 
 export type TrayPanelSurfaceTarget = { kind: "summary" };
 export type PopOutSurfaceTarget =
@@ -181,32 +116,6 @@ export type SessionFocusResult =
   | { status: "unsupported"; message: string }
   | { status: "failed"; message: string };
 
-export interface ProofRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-}
-
-export interface ProofStatePayload {
-  mode: SurfaceMode;
-  target: SurfaceTarget;
-  windowRect: ProofRect | null;
-  trayAnchor: ProofRect | null;
-  workArea: ProofRect | null;
-  menuPath: string | null;
-  menuItems: string[];
-}
-
-export type ProofCommand =
-  | "open-tray-panel"
-  | "open-native-menu"
-  | "open-dashboard"
-  | "open-about-path"
-  | "hide-surface"
-  | `open-provider:${ProofProviderId}`
-  | `open-settings:${SettingsTabId}`;
-
 export interface ProviderCatalogEntry {
   id: string;
   displayName: string;
@@ -256,6 +165,11 @@ export interface SettingsSnapshot {
   agentSessionSshHosts?: string[];
   /** Master switch for external hooks (hooks.json next to settings). */
   hooksEnabled?: boolean;
+  /** Route provider HTTPS through a user HTTP(S) proxy (#235). */
+  httpProxyEnabled?: boolean;
+  httpProxyUrl?: string;
+  httpProxyUsername?: string;
+  httpProxyPassword?: string;
   uiLanguage: Language;
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
@@ -284,6 +198,12 @@ export interface SettingsSnapshot {
   floatBarShowCost: boolean;
   /** Promote the tray icon out of the Windows hidden-icons overflow (Win11 only). */
   promoteTrayIcon?: boolean;
+  /** When true, show Claude Daily Routines quota row (default true). */
+  claudeDailyRoutinesUsageVisible: boolean;
+  /** Alibaba Token Plan region: cn | intl | cn-personal | intl-personal. */
+  alibabaTokenPlanRegion: string;
+  /** Optional work-week length [2,6] for session-equivalent weekly forecast. */
+  weeklyProgressWorkDays?: number | null;
 }
 
 /** Partial settings object — only include fields you want to change. */
@@ -320,6 +240,10 @@ export interface SettingsUpdate {
   agentSessionsEnabled?: boolean;
   agentSessionSshHosts?: string[];
   hooksEnabled?: boolean;
+  httpProxyEnabled?: boolean;
+  httpProxyUrl?: string;
+  httpProxyUsername?: string;
+  httpProxyPassword?: string;
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;
@@ -340,6 +264,9 @@ export interface SettingsUpdate {
   floatBarShowResetInline?: boolean;
   floatBarShowCost?: boolean;
   promoteTrayIcon?: boolean;
+  claudeDailyRoutinesUsageVisible?: boolean;
+  alibabaTokenPlanRegion?: string;
+  weeklyProgressWorkDays?: number | null;
 }
 
 export interface UsageThresholdOverride {
@@ -360,6 +287,70 @@ export interface UsageSpendRow {
 export interface UsageSpendSummary {
   rows: UsageSpendRow[];
 }
+
+/** Codex local Workspaces snapshot (get_codex_workspaces_snapshot). */
+export type CodexWorkspacesSourceStatus =
+  | "complete"
+  | "catalogMissing"
+  | "catalogLocked"
+  | "catalogCorrupt"
+  | "catalogIncompatible";
+
+export interface CodexWorkspacesUsageTotals {
+  inputTokens: number;
+  cachedInputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+}
+
+export interface CodexWorkspacesCostEstimate {
+  knownUsd: number;
+  unknownTokens: number;
+}
+
+export interface CodexWorkspacesDailyPoint {
+  day: string;
+  totalTokens: number;
+  cachedInputTokens: number;
+  estimatedCostUsd: number | null;
+}
+
+export interface CodexWorkspacesSessionUsage {
+  id: string;
+  projectId: string;
+  displayTitle: string;
+  cwd: string | null;
+  startedAt: string | null;
+  latestActivity: string | null;
+  totals: CodexWorkspacesUsageTotals;
+  costEstimate: CodexWorkspacesCostEstimate;
+  topModel: string | null;
+}
+
+export interface CodexWorkspacesProjectUsage {
+  id: string;
+  displayName: string;
+  path: string | null;
+  totals: CodexWorkspacesUsageTotals;
+  costEstimate: CodexWorkspacesCostEstimate;
+  sessionCount: number;
+  latestActivity: string | null;
+  topModel: string | null;
+  topSessions: CodexWorkspacesSessionUsage[];
+}
+
+export interface CodexLocalProjectUsageSnapshot {
+  updatedAt: string;
+  historyDays: number;
+  scopeSignature: string;
+  indexedFileCount: number;
+  skippedFileCount: number;
+  total: CodexWorkspacesUsageTotals;
+  projects: CodexWorkspacesProjectUsage[];
+  daily: CodexWorkspacesDailyPoint[];
+  sourceStatus: CodexWorkspacesSourceStatus;
+}
+
 
 export interface BootstrapState {
   contractVersion: string;
@@ -392,6 +383,8 @@ export interface CostSnapshotBridge {
   resetsAt: string | null;
   formattedUsed: string;
   formattedLimit: string | null;
+  balance?: number | null;
+  formattedBalance?: string | null;
 }
 
 export interface PaceSnapshot {
@@ -401,6 +394,15 @@ export interface PaceSnapshot {
   etaSeconds: number | null;
   expectedUsedPercent: number;
   actualUsedPercent: number;
+}
+
+export interface SessionEquivalentForecastSnapshot {
+  estimatedWindowsToExhaustWeekly: number;
+  windowsUntilReset: number;
+  availableWindowsUntilReset: number;
+  sampleCount: number;
+  weeklyResetsAt: string;
+  weeklyUsedPercent: number;
 }
 
 export interface ProviderUsageSnapshot {
@@ -428,6 +430,7 @@ export interface ProviderUsageSnapshot {
   trayStatusLabel: string | null;
   fetchDurationMs?: number | null;
   wayfinderUsage?: WayfinderUsageSnapshot | null;
+  sessionEquivalentForecast?: SessionEquivalentForecastSnapshot | null;
 }
 
 export interface WayfinderRouteSummary {
@@ -466,17 +469,6 @@ export interface RefreshCompletePayload {
 
 export interface RefreshStartedPayload {
   providerIds: string[];
-}
-
-export interface SafeDiagnostics {
-  appVersion: string;
-  platform: string;
-  enabledProviders: string[];
-  providerCookieSources: Record<string, string>;
-  hasManualCookies: string[];
-  hasApiKeys: string[];
-  hidePersonalInfo: boolean;
-  refreshIntervalSecs: number;
 }
 
 export interface CredentialStorageStatus {
@@ -649,12 +641,6 @@ export interface WorkAreaRect {
   height: number;
 }
 
-// ── Phase 4 — event payloads ─────────────────────────────────────────
-
-/** Payload emitted for the `global-shortcut-triggered` event: the
- *  accelerator string that fired, e.g. `"Ctrl+Shift+U"`. */
-export type GlobalShortcutTriggeredPayload = string;
-
 // ── Phase 5 — i18n ────────────────────────────────────────────────────
 
 /** Snapshot returned by `get_locale_strings`. */
@@ -722,28 +708,4 @@ export interface CookieSourceOption {
 export interface RegionOption {
   value: string;
   label: string;
-}
-
-// ── Phase 6d — credential detection ──────────────────────────────────
-
-export interface GeminiCliStatus {
-  signedIn: boolean;
-  credentialsPath: string | null;
-}
-
-export interface VertexAiStatus {
-  hasCredentials: boolean;
-  credentialsPath: string | null;
-}
-
-export interface JetbrainsIde {
-  id: string;
-  displayName: string;
-  path: string;
-  detected: boolean;
-}
-
-export interface KiroStatus {
-  available: boolean;
-  hint: string | null;
 }

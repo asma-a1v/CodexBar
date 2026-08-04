@@ -353,6 +353,16 @@ impl ClaudeOAuthFetcher {
         response: &OAuthUsageResponse,
         credentials: &ClaudeOAuthCredentials,
     ) -> UsageSnapshot {
+        let show_routines = crate::settings::Settings::load().claude_daily_routines_usage_visible;
+        self.build_usage_snapshot_with_options(response, credentials, show_routines)
+    }
+
+    fn build_usage_snapshot_with_options(
+        &self,
+        response: &OAuthUsageResponse,
+        credentials: &ClaudeOAuthCredentials,
+        show_routines: bool,
+    ) -> UsageSnapshot {
         // Primary: 5-hour session window
         let primary = response
             .five_hour
@@ -364,14 +374,14 @@ impl ClaudeOAuthFetcher {
 
         // Secondary: prefer limits[] weekly_all over legacy seven_day (avoids
         // phantom 100% when Anthropic leaves seven_day.utilization stale).
-        if let Some(weekly) = super::scoped_weekly::weekly_all_window(&response.limits).or_else(
-            || {
+        if let Some(weekly) =
+            super::scoped_weekly::weekly_all_window(&response.limits).or_else(|| {
                 response
                     .seven_day
                     .as_ref()
                     .and_then(|w| Self::to_rate_window(w, Some(10080)))
-            },
-        ) {
+            })
+        {
             usage = usage.with_secondary(weekly);
         }
 
@@ -390,21 +400,28 @@ impl ClaudeOAuthFetcher {
             usage = usage.with_model_specific(sonnet);
         }
 
-        if let Some(window) = response
-            .seven_day_routines
-            .as_ref()
-            .and_then(|w| Self::to_rate_window(w, Some(10080)))
-        {
-            usage
-                .extra_rate_windows
-                .push(NamedRateWindow::new("claude-routines", "Daily Routines", window));
-        }
+        // Model-scoped weekly limits first; Daily Routines last (upstream order).
         usage
             .extra_rate_windows
-            .extend(super::scoped_weekly::scoped_weekly_windows(&response.limits));
+            .extend(super::scoped_weekly::scoped_weekly_windows(
+                &response.limits,
+            ));
+
+        if show_routines
+            && let Some(window) = response
+                .seven_day_routines
+                .as_ref()
+                .and_then(|w| Self::to_rate_window(w, Some(10080)))
+        {
+            usage.extra_rate_windows.push(NamedRateWindow::new(
+                "claude-routines",
+                "Daily Routines",
+                window,
+            ));
+        }
 
         // Login method from rate limit tier or default
-        if let Some(ref tier) = credentials.rate_limit_tier {
+        if let Some(tier) = &credentials.rate_limit_tier {
             usage = usage.with_login_method(super::claude_plan_label(tier));
         } else {
             usage = usage.with_login_method("Claude (OAuth)");
@@ -681,5 +698,78 @@ mod tests {
 
         assert!(message.contains("rate limited"));
         assert!(message.contains("credentials were preserved"));
+    }
+
+    #[test]
+    fn oauth_extras_put_scoped_weekly_before_routines() {
+        let response: OAuthUsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 10.0},
+                "seven_day_routines": {"utilization": 5.0},
+                "limits": [{
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 7,
+                    "resets_at": "2026-05-29T10:00:00Z",
+                    "scope": {"model": {"display_name": "Fable"}}
+                }]
+            }"#,
+        )
+        .expect("oauth body");
+
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+            rate_limit_tier: None,
+        };
+        let usage = ClaudeOAuthFetcher::new().build_usage_snapshot(&response, &credentials);
+
+        let ids: Vec<&str> = usage
+            .extra_rate_windows
+            .iter()
+            .map(|w| w.id.as_str())
+            .collect();
+        assert_eq!(ids, vec!["claude-weekly-scoped-fable", "claude-routines"]);
+    }
+
+    #[test]
+    fn oauth_extras_hide_routines_when_disabled() {
+        let response: OAuthUsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 10.0},
+                "seven_day_routines": {"utilization": 5.0},
+                "limits": [{
+                    "kind": "weekly_scoped",
+                    "group": "weekly",
+                    "percent": 7,
+                    "scope": {"model": {"display_name": "Fable"}}
+                }]
+            }"#,
+        )
+        .expect("oauth body");
+
+        let credentials = ClaudeOAuthCredentials {
+            access_token: "token".to_string(),
+            refresh_token: None,
+            expires_at: None,
+            scopes: vec![],
+            rate_limit_tier: None,
+        };
+        let usage = ClaudeOAuthFetcher::new().build_usage_snapshot_with_options(
+            &response,
+            &credentials,
+            false,
+        );
+
+        assert!(
+            usage
+                .extra_rate_windows
+                .iter()
+                .all(|w| w.id != "claude-routines")
+        );
+        assert_eq!(usage.extra_rate_windows.len(), 1);
+        assert_eq!(usage.extra_rate_windows[0].id, "claude-weekly-scoped-fable");
     }
 }
