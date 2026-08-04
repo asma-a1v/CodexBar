@@ -158,6 +158,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
               </div>
               <div className="credential-card__actions">
                 <button
+                  type="button"
                   className="credential-btn credential-btn--danger"
                   disabled={busy}
                   onClick={() => void handleRemove()}
@@ -199,6 +200,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
               disabled={busy}
             />
             <button
+              type="button"
               className="credential-btn credential-btn--primary"
               disabled={busy || !browserType}
               onClick={() => void handleImport()}
@@ -219,6 +221,7 @@ export function CookieSection({ providerId, cookieDomain }: Props) {
           disabled={busy}
         />
         <button
+          type="button"
           className="credential-btn credential-btn--primary"
           disabled={busy || !pasteValue.trim()}
           onClick={() => void handlePaste()}

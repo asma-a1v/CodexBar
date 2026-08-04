@@ -11,9 +11,8 @@ const TRAY_MAX_MEASURE_HEIGHT = 920;
 const TRAY_OVERVIEW_MIN_HEIGHT = 200;
 const TRAY_DETAIL_MIN_HEIGHT = 420;
 const TRAY_DENSE_OVERVIEW_HEIGHT = 776;
-// Leave a small viewport margin so fractional CSS zoom, borders, and WebView2
-// pixel rounding cannot make the document alternate between overflowing and
-// fitting by one or two pixels.
+// Leave a small viewport margin so borders and WebView2 pixel rounding cannot
+// make the document alternate between overflowing and fitting by a few pixels.
 const TRAY_HEIGHT_SAFETY_PX = 10;
 
 export interface TrayPanelLayoutOptions {
@@ -46,16 +45,13 @@ export function useTrayPanelLayout({
   );
 
   // The tray flyout is content-sized only; it has no user-resizable mode.
-  const applySize = useCallback(
-    async (size: LogicalSize): Promise<void> => {
-      try {
-        await getCurrentWindow().setSize(size);
-      } catch {
-        /* ignore */
-      }
-    },
-    [],
-  );
+  const applySize = useCallback(async (size: LogicalSize): Promise<void> => {
+    try {
+      await getCurrentWindow().setSize(size);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   const requestLayout = useCallback(() => {
     if (layoutTimerRef.current !== undefined) {

@@ -6,8 +6,8 @@ vi.mock("../../../hooks/useLocale", () => ({
 }));
 // The FloatBar section pulls in its own bridge dependencies; it is irrelevant
 // to the window-scale control under test.
-vi.mock("../../../floatbar", () => ({
-  FloatBarSettingsSection: () => null,
+vi.mock("../../../floatbar/SettingsSection", () => ({
+  default: () => null,
 }));
 
 import DisplayTab from "./DisplayTab";

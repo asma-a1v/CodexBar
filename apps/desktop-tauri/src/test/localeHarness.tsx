@@ -1,4 +1,3 @@
-import { type ReactNode } from "react";
 import { ALL_LOCALE_KEYS } from "../i18n/keys";
 import type { Language, LocaleStrings } from "../types/bridge";
 
@@ -16,8 +15,4 @@ export function buildBundle(
     entries[key] = overrides[key] ?? key;
   }
   return { language, entries };
-}
-
-export function wrapChildren(children: ReactNode): ReactNode {
-  return children;
 }

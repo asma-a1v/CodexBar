@@ -20,6 +20,9 @@ import { useEffect, useRef, useState } from "react";
 export const TOTAL_ANIMATION_MS = 600;
 export const STAGGER_PER_BAR_MS = 20;
 
+const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
+const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
+
 export interface ChartAnimation {
   /** Global 0..1 eased progress (stagger-agnostic). */
   progress: number;
@@ -67,9 +70,6 @@ export function useChartAnimation(
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [skip, count, ...deps]);
-
-  const easeOut = (t: number) => 1 - Math.pow(1 - t, 3);
-  const clamp01 = (v: number) => (v < 0 ? 0 : v > 1 ? 1 : v);
 
   const progress = skip ? 1 : clamp01(elapsed / TOTAL_ANIMATION_MS);
   const barProgress = (i: number) => {

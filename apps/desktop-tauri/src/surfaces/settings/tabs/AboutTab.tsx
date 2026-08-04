@@ -5,7 +5,7 @@ import { getAppInfo, openExternalUrl } from "../../../lib/tauri";
 import { Field, Select, Toggle } from "../../../components/FormControls";
 import type { AppInfoBridge, UpdateChannel } from "../../../types/bridge";
 import type { LocaleKey } from "../../../i18n/keys";
-import type { TabProps } from "../../Settings";
+import type { TabProps } from "../settingsTabs";
 import codexbarIcon from "../../../assets/codexbar-app-icon.png";
 
 const ABOUT_LINKS: ReadonlyArray<{ labelKey: LocaleKey; url: string }> = [
@@ -131,6 +131,7 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
 
       <div className="about-actions">
         <button
+          type="button"
           className="credential-btn credential-btn--primary"
           disabled={isBusy}
           onClick={handleCheck}
@@ -150,13 +151,14 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
             </span>
             {updateState.canDownload ? (
               <button
+                type="button"
                 className="credential-btn credential-btn--primary"
                 onClick={download}
               >
                 {t("BannerDownloadButton")}
               </button>
             ) : (
-              <button className="credential-btn" onClick={openRelease}>
+              <button type="button" className="credential-btn" onClick={openRelease}>
                 {t("BannerViewRelease")}
               </button>
             )}
@@ -176,13 +178,14 @@ export default function AboutTab({ settings, set, saving }: TabProps) {
             <span className="about-update-msg">{t("UpdateReady")}</span>
             {updateState.canApply ? (
               <button
+                type="button"
                 className="credential-btn credential-btn--primary"
                 onClick={apply}
               >
                 {t("BannerInstallRestart")}
               </button>
             ) : (
-              <button className="credential-btn" onClick={openRelease}>
+              <button type="button" className="credential-btn" onClick={openRelease}>
                 {t("BannerViewRelease")}
               </button>
             )}

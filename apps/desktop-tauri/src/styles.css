@@ -2836,6 +2836,48 @@ body:has(.tray-panel-reveal) {
   justify-content: flex-end;
 }
 
+.notification-sound-row {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  min-width: 0;
+  max-width: 320px;
+  flex-wrap: wrap;
+}
+
+.notification-sound-file {
+  width: 150px;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 480px) {
+  .settings-field:has(.notification-sound-row) {
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 6px;
+  }
+
+  .settings-field:has(.notification-sound-row) .settings-field__control {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .notification-sound-row {
+    display: flex;
+    width: 100%;
+    max-width: none;
+    justify-content: flex-start;
+  }
+
+  .notification-sound-file {
+    width: auto;
+    flex: 1 1 140px;
+  }
+}
+
 .settings-section__hint {
   margin: 4px 0 0;
   font-size: 0.78rem;
@@ -3297,15 +3339,13 @@ body:has(.menu-surface--popout) .popout-scale-shell,
   overflow-y: auto;
 }
 
-/* The native flyout is resized to the measured content. Keep the document
-   viewport from briefly exposing a scrollbar while WebView2 applies the new
-   native size; the surface itself remains naturally content-sized. */
+/* Unlock html/body overflow for tray panel auto-sizing */
 body:has(.menu-surface--tray) {
-  overflow: hidden;
+  overflow: visible;
   min-height: 0;
 }
 html:has(.menu-surface--tray) {
-  overflow: hidden;
+  overflow: visible;
 }
 
 /* Tray variant — auto-sized by JS, no forced min-height. */
@@ -3318,8 +3358,8 @@ html:has(.menu-surface--tray) {
   padding: 4px 0;
   display: flex;
   flex-direction: column;
-  /* Auto-size to content; JS resizes the Tauri window to match without
-     mutating max-height during measurement. */
+  /* Auto-size to content; JS resizes the Tauri window to match.
+     No max-height here — JS sets an explicit pixel cap after measuring. */
   height: auto;
   box-sizing: border-box;
 }

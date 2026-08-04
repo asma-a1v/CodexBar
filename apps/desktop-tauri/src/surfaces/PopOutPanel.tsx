@@ -13,7 +13,7 @@ import MenuSurface, {
   type MenuFooterRow,
 } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
-import ProviderGrid, { prioritizeProviders } from "../components/ProviderGrid";
+import ProviderGrid from "../components/ProviderGrid";
 import { orderProviderSnapshots } from "../lib/providerOrder";
 
 /**
@@ -80,7 +80,7 @@ export default function PopOutPanel({
     () => {
       if (selectedProviderId === null) {
         if (sorted.length + 1 > 32 && !gridExpanded) {
-          return prioritizeProviders(sorted, null).slice(0, 4);
+          return sorted.slice(0, 4);
         }
         return sorted;
       }
@@ -253,11 +253,13 @@ export default function PopOutPanel({
               <MenuCard
                 provider={p}
                 isRefreshing={refreshingProviderIds.has(p.providerId)}
-                hideEmail={settings.hidePersonalInfo}
-                resetTimeRelative={settings.resetTimeRelative}
-                showResetWhenExhausted={settings.showResetWhenExhausted}
-                showAsUsed={settings.showAsUsed}
-                compactMetrics={selectedProviderId === null}
+                display={{
+                  hideEmail: settings.hidePersonalInfo,
+                  resetTimeRelative: settings.resetTimeRelative,
+                  showResetWhenExhausted: settings.showResetWhenExhausted,
+                  showAsUsed: settings.showAsUsed,
+                  compactMetrics: selectedProviderId === null,
+                }}
               />
             </div>
           </Fragment>

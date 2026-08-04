@@ -122,6 +122,7 @@ fn main() {
     tauri::Builder::default()
         .manage(Mutex::new(initial_state))
         .plugin(shortcut_bridge::plugin())
+        .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             if should_reopen_primary_window_from_instance_args(args.iter().skip(1)) {
                 let request = primary_window_request();
@@ -252,6 +253,19 @@ fn main() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            // WebView2 can restore WS_EX_APPWINDOW after initial creation,
+            // focus, or a native resize. Re-assert the tray-owned style from
+            // the window-event loop, where Tauri's top-level HWND is stable.
+            if matches!(
+                event,
+                tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_)
+            ) && matches!(
+                window.label(),
+                "main" | shell::flyout_window::FLYOUT_LABEL | "settings" | floatbar::FLOATBAR_LABEL
+            ) && let Some(webview) = window.app_handle().get_webview_window(window.label())
+            {
+                shell::dwm::force_skip_taskbar(&webview);
+            }
             if floatbar::handle_window_event(window, event) {
                 return;
             }

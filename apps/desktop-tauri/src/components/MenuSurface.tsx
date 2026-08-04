@@ -56,7 +56,7 @@ export default function MenuSurface({
       <div className="menu-surface__body">{children}</div>
       {footerRows && footerRows.length > 0 && (
         <nav className="menu-surface__footer" aria-label={t("PanelMenu")}>
-          {footerRows.map((row) => (
+          {footerRows?.map((row) => (
             <button
               key={row.label}
               type="button"

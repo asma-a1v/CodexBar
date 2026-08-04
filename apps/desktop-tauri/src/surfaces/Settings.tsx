@@ -9,18 +9,14 @@ import type {
 import { useSettings } from "../hooks/useSettings";
 import { useSurfaceTarget } from "../hooks/useSurfaceMode";
 import { useLocale } from "../hooks/useLocale";
-import type { LocaleKey } from "../i18n/keys";
 import { closeSettingsWindow, getWorkAreaRect, setSurfaceMode } from "../lib/tauri";
+import { TAB_META, isSettingsTab } from "./settings/settingsTabs";
 import GeneralTab from "./settings/tabs/GeneralTab";
 import DisplayTab from "./settings/tabs/DisplayTab";
 import AdvancedTab from "./settings/tabs/AdvancedTab";
 import AboutTab from "./settings/tabs/AboutTab";
 import ProvidersTab from "./settings/tabs/ProvidersTab";
 import UsageSpendTab from "./settings/tabs/UsageSpendTab";
-
-// ── tab types ────────────────────────────────────────────────────────
-
-type SettingsTab = SettingsTabId;
 
 // Inline monochrome SVG icons stand in for the upstream macOS SF Symbols
 // (gearshape / square.grid.2x2 / eye / slider.horizontal.3 / info.circle).
@@ -46,7 +42,7 @@ function Svg({ children }: { children: ReactNode }) {
   );
 }
 
-const TabIcons: Record<SettingsTab, ReactElement> = {
+const TabIcons: Record<SettingsTabId, ReactElement> = {
   general: (
     <Svg>
       <circle cx="8" cy="8" r="2" />
@@ -104,20 +100,6 @@ const TabIcons: Record<SettingsTab, ReactElement> = {
   ),
 };
 
-export const TAB_META: { id: SettingsTab; labelKey: LocaleKey }[] = [
-  { id: "general", labelKey: "TabGeneral" },
-  { id: "providers", labelKey: "TabProviders" },
-  { id: "notifications", labelKey: "TabNotifications" },
-  { id: "menuBar", labelKey: "TabMenuBar" },
-  { id: "menu", labelKey: "TabMenu" },
-  { id: "usageSpend", labelKey: "TabUsageSpend" },
-  { id: "advanced", labelKey: "TabAdvanced" },
-  { id: "about", labelKey: "TabAbout" },
-];
-
-function isSettingsTab(value: string): value is SettingsTab {
-  return TAB_META.some((t) => t.id === value);
-}
 
 const SETTINGS_WINDOW_HEIGHT = 580;
 const SETTINGS_WINDOW_WIDTH = 600;
@@ -158,42 +140,40 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
   const { settings, saving, error, update } = useSettings(state.settings);
   const { t } = useLocale();
   const shellTarget = useSurfaceTarget("settings");
-  const initialTab: SettingsTab =
+  const initialTab: SettingsTabId =
     propTab && isSettingsTab(propTab)
       ? propTab
       : shellTarget?.kind === "settings" && isSettingsTab(shellTarget.tab)
         ? shellTarget.tab
         : "general";
-  const [activeTab, setActiveTab] = useState<SettingsTab>(initialTab);
+  const [activeTab, setActiveTab] = useState<SettingsTabId>(initialTab);
+  const shellTab: SettingsTabId | null =
+    shellTarget?.kind === "settings" && isSettingsTab(shellTarget.tab)
+      ? shellTarget.tab
+      : null;
+  const [prevPropTab, setPrevPropTab] = useState(propTab);
+  const [prevShellTab, setPrevShellTab] = useState(shellTab);
+
+  // Adjust local tab during render when external drivers change (no effect sync).
+  if (propTab !== prevPropTab) {
+    setPrevPropTab(propTab);
+    if (propTab && isSettingsTab(propTab)) {
+      setActiveTab(propTab);
+    }
+  }
+  if (shellTab !== prevShellTab) {
+    setPrevShellTab(shellTab);
+    if (shellTab) {
+      setActiveTab(shellTab);
+    }
+  }
 
   useEffect(() => {
     void applySettingsWindowSize();
   }, []);
 
-  // Respond to prop-driven tab changes (detached window re-focus events).
-  useEffect(() => {
-    if (propTab && isSettingsTab(propTab)) {
-      setActiveTab((current) => {
-        if (current === propTab) return current;
-        return propTab;
-      });
-    }
-  }, [propTab]);
-
-  useEffect(() => {
-    if (shellTarget?.kind !== "settings" || !isSettingsTab(shellTarget.tab)) {
-      return;
-    }
-
-    const nextTab: SettingsTab = shellTarget.tab;
-    setActiveTab((current) => {
-      if (current === nextTab) return current;
-      return nextTab;
-    });
-  }, [shellTarget]);
-
   const set = (patch: SettingsUpdate) => void update(patch);
-  const handleTabClick = useCallback((tab: SettingsTab) => {
+  const handleTabClick = useCallback((tab: SettingsTabId) => {
     setActiveTab(tab);
     // Only transition the main window if we're NOT in the detached settings window
     if (getCurrentWebviewWindow().label !== "settings") {
@@ -210,12 +190,14 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
         <span className="settings-titlebar__title" data-tauri-drag-region>{t("SettingsWindowTitle")}</span>
         <div className="settings-titlebar__controls">
           <button
+            type="button"
             className="settings-titlebar__control settings-titlebar__control--minimize"
             onClick={() => void getCurrentWindow().minimize()}
             aria-label={t("WindowMinimize")}
             title={t("WindowMinimize")}
           />
           <button
+            type="button"
             className="settings-titlebar__control settings-titlebar__control--close"
             onClick={() => void closeSettingsWindow()}
             aria-label={t("WindowClose")}
@@ -232,6 +214,7 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
       <nav className="settings-tabs" role="tablist">
         {TAB_META.map((tab) => (
           <button
+            type="button"
             key={tab.id}
             role="tab"
             aria-selected={activeTab === tab.id}
@@ -289,10 +272,3 @@ export default function Settings({ state, initialTab: propTab }: { state: Bootst
   );
 }
 
-// ── Tab props shared with extracted tab components ──────────────────
-
-export interface TabProps {
-  settings: BootstrapState["settings"];
-  set: (p: SettingsUpdate) => void;
-  saving: boolean;
-}

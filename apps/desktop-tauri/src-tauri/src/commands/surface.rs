@@ -92,12 +92,15 @@ pub fn reveal_tray_panel_window(
         return Ok(());
     }
     drop(guard);
+    crate::shell::dwm::force_skip_taskbar(&window);
     window.show().map_err(|e| e.to_string())?;
+    crate::shell::dwm::force_skip_taskbar(&window);
     state
         .lock()
         .map_err(|e| e.to_string())?
         .mark_tray_panel_shown(std::time::Instant::now());
     window.set_focus().map_err(|e| e.to_string())?;
+    crate::shell::dwm::force_skip_taskbar(&window);
     Ok(())
 }
 

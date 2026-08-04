@@ -28,8 +28,7 @@ interface Props {
  * `add_token_account`, `remove_token_account`, `set_active_token_account`).
  *
  * Used by:
- *   - `Settings.tsx::TokenAccountsTab` (compact=false, standalone tab)
- *   - `ProviderDetailPane.tsx` (compact=true, inline in detail pane)
+ *   - `ProviderDetailPane.tsx` (inline in provider detail pane)
  */
 export function TokenAccountsPanel({ providerId, compact = false }: Props) {
   const { t } = useLocale();
@@ -173,6 +172,7 @@ export function TokenAccountsPanel({ providerId, compact = false }: Props) {
                 <div className="credential-card__actions">
                   {!acct.isActive && (
                     <button
+                      type="button"
                       className="credential-btn credential-btn--secondary"
                       disabled={busy}
                       onClick={() => void handleSetActive(acct.id)}
@@ -181,6 +181,7 @@ export function TokenAccountsPanel({ providerId, compact = false }: Props) {
                     </button>
                   )}
                   <button
+                    type="button"
                     className="credential-btn credential-btn--danger"
                     disabled={busy}
                     onClick={() => void handleRemove(acct.id)}
@@ -201,6 +202,7 @@ export function TokenAccountsPanel({ providerId, compact = false }: Props) {
       )}
       {providerId === "copilot" && (
         <button
+          type="button"
           className="credential-btn credential-btn--primary"
           disabled={busy}
           onClick={() => void handleProviderLogin()}
@@ -226,6 +228,7 @@ export function TokenAccountsPanel({ providerId, compact = false }: Props) {
           disabled={busy}
         />
         <button
+          type="button"
           className="credential-btn credential-btn--primary"
           disabled={busy || !addLabel.trim() || !addToken.trim()}
           onClick={() => void handleAdd()}

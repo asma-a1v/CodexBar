@@ -84,6 +84,7 @@ fn cookie_source_provider(provider_id: &str) -> Option<codexbar::core::ProviderI
         "mistral" => ProviderId::Mistral,
         "qoder" => ProviderId::Qoder,
         "sakana" => ProviderId::Sakana,
+        "notion" => ProviderId::Notion,
         _ => return None,
     })
 }
@@ -184,6 +185,7 @@ fn workspace_provider(provider_id: &str) -> Option<codexbar::core::ProviderId> {
         "devin" => ProviderId::Devin,
         "opencodego" => ProviderId::OpenCodeGo,
         "zed" => ProviderId::Zed,
+        "xai" => ProviderId::Xai,
         _ => return None,
     })
 }
@@ -547,6 +549,23 @@ pub fn cookie_source_options_for(provider_id: &str, lang: Language) -> Vec<Cooki
                 "Paste a Cookie header from admin.mistral.ai.",
                 None,
             ),
+        ],
+        "notion" => vec![
+            cookie_option(
+                lang,
+                "auto",
+                "Automatically imports the browser session cookie.",
+                "",
+                None,
+            ),
+            cookie_option(
+                lang,
+                "manual",
+                "",
+                "Paste a full cookie header or the token_v2 value.",
+                None,
+            ),
+            cookie_option(lang, "off", "", "", Some("Notion cookies are disabled.")),
         ],
         _ => Vec::new(),
     }

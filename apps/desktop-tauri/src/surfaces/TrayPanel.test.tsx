@@ -22,6 +22,8 @@ const tauriMocks = vi.hoisted(() => ({
   getWorkAreaRect: vi.fn(),
   reanchorTrayPanel: vi.fn(),
   revealTrayPanelWindow: vi.fn(),
+  flyoutStoredSize: vi.fn().mockResolvedValue(null),
+  setFlyoutSize: vi.fn().mockResolvedValue(undefined),
   openProviderDashboard: vi.fn(),
   openProviderStatusPage: vi.fn(),
   getProviderChartData: vi.fn(),
@@ -44,6 +46,7 @@ const windowMocks = vi.hoisted(() => ({
     innerSize: vi.fn().mockResolvedValue({ width: 328, height: 200 }),
   })),
   LogicalSize: vi.fn((width: number, height: number) => ({ width, height })),
+  PhysicalSize: vi.fn((width: number, height: number) => ({ width, height })),
 }));
 
 vi.mock("../lib/tauri", () => tauriMocks);
@@ -103,11 +106,21 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     refreshIntervalSecs: 300,
     adaptiveRefresh: false,
     refreshAllProvidersOnMenuOpen: false,
+  lowPowerMode: false,
     startAtLogin: false,
     startMinimized: false,
     showNotifications: true,
     soundEnabled: true,
-    soundVolume: 100,
+    notificationSoundTheme: "windows",
+    notificationSoundPaths: {
+      predictiveWarning: null,
+      highUsage: null,
+      criticalUsage: null,
+      exhausted: null,
+      statusIssue: null,
+      sessionDepleted: null,
+      sessionRestored: null,
+    },
     highUsageThreshold: 70,
     criticalUsageThreshold: 90,
     predictivePaceWarningEnabled: false,
@@ -187,6 +200,7 @@ describe("TrayPanel provider grid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     eventMocks.listeners.clear();
+    tauriMocks.flyoutStoredSize.mockResolvedValue(null);
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);
@@ -358,7 +372,9 @@ describe("TrayPanel provider grid", () => {
     expect(screen.getByText("更新")).toBeInTheDocument();
     expect(screen.getByText("設定...")).toBeInTheDocument();
     expect(screen.getByText("CodexBar について")).toBeInTheDocument();
-    expect(screen.getByText("終了")).toBeInTheDocument();
+    const quitButton = screen.getByText("終了").closest("button");
+    expect(quitButton).not.toBeNull();
+    expect(quitButton?.querySelector(".menu-surface__footer-icon")).toHaveTextContent("✕");
     expect(await screen.findByText("30日間のコスト")).toBeInTheDocument();
     expect(container.querySelector(".menu-card__subtitle")?.textContent).toContain("日前");
     expect(screen.getByText("最新トークン")).toBeInTheDocument();
@@ -492,7 +508,7 @@ describe("TrayPanel provider grid", () => {
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
   });
 
-  it("keeps the tray content-sized and removes fixed-size scrolling controls", async () => {
+  it("keeps a content-sized stacked layout", async () => {
     const providers = [
       provider("codex", "Codex"),
       provider("claude", "Claude"),
@@ -507,18 +523,8 @@ describe("TrayPanel provider grid", () => {
     await waitFor(() => {
       expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
     });
-
-    expect(container.querySelector(".tray-panel-reveal--usersized")).toBeNull();
-    expect(container.querySelector(".tray-resize")).toBeNull();
     expect(container.querySelector(".menu-stack__column")).toBeNull();
     expect(container.querySelectorAll(".menu-stack__sep")).toHaveLength(3);
-    const traySurface = container.querySelector<HTMLElement>(
-      ".menu-surface--tray",
-    );
-    expect(traySurface?.style.maxHeight).toBe("");
-    expect(traySurface?.style.overflow).toBe("");
-    expect(document.documentElement.style.overflow).toBe("");
-    expect(document.body.style.overflow).toBe("");
   });
 
   it("collapses and expands the full provider catalog in the dense tray grid", async () => {
@@ -648,21 +654,6 @@ describe("TrayPanel provider grid", () => {
     expect(grid?.classList.contains("provider-grid--no-icons")).toBe(true);
     expect(container.querySelector(".provider-icon")).toBeNull();
     expect(container.querySelector(".provider-grid__icon-overview")).toBeNull();
-  });
-
-  it("does not render or apply the removed tray zoom control", async () => {
-    const { container } = renderTrayPanel([provider("claude", "Claude", 35)]);
-
-    await waitFor(() => {
-      expect(container.querySelector(".menu-surface--tray")).not.toBeNull();
-    });
-
-    expect(container.querySelector(".menu-surface__footer-zoom")).toBeNull();
-    expect(container.querySelector(".menu-surface__footer-zoom-slider")).toBeNull();
-    const traySurface = container.querySelector<HTMLElement>(".menu-surface--tray");
-    expect(traySurface).not.toBeNull();
-    expect(traySurface!.style.getPropertyValue("zoom")).toBe("");
-    expect(tauriMocks.updateSettings).not.toHaveBeenCalled();
   });
 
   it("reveals the tray panel if the native resize pass fails", async () => {

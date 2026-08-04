@@ -2,16 +2,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocale } from "../../../hooks/useLocale";
 import { getUsageSpendSummary } from "../../../lib/tauri";
 import type { UsageSpendSummary } from "../../../types/bridge";
-import type { TabProps } from "../../Settings";
+import type { TabProps } from "../settingsTabs";
+
+const currencyFormatters = new Map<string, Intl.NumberFormat>();
 
 function formatUsd(value: number | null | undefined, currency: string): string {
   if (value == null || !Number.isFinite(value)) return "—";
+  const code = currency || "USD";
   try {
-    return new Intl.NumberFormat(undefined, {
-      style: "currency",
-      currency: currency || "USD",
-      maximumFractionDigits: 2,
-    }).format(value);
+    let formatter = currencyFormatters.get(code);
+    if (!formatter) {
+      formatter = new Intl.NumberFormat(undefined, {
+        style: "currency",
+        currency: code,
+        maximumFractionDigits: 2,
+      });
+      currencyFormatters.set(code, formatter);
+    }
+    return formatter.format(value);
   } catch {
     return `$${value.toFixed(2)}`;
   }

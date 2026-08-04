@@ -74,8 +74,11 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
         } else {
             reanchor(app)?;
         }
+        super::dwm::force_skip_taskbar(&window);
         window.show().map_err(|e| e.to_string())?;
+        super::dwm::force_skip_taskbar(&window);
         window.set_focus().map_err(|e| e.to_string())?;
+        super::dwm::force_skip_taskbar(&window);
         if show_grace_starts_now(false) {
             mark_shown(app);
         }
@@ -118,6 +121,7 @@ pub fn open_or_focus(app: &AppHandle, position: Option<(i32, i32)>) -> Result<()
     // Keep the flyout borderless and non-resizable; the frontend owns its
     // content-driven size and re-anchors it after each change.
     super::dwm::force_dark_caption(&win);
+    super::dwm::force_skip_taskbar(&win);
 
     let target_position =
         position.or_else(|| super::position::default_surface_position(app, SurfaceMode::TrayPanel));

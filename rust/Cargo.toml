@@ -1,6 +1,6 @@
 [package]
 name = "codexbar"
-version = "0.46.0"
+version = "0.47.0"
 edition = "2024"
 authors = ["CodexBar Contributors"]
 description = "Windows and WSL system tray app for monitoring AI provider usage limits"
@@ -88,6 +88,7 @@ windows = { version = "0.58", features = [
     "Win32_Foundation",
     "Win32_Security_Credentials",
     "Win32_Security_Cryptography",
+    "Win32_Media_Audio",
     "Win32_UI_WindowsAndMessaging",
 ] }
 

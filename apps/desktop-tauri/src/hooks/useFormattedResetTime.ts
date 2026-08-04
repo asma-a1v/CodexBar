@@ -3,6 +3,13 @@ import { useLocale } from "./useLocale";
 
 export type ResetTimeFormatMode = "reset" | "expires";
 
+const absoluteResetFormatter = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "numeric",
+  minute: "2-digit",
+});
+
 /**
  * Format a provider's reset timestamp for display.
  *
@@ -63,12 +70,7 @@ export function useFormattedResetTime(
   }
 
   try {
-    return new Intl.DateTimeFormat(undefined, {
-      month: "short",
-      day: "numeric",
-      hour: "numeric",
-      minute: "2-digit",
-    }).format(new Date(target));
+    return absoluteResetFormatter.format(new Date(target));
   } catch {
     return fallback;
   }

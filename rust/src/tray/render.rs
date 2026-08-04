@@ -31,14 +31,6 @@ pub fn render_bar_icon_rgba(
         *pixel = Rgba([0, 0, 0, 0]);
     }
 
-    let bg_alpha: u8 = if has_error { 180 } else { 255 };
-    let bg_color = Rgba([60, 60, 70, bg_alpha]);
-    for y in 2..SZ - 2 {
-        for x in 2..SZ - 2 {
-            img.put_pixel(x, y, bg_color);
-        }
-    }
-
     let color_for = |percent: f64| -> (u8, u8, u8) {
         let (r, g, b) = UsageLevel::from_percent(percent).color();
         if has_error {
@@ -90,13 +82,6 @@ pub fn render_percent_icon_rgba(percent: f64, has_error: bool) -> (Vec<u8>, u32,
 
     for pixel in img.pixels_mut() {
         *pixel = Rgba([0, 0, 0, 0]);
-    }
-
-    let bg_alpha: u8 = if has_error { 180 } else { 255 };
-    for y in 2..SZ - 2 {
-        for x in 2..SZ - 2 {
-            img.put_pixel(x, y, Rgba([60, 60, 70, bg_alpha]));
-        }
     }
 
     let pct = percent.clamp(0.0, 100.0).round() as u32;
@@ -189,6 +174,13 @@ mod tests {
     }
 
     #[test]
+    fn bar_icon_background_is_transparent() {
+        let (rgba, w, _h) = render_bar_icon_rgba(50.0, Some(75.0), false);
+        let idx = ((4 * w + 4) * 4) as usize;
+        assert_eq!(rgba[idx + 3], 0);
+    }
+
+    #[test]
     fn zero_fill_gives_gray_only_bar() {
         let (rgba, w, _h) = render_bar_icon_rgba(0.0, None, false);
         // Sample a pixel near the centre of the bar track area (y=16, x=8)
@@ -232,7 +224,14 @@ mod tests {
     #[test]
     fn percent_icon_draws_visible_text() {
         let (rgba, _, _) = render_percent_icon_rgba(72.0, false);
-        assert!(rgba.chunks_exact(4).any(|px| px[3] == 255 && px[0] != 60));
+        assert!(rgba.chunks_exact(4).any(|px| px[3] == 255));
+    }
+
+    #[test]
+    fn percent_icon_background_is_transparent() {
+        let (rgba, w, _h) = render_percent_icon_rgba(72.0, false);
+        let idx = ((2 * w + 2) * 4) as usize;
+        assert_eq!(rgba[idx + 3], 0);
     }
 
     #[test]

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { TAB_META } from "./Settings";
+import { TAB_META } from "./settings/settingsTabs";
 
 describe("Settings navigation", () => {
   it("lists providers separately after general", () => {

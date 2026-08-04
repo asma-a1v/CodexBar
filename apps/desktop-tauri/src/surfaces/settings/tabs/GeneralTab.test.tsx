@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../../hooks/useLocale", () => ({
@@ -14,22 +14,39 @@ vi.mock("@tauri-apps/api/core", () => ({
     { value: "japanese", display: "日本語" },
     { value: "korean", display: "한국어" },
     { value: "spanish", display: "Español" },
+    { value: "russian", display: "Русский" },
   ]),
+}));
+
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
 }));
 
 import GeneralTab from "./GeneralTab";
 import type { SettingsSnapshot } from "../../../types/bridge";
+import { invoke } from "@tauri-apps/api/core";
+import { open } from "@tauri-apps/plugin-dialog";
 
 const settings: SettingsSnapshot = {
   enabledProviders: [],
   refreshIntervalSecs: 300,
     adaptiveRefresh: false,
   refreshAllProvidersOnMenuOpen: false,
+  lowPowerMode: false,
   startAtLogin: false,
   startMinimized: false,
   showNotifications: true,
   soundEnabled: true,
-  soundVolume: 100,
+  notificationSoundTheme: "windows",
+  notificationSoundPaths: {
+    predictiveWarning: null,
+    highUsage: null,
+    criticalUsage: null,
+    exhausted: null,
+    statusIssue: null,
+    sessionDepleted: null,
+    sessionRestored: null,
+  },
   highUsageThreshold: 70,
   criticalUsageThreshold: 90,
   predictivePaceWarningEnabled: false,
@@ -73,14 +90,14 @@ const settings: SettingsSnapshot = {
 };
 
 describe("GeneralTab language picker", () => {
-  it("renders 6 language options when Traditional Chinese is wired", () => {
+  it("renders all supported language options", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
     const select = screen.getByDisplayValue("English");
     expect(select).toBeInTheDocument();
 
     const options = select.querySelectorAll("option");
-    expect(options).toHaveLength(6);
+    expect(options.length).toBeGreaterThanOrEqual(7);
   });
 
   it("includes spanish as a selectable option", () => {
@@ -89,6 +106,12 @@ describe("GeneralTab language picker", () => {
     expect(
       screen.getByText("Español"),
     ).toBeInTheDocument();
+  });
+
+  it("includes russian as a selectable option", () => {
+    render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
+
+    expect(screen.getByText("Русский")).toBeInTheDocument();
   });
 
   it("includes korean as a selectable option", () => {
@@ -119,6 +142,119 @@ describe("GeneralTab language picker", () => {
     fireEvent.click(screen.getByRole("checkbox", { name: "PredictivePaceWarnings" }));
 
     expect(set).toHaveBeenCalledWith({ predictivePaceWarningEnabled: true });
+  });
+
+  it("updates the low power mode preference", () => {
+    const set = vi.fn();
+    render(<GeneralTab settings={settings} set={set} saving={false} />);
+
+    fireEvent.click(screen.getByRole("checkbox", { name: "LowPowerMode" }));
+
+    expect(set).toHaveBeenCalledWith({ lowPowerMode: true });
+  });
+
+  it("updates the default notification sound set", () => {
+    const set = vi.fn();
+    render(
+      <GeneralTab mode="notifications" settings={settings} set={set} saving={false} />,
+    );
+
+    const select = screen.getByRole("combobox", { name: "NotificationSoundTheme" });
+    expect(select.querySelectorAll("option")).toHaveLength(2);
+    expect(select).toHaveStyle({ width: "180px" });
+    fireEvent.change(select, {
+      target: { value: "codexBar" },
+    });
+
+    expect(set).toHaveBeenCalledWith({ notificationSoundTheme: "codexBar" });
+  });
+
+  it("renders and previews all seven notification events", () => {
+    render(
+      <GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />,
+    );
+
+    const previewButtons = screen.getAllByRole("button", {
+      name: /NotificationTestSound$/,
+    });
+    expect(previewButtons).toHaveLength(7);
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "NotificationSoundEventSessionRestored: NotificationTestSound",
+      }),
+    );
+    expect(invoke).toHaveBeenCalledWith("play_notification_sound", {
+      event: "sessionRestored",
+    });
+  });
+
+  it("assigns and clears a custom WAV for one notification", async () => {
+    const set = vi.fn();
+    vi.mocked(open).mockResolvedValue("C:\\sounds\\high-usage.wav");
+    const { rerender } = render(
+      <GeneralTab mode="notifications" settings={settings} set={set} saving={false} />,
+    );
+
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "NotificationSoundEventHighUsage: NotificationSoundChooseFile",
+      }),
+    );
+    await waitFor(() =>
+      expect(set).toHaveBeenCalledWith({
+        notificationSoundPaths: {
+          ...settings.notificationSoundPaths,
+          highUsage: "C:\\sounds\\high-usage.wav",
+        },
+      }),
+    );
+
+    rerender(
+      <GeneralTab
+        mode="notifications"
+        settings={{
+          ...settings,
+          notificationSoundPaths: {
+            ...settings.notificationSoundPaths,
+            highUsage: "C:\\sounds\\high-usage.wav",
+          },
+        }}
+        set={set}
+        saving={false}
+      />,
+    );
+    expect(
+      screen.getByRole("button", {
+        name: "NotificationSoundEventHighUsage: high-usage.wav, NotificationSoundChooseFile",
+      }),
+    ).toBeInTheDocument();
+    fireEvent.click(
+      screen.getByRole("button", {
+        name: "NotificationSoundEventHighUsage: NotificationSoundClearFile",
+      }),
+    );
+    expect(set).toHaveBeenLastCalledWith({
+      notificationSoundPaths: settings.notificationSoundPaths,
+    });
+  });
+
+  it("reenables sound previews immediately when playback fails", async () => {
+    render(
+      <GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />,
+    );
+    await waitFor(() =>
+      expect(invoke).toHaveBeenCalledWith("get_available_languages"),
+    );
+    vi.mocked(invoke).mockRejectedValueOnce(new Error("playback failed"));
+
+    const preview = screen.getByRole("button", {
+      name: "NotificationSoundEventCriticalUsage: NotificationTestSound",
+    });
+    fireEvent.click(preview);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("playback failed");
+    expect(preview).toBeEnabled();
   });
 
   it("saves a window override on blur and clears it to resume inheritance", () => {

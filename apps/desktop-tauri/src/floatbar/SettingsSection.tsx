@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { Field, Select, Toggle } from "../components/FormControls";
 import { useLocale } from "../hooks/useLocale";
 import type {
@@ -16,10 +16,11 @@ interface Props {
 
 function useDraftNumber(value: number) {
   const [draft, setDraft] = useState(value);
-
-  useEffect(() => {
+  const [prev, setPrev] = useState(value);
+  if (value !== prev) {
+    setPrev(value);
     setDraft(value);
-  }, [value]);
+  }
 
   const commit = useCallback(
     (next: number, onCommit: (value: number) => void) => {

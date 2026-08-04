@@ -53,6 +53,7 @@ export function RegionSection({
         className="provider-detail-select"
         value={selected}
         disabled={busy}
+        aria-label={t("ProviderRegion")}
         onChange={(e) => void handleChange(e.target.value)}
       >
         {options.map((opt) => (

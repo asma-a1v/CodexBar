@@ -7,6 +7,14 @@ fn test_settings_default() {
     assert!(settings.enabled_providers.contains("codex"));
     assert_eq!(settings.refresh_interval_secs, 300);
     assert!(settings.show_notifications);
+    assert_eq!(
+        settings.notification_sound_paths,
+        NotificationSoundPaths::default()
+    );
+    assert_eq!(
+        settings.notification_sound_theme,
+        NotificationSoundTheme::Windows
+    );
     assert_eq!(settings.high_usage_threshold, 70.0);
     assert_eq!(settings.critical_usage_threshold, 90.0);
     assert!(!settings.show_reset_when_exhausted);
@@ -14,6 +22,60 @@ fn test_settings_default() {
     assert!(!settings.float_bar_show_cost);
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
+    assert!(!settings.low_power_mode);
+}
+
+#[test]
+fn low_power_mode_defaults_false_and_round_trips() {
+    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("missing low_power_mode defaults false");
+    assert!(!defaulted.low_power_mode);
+
+    let enabled = Settings {
+        low_power_mode: true,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&enabled).expect("serialize low_power_mode");
+    assert!(json.contains("\"low_power_mode\":true"));
+
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize low_power_mode");
+    assert!(loaded.low_power_mode);
+}
+
+#[test]
+fn notification_sound_paths_round_trip_and_default_for_existing_settings() {
+    let settings = Settings {
+        notification_sound_theme: NotificationSoundTheme::CodexBar,
+        notification_sound_paths: NotificationSoundPaths {
+            critical_usage: Some(r"C:\sounds\critical.wav".to_string()),
+            ..NotificationSoundPaths::default()
+        },
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&settings).expect("serialize notification sound paths");
+    assert!(json.contains("\"criticalUsage\":\"C:\\\\sounds\\\\critical.wav\""));
+
+    let loaded: Settings =
+        serde_json::from_str(&json).expect("deserialize notification sound paths");
+    assert_eq!(
+        loaded.notification_sound_paths,
+        settings.notification_sound_paths
+    );
+    assert_eq!(
+        loaded.notification_sound_theme,
+        NotificationSoundTheme::CodexBar
+    );
+
+    let legacy: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("deserialize settings without notification sound paths");
+    assert_eq!(
+        legacy.notification_sound_paths,
+        NotificationSoundPaths::default()
+    );
+    assert_eq!(
+        legacy.notification_sound_theme,
+        NotificationSoundTheme::Windows
+    );
 }
 
 #[test]
@@ -233,7 +295,6 @@ fn float_bar_raw_clamps_out_of_range_opacity_on_load() {
             "start_at_login": false,
             "show_notifications": true,
             "sound_enabled": true,
-            "sound_volume": 100,
             "high_usage_threshold": 70.0,
             "critical_usage_threshold": 90.0,
             "merge_tray_icons": false,
@@ -375,6 +436,7 @@ fn test_api_key_provider_catalog_includes_token_providers() {
         ProviderId::Grok,
         ProviderId::Groq,
         ProviderId::LLMProxy,
+        ProviderId::Xai,
     ] {
         assert!(
             providers.iter().any(|provider| provider.id == id),
@@ -519,13 +581,14 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 6);
+    assert_eq!(languages.len(), 7);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
     assert!(languages.contains(&Language::ChineseTraditional));
     assert!(languages.contains(&Language::Japanese));
     assert!(languages.contains(&Language::Korean));
     assert!(languages.contains(&Language::Spanish));
+    assert!(languages.contains(&Language::Russian));
 }
 
 #[test]
@@ -534,6 +597,14 @@ fn test_language_display_names() {
     assert_eq!(Language::Chinese.display_name(), "中文");
     assert_eq!(Language::ChineseTraditional.display_name(), "繁體中文");
     assert_eq!(Language::Japanese.display_name(), "日本語");
+    assert_eq!(Language::Russian.display_name(), "Русский");
+}
+
+#[test]
+fn test_language_resolves_russian_aliases() {
+    assert_eq!(Language::resolve("russian"), Some(Language::Russian));
+    assert_eq!(Language::resolve("ru-RU"), Some(Language::Russian));
+    assert_eq!(Language::resolve("Русский"), Some(Language::Russian));
 }
 
 #[test]

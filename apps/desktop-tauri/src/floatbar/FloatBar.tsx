@@ -257,24 +257,32 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     };
   }, []);
 
-  // The floatbar window is detached, so it doesn't share React state
-  // with the Settings tab. Listen for the Rust-side config-changed event
-  // and re-pull the snapshot when fired.
-  const [settings, setSettings] = useState<SettingsSnapshot>(state.settings);
+  // Local settings: event stream is source of truth after mount; re-seed
+  // if the bootstrap prop identity changes (rare parent remount path).
+  const [settings, setSettings] = useState(state.settings);
+  const [settingsSeed, setSettingsSeed] = useState(state.settings);
+  if (state.settings !== settingsSeed) {
+    setSettingsSeed(state.settings);
+    setSettings(state.settings);
+  }
   const [localCosts, setLocalCosts] = useState<Record<string, FloatBarCostSummary>>({});
 
   // The detached floatbar should keep usage fresh, but it must not open or
   // focus any other surface. Refresh data only; provider-updated events feed
-  // this window when the backend completes.
+  // this window when the backend completes. Respect Low Power Mode's 30-min
+  // floor for automatic ticks (manual refresh stays elsewhere/immediate).
   useEffect(() => {
-    const intervalMs = Math.max(60_000, settings.refreshIntervalSecs * 1000);
+    const baseMs = Math.max(60_000, settings.refreshIntervalSecs * 1000);
+    const intervalMs = settings.lowPowerMode
+      ? Math.max(baseMs, 30 * 60 * 1000)
+      : baseMs;
     const tick = () => {
       void refreshProvidersIfStale().catch(() => {});
     };
     tick();
     const id = setInterval(tick, intervalMs);
     return () => clearInterval(id);
-  }, [settings.refreshIntervalSecs]);
+  }, [settings.refreshIntervalSecs, settings.lowPowerMode]);
 
   useEffect(() => {
     const unlisten = listen(FLOAT_BAR_CONFIG_CHANGED_EVENT, () => {
@@ -303,9 +311,6 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return [...list].sort((a, b) => b.primary.usedPercent - a.primary.usedPercent);
   }, [providers, settings.enabledProviders, filterIds]);
 
-  const visibleCostTargetKey = visible
-    .map((p) => `${providerCostKey(p)}:${p.providerId}:${p.displayName}`)
-    .join("|");
   const visibleCostTargets = useMemo<FloatBarCostTarget[]>(
     () =>
       showCost
@@ -315,7 +320,7 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
             displayName: provider.displayName,
           }))
         : [],
-    [showCost, visibleCostTargetKey],
+    [showCost, visible],
   );
 
   useEffect(() => {
@@ -380,8 +385,14 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
       resizeRafRef.current = null;
       const rect = el.getBoundingClientRect();
       const padding = 8;
-      const w = Math.ceil(rect.width + padding);
-      const h = Math.ceil(rect.height + padding);
+      const dpr =
+        Number.isFinite(window.devicePixelRatio) && window.devicePixelRatio > 0
+          ? window.devicePixelRatio
+          : 1;
+      // DOM measurements are CSS pixels; the native command accepts physical
+      // pixels so the window remains correctly sized on scaled displays.
+      const w = Math.ceil(Math.ceil(rect.width + padding) * dpr);
+      const h = Math.ceil(Math.ceil(rect.height + padding) * dpr);
       const last = lastResizeRef.current;
       if (last && Math.abs(last.w - w) <= 1 && Math.abs(last.h - h) <= 1) return;
       lastResizeRef.current = { w, h };
@@ -410,6 +421,12 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
     return () => observer.disconnect();
   }, [resizeToContent]);
 
+  useEffect(() => {
+    // Re-measure after moving onto a monitor with a different scale factor.
+    window.addEventListener("resize", resizeToContent);
+    return () => window.removeEventListener("resize", resizeToContent);
+  }, [resizeToContent]);
+
   useEffect(
     () => () => {
       if (resizeRafRef.current !== null) {
@@ -425,6 +442,9 @@ export default function FloatBar({ state }: { state: BootstrapState }) {
 
   return (
     <div
+      role="button"
+      tabIndex={-1}
+      aria-label={t("AppName")}
       className={`floatbar floatbar--${orientation} floatbar--${style}${settings.floatBarDarkText ? " floatbar--light-bg" : ""}`}
       data-tauri-drag-region
       onMouseDown={startDrag}

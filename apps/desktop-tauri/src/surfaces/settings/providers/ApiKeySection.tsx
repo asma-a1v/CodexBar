@@ -151,6 +151,7 @@ export function ApiKeySection({ providerId }: Props) {
             <div className="credential-card__actions">
               {!editing && (
                 <button
+                  type="button"
                   className="credential-btn"
                   disabled={busy}
                   onClick={() => {
@@ -164,6 +165,7 @@ export function ApiKeySection({ providerId }: Props) {
               )}
               {saved && !editing && (
                 <button
+                  type="button"
                   className="credential-btn credential-btn--danger"
                   disabled={busy}
                   onClick={() => void handleRemove()}
@@ -210,6 +212,7 @@ export function ApiKeySection({ providerId }: Props) {
               />
               <div className="credential-card__edit-actions">
                 <button
+                  type="button"
                   className="credential-btn credential-btn--primary"
                   disabled={busy || !editValue.trim()}
                   onClick={() => void handleSave()}
@@ -217,6 +220,7 @@ export function ApiKeySection({ providerId }: Props) {
                   {t("Save")}
                 </button>
                 <button
+                  type="button"
                   className="credential-btn"
                   disabled={busy}
                   onClick={() => {

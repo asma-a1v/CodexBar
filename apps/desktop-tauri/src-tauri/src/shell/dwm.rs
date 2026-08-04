@@ -106,6 +106,13 @@ const WM_GETMINMAXINFO: u32 = 0x0024;
 #[cfg(windows)]
 const BORDERLESS_SUBCLASS_ID: usize = 0xC0DE_BA12;
 
+const WS_EX_TOOLWINDOW: isize = 0x00000080;
+const WS_EX_APPWINDOW: isize = 0x00040000;
+
+fn taskbar_hidden_ex_style(style: isize) -> isize {
+    (style | WS_EX_TOOLWINDOW) & !WS_EX_APPWINDOW
+}
+
 #[cfg(windows)]
 unsafe extern "system" fn borderless_subclass_proc(
     hwnd: isize,
@@ -181,6 +188,47 @@ pub fn force_dark_caption(win: &tauri::WebviewWindow) {
 #[cfg(windows)]
 pub fn force_dark_caption_resizable(win: &tauri::WebviewWindow) {
     force_dark_caption_inner(win, true);
+}
+
+/// Make a tray-owned window stay out of the Windows taskbar.
+///
+/// Tauri's `skip_taskbar` request can leave `WS_EX_APPWINDOW` on dynamically
+/// created WebView2 windows. Set the canonical Win32 combination explicitly
+/// after frame/style changes: add `WS_EX_TOOLWINDOW`, remove
+/// `WS_EX_APPWINDOW`, then recalculate the frame.
+#[cfg(windows)]
+pub fn force_skip_taskbar(win: &tauri::WebviewWindow) {
+    let Ok(handle) = win.hwnd() else {
+        tracing::warn!("taskbar: couldn't get window handle");
+        return;
+    };
+    // `WebviewWindow::hwnd()` is Tauri's top-level HWND. The generic raw
+    // window handle can resolve to the WebView child, whose extended styles
+    // do not control taskbar presence.
+    let hwnd = handle.0 as isize;
+
+    unsafe {
+        const GWL_EXSTYLE: i32 = -20;
+        let style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+        let new_style = taskbar_hidden_ex_style(style);
+        if new_style != style {
+            SetWindowLongPtrW(hwnd, GWL_EXSTYLE, new_style);
+            const SWP_FRAMECHANGED: u32 = 0x0020;
+            const SWP_NOMOVE: u32 = 0x0002;
+            const SWP_NOSIZE: u32 = 0x0001;
+            const SWP_NOZORDER: u32 = 0x0004;
+            const SWP_NOACTIVATE: u32 = 0x0010;
+            SetWindowPos(
+                hwnd,
+                0,
+                0,
+                0,
+                0,
+                0,
+                SWP_FRAMECHANGED | SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+        }
+    }
 }
 
 #[cfg(windows)]
@@ -284,3 +332,19 @@ pub fn force_dark_caption(_win: &tauri::WebviewWindow) {}
 
 #[cfg(not(windows))]
 pub fn force_dark_caption_resizable(_win: &tauri::WebviewWindow) {}
+
+#[cfg(not(windows))]
+pub fn force_skip_taskbar(_win: &tauri::WebviewWindow) {}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn taskbar_hidden_style_adds_toolwindow_and_removes_appwindow() {
+        let style = taskbar_hidden_ex_style(WS_EX_APPWINDOW | 0x8);
+        assert_ne!(style & WS_EX_TOOLWINDOW, 0);
+        assert_eq!(style & WS_EX_APPWINDOW, 0);
+        assert_ne!(style & 0x8, 0);
+    }
+}

@@ -6,7 +6,7 @@ import {
 } from "../../../lib/tauri";
 import { ShortcutCapture } from "../../../components/ShortcutCapture";
 import { Field, Toggle } from "../../../components/FormControls";
-import type { TabProps } from "../../Settings";
+import type { TabProps } from "../settingsTabs";
 
 function formatCodexSessionsDirs(paths: string[]): string {
   return paths.join("; ");
@@ -222,6 +222,7 @@ export default function AdvancedTab({ settings, set, saving }: TabProps) {
               className="text-input"
               value={settings.httpProxyUrl ?? ""}
               placeholder="http://127.0.0.1:7890"
+              aria-label={t("NetworkProxyUrlLabel")}
               disabled={saving || !settings.httpProxyEnabled}
               onChange={(event) => set({ httpProxyUrl: event.target.value })}
               onBlur={(event) =>

@@ -246,7 +246,6 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     flushPendingSnapshots,
     mergeSnapshots,
     queueSnapshot,
-    refresh,
   ]);
 
   useEffect(() => {
@@ -256,19 +255,24 @@ export function useProviders(options: UseProvidersOptions = {}): UseProvidersRes
     }
 
     const now = Date.now();
-    const nextReset = providers
-      .flatMap((provider) => [
+    let nextReset: number | undefined;
+    for (const provider of providers) {
+      const candidates = [
         provider.primary.resetsAt,
         provider.secondary?.resetsAt,
         provider.modelSpecific?.resetsAt,
         provider.tertiary?.resetsAt,
         ...(provider.extraRateWindows ?? []).map((extra) => extra.window.resetsAt),
         provider.cost?.resetsAt,
-      ])
-      .filter((value): value is string => Boolean(value))
-      .map((value) => Date.parse(value))
-      .filter((time) => Number.isFinite(time) && time > now)
-      .sort((a, b) => a - b)[0];
+      ];
+      for (const value of candidates) {
+        if (!value) continue;
+        const time = Date.parse(value);
+        if (Number.isFinite(time) && time > now && (nextReset === undefined || time < nextReset)) {
+          nextReset = time;
+        }
+      }
+    }
 
     if (nextReset === undefined) return;
 

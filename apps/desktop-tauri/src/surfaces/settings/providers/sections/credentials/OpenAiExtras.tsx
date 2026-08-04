@@ -26,9 +26,10 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
   const [savedProjectId, setSavedProjectId] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const config = extraConfig(providerId, t);
 
   useEffect(() => {
-    if (!extraConfig(providerId)) return;
+    if (!WORKSPACE_EXTRA_IDS[providerId]) return;
     let cancelled = false;
     void getProviderWorkspaceId(providerId)
       .then((value) => {
@@ -59,7 +60,6 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
     }
   };
 
-  const config = extraConfig(providerId);
   if (config) {
     return (
       <section className="provider-detail-section">
@@ -94,55 +94,6 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
     );
   }
 
-  function extraConfig(providerId: string) {
-    switch (providerId) {
-      case "openaiapi":
-        return {
-          title: t("OpenAiAdminApiTitle"),
-          label: t("OpenAiProjectIdLabel"),
-          placeholder: t("OpenAiProjectIdPlaceholder"),
-          help: t("OpenAiProjectIdHelp"),
-        };
-      case "litellm":
-        return {
-          title: t("LiteLlmApiTitle"),
-          label: t("LiteLlmBaseUrlLabel"),
-          placeholder: t("LiteLlmBaseUrlPlaceholder"),
-          help: t("LiteLlmBaseUrlHelp"),
-        };
-      case "devin":
-        return {
-          title: t("DevinApiTitle"),
-          label: t("DevinOrganizationLabel"),
-          placeholder: t("DevinOrganizationPlaceholder"),
-          help: t("DevinOrganizationHelp"),
-        };
-      case "opencodego":
-        return {
-          title: t("OpenCodeGoWorkspaceTitle"),
-          label: t("OpenCodeGoWorkspaceLabel"),
-          placeholder: "wrk_...",
-          help: t("OpenCodeGoWorkspaceHelp"),
-        };
-      case "zed":
-        return {
-          title: t("ZedApiTitle"),
-          label: t("ZedApiUrlLabel"),
-          placeholder: t("ZedApiUrlPlaceholder"),
-          help: t("ZedApiUrlHelp"),
-        };
-      case "sub2api":
-        return {
-          title: t("Sub2ApiTitle"),
-          label: t("Sub2ApiBaseUrlLabel"),
-          placeholder: t("Sub2ApiBaseUrlPlaceholder"),
-          help: t("Sub2ApiBaseUrlHelp"),
-        };
-      default:
-        return null;
-    }
-  }
-
   return (
     <section className="provider-detail-section">
       <h4>{t("CredentialsSectionTitle")}</h4>
@@ -154,4 +105,70 @@ export function OpenAiExtras({ providerId = "codex", t }: Props) {
       </div>
     </section>
   );
+}
+
+const WORKSPACE_EXTRA_IDS: Record<string, true> = {
+  openaiapi: true,
+  litellm: true,
+  devin: true,
+  opencodego: true,
+  zed: true,
+  sub2api: true,
+  xai: true,
+};
+
+function extraConfig(providerId: string, t: Props["t"]) {
+  switch (providerId) {
+    case "openaiapi":
+      return {
+        title: t("OpenAiAdminApiTitle"),
+        label: t("OpenAiProjectIdLabel"),
+        placeholder: t("OpenAiProjectIdPlaceholder"),
+        help: t("OpenAiProjectIdHelp"),
+      };
+    case "litellm":
+      return {
+        title: t("LiteLlmApiTitle"),
+        label: t("LiteLlmBaseUrlLabel"),
+        placeholder: t("LiteLlmBaseUrlPlaceholder"),
+        help: t("LiteLlmBaseUrlHelp"),
+      };
+    case "devin":
+      return {
+        title: t("DevinApiTitle"),
+        label: t("DevinOrganizationLabel"),
+        placeholder: t("DevinOrganizationPlaceholder"),
+        help: t("DevinOrganizationHelp"),
+      };
+    case "opencodego":
+      return {
+        title: t("OpenCodeGoWorkspaceTitle"),
+        label: t("OpenCodeGoWorkspaceLabel"),
+        placeholder: "wrk_...",
+        help: t("OpenCodeGoWorkspaceHelp"),
+      };
+    case "zed":
+      return {
+        title: t("ZedApiTitle"),
+        label: t("ZedApiUrlLabel"),
+        placeholder: t("ZedApiUrlPlaceholder"),
+        help: t("ZedApiUrlHelp"),
+      };
+    case "sub2api":
+      return {
+        title: t("Sub2ApiTitle"),
+        label: t("Sub2ApiBaseUrlLabel"),
+        placeholder: t("Sub2ApiBaseUrlPlaceholder"),
+        help: t("Sub2ApiBaseUrlHelp"),
+      };
+    case "xai":
+      return {
+        title: "xAI team",
+        label: "Team ID",
+        placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+        help: "Required. Shown in the xAI Console URL and team settings. Or set XAI_TEAM_ID. Pair with a Management API key (not an inference key).",
+      };
+    default:
+      return null;
+  }
 }

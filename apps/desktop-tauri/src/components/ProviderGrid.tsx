@@ -3,6 +3,7 @@ import type { ProviderUsageSnapshot } from "../types/bridge";
 import { ProviderIcon } from "./providers/ProviderIcon";
 import { getProviderIcon } from "./providers/providerIcons";
 import { useLocale } from "../hooks/useLocale";
+import { prioritizeProviders } from "./providerGridUtils";
 
 export default function ProviderGrid({
   providers,
@@ -177,17 +178,6 @@ export default function ProviderGrid({
       )}
     </div>
   );
-}
-
-export function prioritizeProviders(
-  providers: ProviderUsageSnapshot[],
-  selectedProviderId: string | null,
-): ProviderUsageSnapshot[] {
-  if (!selectedProviderId) return providers;
-  const selectedIndex = providers.findIndex((provider) => provider.providerId === selectedProviderId);
-  if (selectedIndex < 0 || selectedIndex < 18) return providers;
-  const selected = providers[selectedIndex];
-  return [selected, ...providers.slice(0, selectedIndex), ...providers.slice(selectedIndex + 1)];
 }
 
 function compactGridLabel(displayName: string): string {

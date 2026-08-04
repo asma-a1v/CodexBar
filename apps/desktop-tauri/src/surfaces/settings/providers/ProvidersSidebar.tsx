@@ -87,10 +87,14 @@ export function ProvidersSidebar({
     .filter((p): p is ProviderSidebarRow => Boolean(p));
 
   // Track previously-mounted ids to trigger a reveal animation for new rows.
-  const seenRef = useRef<Set<string>>(new Set(ordered.map((p) => p.id)));
+  const seenRef = useRef<Set<string> | null>(null);
+  if (seenRef.current === null) {
+    seenRef.current = new Set(ordered.map((p) => p.id));
+  }
   const [justMounted, setJustMounted] = useState<Set<string>>(new Set());
   useEffect(() => {
     const seen = seenRef.current;
+    if (!seen) return;
     const newly = new Set<string>();
     for (const p of ordered) {
       if (!seen.has(p.id)) {

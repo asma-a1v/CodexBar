@@ -50,6 +50,7 @@ fn language_id(lang: Language) -> &'static LanguageIdentifier {
     static JA_JP: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ja-JP".parse().unwrap());
     static KO_KR: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ko-KR".parse().unwrap());
     static ES_MX: LazyLock<LanguageIdentifier> = LazyLock::new(|| "es-MX".parse().unwrap());
+    static RU_RU: LazyLock<LanguageIdentifier> = LazyLock::new(|| "ru-RU".parse().unwrap());
 
     match lang {
         Language::English => &EN_US,
@@ -58,6 +59,7 @@ fn language_id(lang: Language) -> &'static LanguageIdentifier {
         Language::Japanese => &JA_JP,
         Language::Korean => &KO_KR,
         Language::Spanish => &ES_MX,
+        Language::Russian => &RU_RU,
     }
 }
 
@@ -186,7 +188,28 @@ locale_keys! {
     // Notification settings (Preferences)
     ShowNotifications,
     SoundEnabled,
-    SoundVolume,
+    NotificationSoundTheme,
+    NotificationSoundThemeHelper,
+    NotificationSoundThemeWindows,
+    NotificationSoundThemeCodexBar,
+    NotificationSoundChooseFile,
+    NotificationSoundClearFile,
+    NotificationSoundUsesTheme,
+    NotificationSoundWaveFile,
+    NotificationSoundEventPredictiveWarning,
+    NotificationSoundEventPredictiveWarningHelper,
+    NotificationSoundEventHighUsage,
+    NotificationSoundEventHighUsageHelper,
+    NotificationSoundEventCriticalUsage,
+    NotificationSoundEventCriticalUsageHelper,
+    NotificationSoundEventExhausted,
+    NotificationSoundEventExhaustedHelper,
+    NotificationSoundEventStatusIssue,
+    NotificationSoundEventStatusIssueHelper,
+    NotificationSoundEventSessionDepleted,
+    NotificationSoundEventSessionDepletedHelper,
+    NotificationSoundEventSessionRestored,
+    NotificationSoundEventSessionRestoredHelper,
     HighUsageThreshold,
     HighUsageAlert,
     CriticalUsageThreshold,
@@ -633,7 +656,8 @@ locale_keys! {
     RefreshIntervalHelper,
     RefreshAllProvidersOnMenuOpen,
     RefreshAllProvidersOnMenuOpenHelper,
-    SoundVolumeHelper,
+    LowPowerMode,
+    LowPowerModeHelper,
     HighUsageWarningHelper,
     CriticalUsageWarningHelper,
     GlobalShortcutFieldLabel,

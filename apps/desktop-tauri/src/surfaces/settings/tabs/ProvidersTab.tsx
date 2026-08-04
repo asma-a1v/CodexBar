@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import type {
   ProviderCatalogEntry,
   ProviderUsageSnapshot,
@@ -38,11 +38,12 @@ export default function ProvidersTab({
   // backend `reorder_providers` round-trip settles.
   const [orderedProviders, setOrderedProviders] =
     useState<ProviderCatalogEntry[]>(providers);
+  const [prevProviders, setPrevProviders] = useState(providers);
   const [searchText, setSearchText] = useState("");
-
-  useEffect(() => {
+  if (providers !== prevProviders) {
+    setPrevProviders(providers);
     setOrderedProviders(providers);
-  }, [providers]);
+  }
 
   const enabled = useMemo(
     () => new Set(settings.enabledProviders),
@@ -54,9 +55,10 @@ export default function ProvidersTab({
     if (on) next.add(id);
     else next.delete(id);
     set({
-      enabledProviders: orderedProviders
-        .map((provider) => provider.id)
-        .filter((providerId) => next.has(providerId)),
+      enabledProviders: orderedProviders.reduce<string[]>((ids, provider) => {
+        if (next.has(provider.id)) ids.push(provider.id);
+        return ids;
+      }, []),
     });
   };
 
@@ -89,15 +91,13 @@ export default function ProvidersTab({
     [normalizedSearch, rows],
   );
 
-  useEffect(() => {
-    if (visibleRows.length === 0) {
-      if (selectedId !== null) setSelectedId(null);
-      return;
-    }
-    if (!selectedId || !visibleRows.some((row) => row.id === selectedId)) {
-      setSelectedId(visibleRows[0].id);
-    }
-  }, [selectedId, visibleRows]);
+  // Derive selection from visible rows — no effect to mirror/adjust state.
+  const resolvedSelectedId =
+    visibleRows.length === 0
+      ? null
+      : selectedId && visibleRows.some((row) => row.id === selectedId)
+        ? selectedId
+        : visibleRows[0].id;
 
   const handleReorder = (ids: string[]) => {
     const byId = new Map(orderedProviders.map((p) => [p.id, p]));
@@ -118,13 +118,13 @@ export default function ProvidersTab({
   };
 
   const selectedEntry =
-    orderedProviders.find((p) => p.id === selectedId) ?? null;
+    orderedProviders.find((p) => p.id === resolvedSelectedId) ?? null;
 
   return (
     <div className="provider-split">
       <ProvidersSidebar
         providers={visibleRows}
-        selectedId={selectedId}
+        selectedId={resolvedSelectedId}
         searchText={searchText}
         onSearchTextChange={setSearchText}
         onSelect={setSelectedId}
@@ -133,7 +133,7 @@ export default function ProvidersTab({
         disabled={saving}
       />
       <ProviderDetailPane
-        providerId={selectedId}
+        providerId={resolvedSelectedId}
         cookieDomain={selectedEntry?.cookieDomain ?? null}
         resetTimeRelative={settings.resetTimeRelative}
         providerMetrics={settings.providerMetrics}
@@ -216,6 +216,7 @@ function providerSourceHintShort(
     case "manus":
     case "mimo":
     case "zoommate":
+    case "notion":
     case "t3chat":
     case "commandcode":
       return t("ProviderSourceWebShort");
@@ -245,6 +246,7 @@ function providerSourceHintShort(
     case "deepgram":
     case "groq":
     case "llmproxy":
+    case "xai":
       return t("ProviderSourceApiShort");
     case "kiro":
       return t("ProviderSourceKiroEnvShort");

@@ -13,8 +13,12 @@ const SETTINGS_HEIGHT: f64 = 580.0;
 /// frontend can switch to the requested tab without a full reload.
 pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
     if let Some(window) = app.get_webview_window(SETTINGS_LABEL) {
+        window.set_skip_taskbar(true).map_err(|e| e.to_string())?;
+        super::dwm::force_skip_taskbar(&window);
         window.show().map_err(|e| e.to_string())?;
+        super::dwm::force_skip_taskbar(&window);
         window.set_focus().map_err(|e| e.to_string())?;
+        super::dwm::force_skip_taskbar(&window);
         app.emit_to(SETTINGS_LABEL, "settings-change-tab", tab)
             .map_err(|e| e.to_string())?;
         return Ok(());
@@ -29,11 +33,16 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         .shadow(false)
         .theme(Some(tauri::Theme::Dark))
         .resizable(true)
+        .skip_taskbar(true)
+        .visible(false)
         .build()
         .map_err(|e| e.to_string())?;
 
     // Force DWM caption to dark; keep WS_THICKFRAME since window is resizable
     super::dwm::force_dark_caption_resizable(&win);
+    // Keep Settings tray-owned even after native frame-style changes.
+    win.set_skip_taskbar(true).map_err(|e| e.to_string())?;
+    super::dwm::force_skip_taskbar(&win);
 
     // Manually center: Tauri's .center() is unreliable on Windows when
     // called from async commands. Compute position from the primary monitor.
@@ -47,6 +56,11 @@ pub fn open_or_focus(app: &tauri::AppHandle, tab: &str) -> Result<(), String> {
         let y = pos.y + (size.height as i32 - win_h) / 2;
         let _ = win.set_position(PhysicalPosition::new(x, y));
     }
+
+    win.show().map_err(|e| e.to_string())?;
+    super::dwm::force_skip_taskbar(&win);
+    win.set_focus().map_err(|e| e.to_string())?;
+    super::dwm::force_skip_taskbar(&win);
 
     Ok(())
 }

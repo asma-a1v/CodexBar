@@ -77,6 +77,8 @@ pub enum ProviderId {
     Neuralwatt,
     ZoomMate,
     QwenCloud,
+    Notion,
+    Xai,
 }
 
 impl ProviderId {
@@ -149,6 +151,8 @@ impl ProviderId {
             ProviderId::Neuralwatt,
             ProviderId::ZoomMate,
             ProviderId::QwenCloud,
+            ProviderId::Notion,
+            ProviderId::Xai,
         ]
     }
 
@@ -221,6 +225,8 @@ impl ProviderId {
             ProviderId::Neuralwatt => "neuralwatt",
             ProviderId::ZoomMate => "zoommate",
             ProviderId::QwenCloud => "qwen-cloud",
+            ProviderId::Notion => "notion",
+            ProviderId::Xai => "xai",
         }
     }
 
@@ -295,6 +301,8 @@ impl ProviderId {
             ProviderId::Neuralwatt => "Neuralwatt",
             ProviderId::ZoomMate => "ZoomMate",
             ProviderId::QwenCloud => "Qwen Cloud",
+            ProviderId::Notion => "Notion AI",
+            ProviderId::Xai => "xAI",
         }
     }
 
@@ -372,6 +380,8 @@ impl ProviderId {
             ProviderId::Neuralwatt => None,
             ProviderId::ZoomMate => Some("zoommate.zoom.us"),
             ProviderId::QwenCloud => Some("qwencloud.com"),
+            ProviderId::Notion => Some("app.notion.com"),
+            ProviderId::Xai => None,
         }
     }
 
@@ -432,7 +442,8 @@ impl ProviderId {
             "openaiapi" | "openai-api" | "openai api" | "openai-balance" => {
                 Some(ProviderId::OpenAIApi)
             }
-            "grok" | "xai" | "x.ai" | "supergrok" | "super-grok" => Some(ProviderId::Grok),
+            "grok" | "supergrok" | "super-grok" => Some(ProviderId::Grok),
+            "xai" | "x.ai" | "x-ai" => Some(ProviderId::Xai),
             "elevenlabs" | "eleven-labs" | "11labs" => Some(ProviderId::ElevenLabs),
             "deepgram" | "dg" => Some(ProviderId::Deepgram),
             "groq" | "groqcloud" | "groq-cloud" | "groq cloud" => Some(ProviderId::Groq),
@@ -457,6 +468,7 @@ impl ProviderId {
                 Some(ProviderId::QwenCloud)
             }
             "zoommate" | "zoom-mate" | "zoom mate" => Some(ProviderId::ZoomMate),
+            "notion" | "notion-ai" | "notionai" | "notion ai" => Some(ProviderId::Notion),
             _ => None,
         }
     }
@@ -685,7 +697,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("step-fun", ProviderId::StepFun);
     map.insert("openai-api", ProviderId::OpenAIApi);
     map.insert("openai-balance", ProviderId::OpenAIApi);
-    map.insert("xai", ProviderId::Grok);
+    map.insert("xai", ProviderId::Xai);
+    map.insert("x.ai", ProviderId::Xai);
     map.insert("supergrok", ProviderId::Grok);
     map.insert("eleven-labs", ProviderId::ElevenLabs);
     map.insert("11labs", ProviderId::ElevenLabs);
@@ -699,6 +712,8 @@ pub fn cli_name_map() -> HashMap<&'static str, ProviderId> {
     map.insert("cross-model", ProviderId::CrossModel);
     map.insert("sakana-ai", ProviderId::Sakana);
     map.insert("sub-2-api", ProviderId::Sub2Api);
+    map.insert("notion-ai", ProviderId::Notion);
+    map.insert("notionai", ProviderId::Notion);
     map
 }
 
@@ -709,7 +724,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 66);
+        assert_eq!(all.len(), 68);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -756,6 +771,8 @@ mod tests {
         assert!(all.contains(&ProviderId::Neuralwatt));
         assert!(all.contains(&ProviderId::ZoomMate));
         assert!(all.contains(&ProviderId::QwenCloud));
+        assert!(all.contains(&ProviderId::Notion));
+        assert!(all.contains(&ProviderId::Xai));
     }
 
     #[test]
@@ -948,5 +965,44 @@ mod tests {
         );
         // Bare "qwen" must not resolve to Alibaba Coding Plan.
         assert_ne!(ProviderId::from_cli_name("qwen"), Some(ProviderId::Alibaba));
+    }
+
+    #[test]
+    fn test_provider_id_notion() {
+        assert_eq!(ProviderId::Notion.cli_name(), "notion");
+        assert_eq!(ProviderId::Notion.display_name(), "Notion AI");
+        assert_eq!(ProviderId::Notion.cookie_domain(), Some("app.notion.com"));
+        assert_eq!(
+            ProviderId::from_cli_name("notion"),
+            Some(ProviderId::Notion)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("notion-ai"),
+            Some(ProviderId::Notion)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("notionai"),
+            Some(ProviderId::Notion)
+        );
+        assert_eq!(
+            ProviderId::from_cli_name("notion ai"),
+            Some(ProviderId::Notion)
+        );
+    }
+
+    #[test]
+    fn test_provider_id_xai() {
+        assert_eq!(ProviderId::Xai.cli_name(), "xai");
+        assert_eq!(ProviderId::Xai.display_name(), "xAI");
+        assert_eq!(ProviderId::Xai.cookie_domain(), None);
+        assert_eq!(ProviderId::from_cli_name("xai"), Some(ProviderId::Xai));
+        assert_eq!(ProviderId::from_cli_name("x.ai"), Some(ProviderId::Xai));
+        assert_eq!(ProviderId::from_cli_name("x-ai"), Some(ProviderId::Xai));
+        // Grok keeps consumer aliases; xai is the developer-platform provider.
+        assert_eq!(ProviderId::from_cli_name("grok"), Some(ProviderId::Grok));
+        assert_eq!(
+            ProviderId::from_cli_name("supergrok"),
+            Some(ProviderId::Grok)
+        );
     }
 }

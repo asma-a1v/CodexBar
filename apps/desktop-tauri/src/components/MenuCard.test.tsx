@@ -88,10 +88,12 @@ function renderCard(
     <LocaleProvider>
       <MenuCard
         provider={snapshot}
-        hideEmail={false}
-        resetTimeRelative={true}
-        showAsUsed={opts.showAsUsed}
-        showResetWhenExhausted={opts.showResetWhenExhausted}
+        display={{
+          hideEmail: false,
+          resetTimeRelative: true,
+          showAsUsed: opts.showAsUsed,
+          showResetWhenExhausted: opts.showResetWhenExhausted,
+        }}
         onLayoutChange={opts.onLayoutChange}
       />
     </LocaleProvider>,
@@ -293,8 +295,10 @@ describe("MenuCard", () => {
       <LocaleProvider>
         <MenuCard
           provider={snapshot}
-          hideEmail={false}
-          resetTimeRelative={false}
+          display={{
+            hideEmail: false,
+            resetTimeRelative: false,
+          }}
         />
       </LocaleProvider>,
     );
