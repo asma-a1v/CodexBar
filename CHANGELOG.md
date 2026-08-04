@@ -20,6 +20,11 @@ Windows port of upstream CodexBar **0.46.0 → 0.47.0**.
 
 ### Changed
 - Upstream 0.47.0 provider and CLI behavior ported onto the Windows tray/desktop shell.
+- Retained tray-only startup and taskbar-hidden auxiliary surfaces.
+- Kept the tray flyout content-sized and non-resizable, without zoom controls or internal scrolling.
+- Retained the dedicated EXE/About/User Installer icon and made the dynamic tray icon background transparent so only its usage bar or percentage glyph remains visible.
+- Replaced the boxed quit glyph in the tray panel with a plain cross.
+- Packaged the Windows x64 release as a per-user NSIS installer.
 
 ---
 

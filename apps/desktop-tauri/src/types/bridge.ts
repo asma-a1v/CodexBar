@@ -198,8 +198,6 @@ export interface SettingsSnapshot {
   theme: ThemePreference;
   /** 100..=250 — clamped server-side. */
   windowScalePercent: number;
-  /** 100..=200 — clamped server-side. */
-  trayScalePercent: number;
   powertoysStatusPipeEnabled: boolean;
   claudeAvoidKeychainPrompts: boolean;
   codexSparkUsageVisible: boolean;
@@ -275,7 +273,6 @@ export interface SettingsUpdate {
   uiLanguage?: Language;
   theme?: ThemePreference;
   windowScalePercent?: number;
-  trayScalePercent?: number;
   powertoysStatusPipeEnabled?: boolean;
   claudeAvoidKeychainPrompts?: boolean;
   codexSparkUsageVisible?: boolean;

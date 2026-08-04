@@ -26,6 +26,9 @@ pub fn apply_window_properties(
     let needs_show = apply_window_layout(window, mode, props)?;
     if needs_show {
         show_window(window)?;
+        if props.skip_taskbar {
+            super::dwm::force_skip_taskbar(window);
+        }
     }
     Ok(())
 }
@@ -60,6 +63,9 @@ pub fn apply_window_layout(
         } else {
             super::dwm::force_dark_caption(window);
         }
+    }
+    if props.skip_taskbar {
+        super::dwm::force_skip_taskbar(window);
     }
 
     if props.visible {

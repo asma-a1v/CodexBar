@@ -79,7 +79,6 @@ const settings: SettingsSnapshot = {
   uiLanguage: "english",
   theme: "dark",
   windowScalePercent: 125,
-  trayScalePercent: 100,
   powertoysStatusPipeEnabled: false,
   claudeAvoidKeychainPrompts: true,
   codexSparkUsageVisible: true,

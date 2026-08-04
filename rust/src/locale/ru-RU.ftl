@@ -482,7 +482,6 @@ PanelAllProviders = Все провайдеры
 PanelAllProvidersShort = Все
 PanelShowAllProviders = Показать всех провайдеров
 PanelShowFewerProviders = Показать меньше провайдеров
-PanelZoom = Увеличить
 PanelMenu = Меню
 PanelCopied = Скопировано
 PanelToday = Сегодня

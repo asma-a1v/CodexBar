@@ -143,7 +143,6 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     uiLanguage: "english",
     theme: "dark",
     windowScalePercent: 125,
-    trayScalePercent: 100,
     powertoysStatusPipeEnabled: false,
     claudeAvoidKeychainPrompts: false,
     codexSparkUsageVisible: true,
@@ -247,7 +246,6 @@ describe("TrayPanel provider grid", () => {
         PanelShowAllProviders: "Show all providers",
         PanelShowFewerProviders: "Show fewer providers",
         PanelUsedSuffix: "used",
-        PanelZoom: "Zoom",
       }),
     );
     eventMocks.listen.mockImplementation(
@@ -342,7 +340,6 @@ describe("TrayPanel provider grid", () => {
           PanelThirtyDayCost: "30日間のコスト",
           PanelTopModelPrefix: "トップモデル",
           PanelEstimatedFromLocalLogs: "ローカルログから推定",
-          PanelZoom: "ズーム",
           UpdatedDaysAgo: "{}日前",
         },
         "japanese",
@@ -372,12 +369,12 @@ describe("TrayPanel provider grid", () => {
       ).not.toBeNull();
     });
     expect(container.querySelector(".provider-grid__item")?.textContent).toContain("すべて");
-    expect(screen.getByText("ズーム")).toBeInTheDocument();
-    expect(screen.getByLabelText("ズーム")).toBeInTheDocument();
     expect(screen.getByText("更新")).toBeInTheDocument();
     expect(screen.getByText("設定...")).toBeInTheDocument();
     expect(screen.getByText("CodexBar について")).toBeInTheDocument();
-    expect(screen.getByText("終了")).toBeInTheDocument();
+    const quitButton = screen.getByText("終了").closest("button");
+    expect(quitButton).not.toBeNull();
+    expect(quitButton?.querySelector(".menu-surface__footer-icon")).toHaveTextContent("✕");
     expect(await screen.findByText("30日間のコスト")).toBeInTheDocument();
     expect(container.querySelector(".menu-card__subtitle")?.textContent).toContain("日前");
     expect(screen.getByText("最新トークン")).toBeInTheDocument();
@@ -511,8 +508,7 @@ describe("TrayPanel provider grid", () => {
     ).toEqual(["Codex", "Claude", "Cursor", "Factory", "Gemini"]);
   });
 
-  it("uses independent columns for a wide user-sized overview", async () => {
-    tauriMocks.flyoutStoredSize.mockResolvedValue([700, 700]);
+  it("keeps a content-sized stacked layout", async () => {
     const providers = [
       provider("codex", "Codex"),
       provider("claude", "Claude"),
@@ -525,40 +521,8 @@ describe("TrayPanel provider grid", () => {
     });
 
     await waitFor(() => {
-      expect(container.querySelector(".tray-panel-reveal--usersized")).not.toBeNull();
+      expect(container.querySelector(".tray-panel-reveal--ready")).not.toBeNull();
     });
-
-    expect(
-      Array.from(container.querySelectorAll(".menu-stack__column")).map((column) =>
-        Array.from(column.querySelectorAll(".menu-stack__item")).map(
-          (item) => item.id,
-        ),
-      ),
-    ).toEqual([
-      ["card-codex", "card-antigravity"],
-      ["card-claude", "card-copilot"],
-    ]);
-    expect(container.querySelector(".menu-stack__sep")).toBeNull();
-  });
-
-  it("keeps the stacked layout when the saved flyout width is narrow", async () => {
-    vi.spyOn(window, "innerWidth", "get").mockReturnValue(700);
-    tauriMocks.flyoutStoredSize.mockResolvedValue([500, 700]);
-    const providers = [
-      provider("codex", "Codex"),
-      provider("claude", "Claude"),
-      provider("antigravity", "Antigravity"),
-      provider("copilot", "GitHub Copilot"),
-    ];
-
-    const { container } = renderTrayPanel(providers, {
-      enabledProviders: providers.map((snapshot) => snapshot.providerId),
-    });
-
-    await waitFor(() => {
-      expect(container.querySelector(".tray-panel-reveal--usersized")).not.toBeNull();
-    });
-
     expect(container.querySelector(".menu-stack__column")).toBeNull();
     expect(container.querySelectorAll(".menu-stack__sep")).toHaveLength(3);
   });
@@ -690,59 +654,6 @@ describe("TrayPanel provider grid", () => {
     expect(grid?.classList.contains("provider-grid--no-icons")).toBe(true);
     expect(container.querySelector(".provider-icon")).toBeNull();
     expect(container.querySelector(".provider-grid__icon-overview")).toBeNull();
-  });
-
-  it("renders the tray footer zoom slider above Refresh and persists trayScalePercent after the debounce", async () => {
-    const { container } = renderTrayPanel(
-      [provider("claude", "Claude", 35)],
-      { trayScalePercent: 120 },
-    );
-
-    await waitFor(() => {
-      expect(container.querySelector(".menu-surface__footer-zoom")).not.toBeNull();
-    });
-
-    const footerChildren = Array.from(
-      container.querySelectorAll(".menu-surface__footer > *"),
-    );
-    const zoomIndex = footerChildren.findIndex((el) =>
-      el.classList.contains("menu-surface__footer-zoom"),
-    );
-    const refreshIndex = footerChildren.findIndex(
-      (el) => el.textContent?.includes("Refresh"),
-    );
-    expect(zoomIndex).toBeGreaterThanOrEqual(0);
-    expect(refreshIndex).toBeGreaterThan(zoomIndex);
-
-    // Slider reflects the persisted settings value.
-    const slider = container.querySelector<HTMLInputElement>(
-      ".menu-surface__footer-zoom-slider",
-    )!;
-    expect(slider).not.toBeNull();
-    expect(slider.value).toBe("120");
-    expect(slider.min).toBe("100");
-    expect(slider.max).toBe("200");
-    expect(slider.step).toBe("5");
-    expect(
-      container.querySelector(".menu-surface__footer-zoom-value")?.textContent,
-    ).toBe("120%");
-
-    fireEvent.change(slider, { target: { value: "150" } });
-
-    // Live preview: thumb and readout update immediately from local state…
-    expect(slider.value).toBe("150");
-    expect(
-      container.querySelector(".menu-surface__footer-zoom-value")?.textContent,
-    ).toBe("150%");
-
-    // …while persistence trails the ~250ms debounce (not synchronous).
-    expect(tauriMocks.updateSettings).not.toHaveBeenCalled();
-    await waitFor(() => {
-      expect(tauriMocks.updateSettings).toHaveBeenCalledWith({
-        trayScalePercent: 150,
-      });
-    });
-    expect(tauriMocks.updateSettings).toHaveBeenCalledTimes(1);
   });
 
   it("reveals the tray panel if the native resize pass fails", async () => {

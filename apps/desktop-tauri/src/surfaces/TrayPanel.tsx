@@ -1,13 +1,7 @@
-import { Fragment, type CSSProperties } from "react";
-import { getCurrentWindow } from "@tauri-apps/api/window";
+import { Fragment } from "react";
 import type { BootstrapState, ProviderUsageSnapshot } from "../types/bridge";
-import { beginFlyoutGesture, openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
-import {
-  TRAY_SCALE_MAX,
-  TRAY_SCALE_MIN,
-  TRAY_SCALE_STEP,
-  useTrayPanelController,
-} from "../hooks/useTrayPanelController";
+import { openProviderDashboard, openProviderStatusPage } from "../lib/tauri";
+import { useTrayPanelController } from "../hooks/useTrayPanelController";
 import MenuCard from "../components/MenuCard";
 import MenuSurface, { MenuEmpty } from "../components/MenuSurface";
 import UpdateBanner from "../components/UpdateBanner";
@@ -47,10 +41,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     refreshingProviderIds,
     refresh,
     hasCachedData,
-    trayScaleDraft,
-    trayScale,
-    trayScaleFillPercent,
-    handleTrayScaleChange,
     sorted,
     denseTrayProviders,
     expectsDenseOverview,
@@ -58,8 +48,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     gridExpanded,
     setGridExpanded,
     visibleProviders,
-    wideColumns,
-    useWideColumns,
     requestLayout,
     headerActions,
     footerRows,
@@ -76,26 +64,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
     handleGestureEnd,
     revealClassName,
   } = useTrayPanelController(state);
-
-  const zoomRow = (
-    <div className="menu-surface__footer-row menu-surface__footer-zoom">
-      <span>{t("PanelZoom")}</span>
-      <input
-        type="range"
-        className="menu-surface__footer-zoom-slider"
-        min={TRAY_SCALE_MIN}
-        max={TRAY_SCALE_MAX}
-        step={TRAY_SCALE_STEP}
-        value={trayScaleDraft}
-        aria-label={t("PanelZoom")}
-        onChange={(e) => handleTrayScaleChange(Number(e.target.value))}
-        style={{ "--zoom-fill": `${trayScaleFillPercent}%` } as CSSProperties}
-      />
-      <span className="menu-surface__footer-zoom-value">
-        {trayScaleDraft}%
-      </span>
-    </div>
-  );
 
   const banner = (
     <UpdateBanner
@@ -142,9 +110,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           isRefreshing={isRefreshing}
           actions={headerActions}
           banner={banner}
-          footerLead={zoomRow}
           footerRows={footerRows}
-          style={{ zoom: trayScale }}
         >
           {settings.agentSessionsEnabled && <AgentSessions />}
           <MenuEmpty
@@ -152,7 +118,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
             onSettings={openSettings}
           />
         </MenuSurface>
-        <TrayResizeHandles />
       </div>
     );
   }
@@ -165,9 +130,7 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         isRefreshing={isRefreshing}
         actions={headerActions}
         banner={banner}
-        footerLead={zoomRow}
         footerRows={footerRows}
-        style={{ zoom: trayScale }}
       >
         {settings.agentSessionsEnabled && <AgentSessions />}
         <ProviderGrid
@@ -184,21 +147,12 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
         />
         <div className="provider-grid__divider" />
         <div className="menu-stack">
-          {useWideColumns
-            ? wideColumns.map((column) => (
-                <div
-                  className="menu-stack__column"
-                  key={column.map((p) => p.providerId).join("|") || "empty"}
-                >
-                  {column.map(renderProviderCard)}
-                </div>
-              ))
-            : visibleProviders.map((p, idx) => (
-                <Fragment key={p.providerId}>
-                  {idx > 0 && <div className="menu-stack__sep" />}
-                  {renderProviderCard(p)}
-                </Fragment>
-              ))}
+          {visibleProviders.map((p, idx) => (
+            <Fragment key={p.providerId}>
+              {idx > 0 && <div className="menu-stack__sep" />}
+              {renderProviderCard(p)}
+            </Fragment>
+          ))}
         </div>
         {/* Context actions — detail mode only, matches macOS actionsSection */}
         {selectedProviderId && (HAS_DASHBOARD.has(selectedProviderId) || HAS_STATUS_PAGE.has(selectedProviderId)) && (
@@ -237,61 +191,6 @@ export default function TrayPanel({ state }: { state: BootstrapState }) {
           </div>
         )}
       </MenuSurface>
-      <TrayResizeHandles />
     </div>
-  );
-}
-
-/**
- * Invisible resize grips along the flyout's in-screen edges (top / left /
- * top-left corner). The flyout is anchored bottom-right above the tray, so these
- * let the user widen (left edge) or heighten (top edge) it. Native edge-resize
- * doesn't work through the borderless WebView2, so we drive it explicitly with
- * `startResizeDragging`. That call enters a Win32 modal size loop which
- * transiently steals focus from the WebView2 child for its duration — Windows
- * fires a spurious `Focused(false)` the instant the press starts even though
- * the user never left the window. We arm a gesture-scoped blur guard on the
- * backend *before* starting the loop so that transient blur doesn't
- * auto-hide the flyout; the guard clears itself once focus genuinely returns
- * (via the `Focused(true)` refocus path) or after a 15s expiry, so no
- * explicit end call is needed here — the OS loop swallows mouseup.
- */
-function TrayResizeHandles() {
-  return (
-    <>
-      <div
-        className="tray-resize tray-resize--top"
-        aria-hidden
-        onMouseDown={(e) => {
-          e.preventDefault();
-          void (async () => {
-            await beginFlyoutGesture().catch(() => {});
-            await getCurrentWindow().startResizeDragging("North");
-          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
-        }}
-      />
-      <div
-        className="tray-resize tray-resize--left"
-        aria-hidden
-        onMouseDown={(e) => {
-          e.preventDefault();
-          void (async () => {
-            await beginFlyoutGesture().catch(() => {});
-            await getCurrentWindow().startResizeDragging("West");
-          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
-        }}
-      />
-      <div
-        className="tray-resize tray-resize--topleft"
-        aria-hidden
-        onMouseDown={(e) => {
-          e.preventDefault();
-          void (async () => {
-            await beginFlyoutGesture().catch(() => {});
-            await getCurrentWindow().startResizeDragging("NorthWest");
-          })().catch((err) => console.error("[tray-resize] startResizeDragging failed:", err));
-        }}
-      />
-    </>
   );
 }

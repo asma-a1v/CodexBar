@@ -84,22 +84,21 @@ where
     S: AsRef<str>,
 {
     let args = nonblank_launch_args(args);
-    args.is_empty() || should_open_primary_window_from_args(&args)
+    should_open_primary_window_from_args(&args)
 }
 
-fn launch_behavior<I, S>(force_visible: bool, start_minimized: bool, args: I) -> LaunchBehavior
+fn launch_behavior<I, S>(force_visible: bool, args: I) -> LaunchBehavior
 where
     I: IntoIterator<Item = S>,
     S: AsRef<str>,
 {
     let args = nonblank_launch_args(args);
     let explicit_primary_launch = should_open_primary_window_from_args(&args);
-    let plain_desktop_launch = args.is_empty();
 
     LaunchBehavior {
-        open_primary_window_at_start: force_visible
-            || explicit_primary_launch
-            || (plain_desktop_launch && !start_minimized),
+        // A normal executable launch is tray-only. Visible windows are opened
+        // exclusively by a tray action or an explicit automation/launch flag.
+        open_primary_window_at_start: force_visible || explicit_primary_launch,
         suppress_blur_dismiss: force_visible,
     }
 }
@@ -115,11 +114,7 @@ fn main() {
     let is_proof_mode = proof_config.is_some();
     let force_start_visible = std::env::var_os("CODEXBAR_START_VISIBLE").is_some();
     let settings = codexbar::settings::Settings::load();
-    let launch = launch_behavior(
-        force_start_visible,
-        settings.start_minimized,
-        std::env::args().skip(1),
-    );
+    let launch = launch_behavior(force_start_visible, std::env::args().skip(1));
 
     let mut initial_state = AppState::new();
     initial_state.proof_config = proof_config;
@@ -258,6 +253,19 @@ fn main() {
             Ok(())
         })
         .on_window_event(move |window, event| {
+            // WebView2 can restore WS_EX_APPWINDOW after initial creation,
+            // focus, or a native resize. Re-assert the tray-owned style from
+            // the window-event loop, where Tauri's top-level HWND is stable.
+            if matches!(
+                event,
+                tauri::WindowEvent::Focused(true) | tauri::WindowEvent::Resized(_)
+            ) && matches!(
+                window.label(),
+                "main" | shell::flyout_window::FLYOUT_LABEL | "settings" | floatbar::FLOATBAR_LABEL
+            ) && let Some(webview) = window.app_handle().get_webview_window(window.label())
+            {
+                shell::dwm::force_skip_taskbar(&webview);
+            }
             if floatbar::handle_window_event(window, event) {
                 return;
             }
@@ -399,7 +407,7 @@ mod tests {
             "usage", "-p", "claude"
         ]));
         assert_eq!(
-            launch_behavior(false, false, ["usage", "-p", "claude"]),
+            launch_behavior(false, ["usage", "-p", "claude"]),
             LaunchBehavior {
                 open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
@@ -408,30 +416,23 @@ mod tests {
     }
 
     #[test]
-    fn plain_desktop_launch_opens_unless_start_minimized() {
+    fn plain_desktop_launch_stays_in_system_tray() {
         assert_eq!(
-            launch_behavior(false, false, std::iter::empty::<&str>()),
+            launch_behavior(false, std::iter::empty::<&str>()),
             LaunchBehavior {
-                open_primary_window_at_start: true,
+                open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
             }
         );
         assert_eq!(
-            launch_behavior(false, false, [""]),
+            launch_behavior(false, [""]),
             LaunchBehavior {
-                open_primary_window_at_start: true,
+                open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
             }
         );
         assert_eq!(
-            launch_behavior(false, false, ["  "]),
-            LaunchBehavior {
-                open_primary_window_at_start: true,
-                suppress_blur_dismiss: false,
-            }
-        );
-        assert_eq!(
-            launch_behavior(false, true, std::iter::empty::<&str>()),
+            launch_behavior(false, ["  "]),
             LaunchBehavior {
                 open_primary_window_at_start: false,
                 suppress_blur_dismiss: false,
@@ -440,19 +441,19 @@ mod tests {
     }
 
     #[test]
-    fn single_instance_plain_launch_reopens_primary_window() {
-        assert!(should_reopen_primary_window_from_instance_args(
+    fn single_instance_plain_launch_keeps_existing_instance_in_tray() {
+        assert!(!should_reopen_primary_window_from_instance_args(
             std::iter::empty::<&str>()
         ));
-        assert!(should_reopen_primary_window_from_instance_args([""]));
-        assert!(should_reopen_primary_window_from_instance_args(["  "]));
+        assert!(!should_reopen_primary_window_from_instance_args([""]));
+        assert!(!should_reopen_primary_window_from_instance_args(["  "]));
         assert!(should_reopen_primary_window_from_instance_args(["menubar"]));
     }
 
     #[test]
     fn menubar_launch_does_not_suppress_blur_dismiss() {
         assert_eq!(
-            launch_behavior(false, true, ["menubar"]),
+            launch_behavior(false, ["menubar"]),
             LaunchBehavior {
                 open_primary_window_at_start: true,
                 suppress_blur_dismiss: false,
@@ -462,7 +463,7 @@ mod tests {
 
     #[test]
     fn automation_launch_opens_and_suppresses_blur_dismiss() {
-        let launch = launch_behavior(true, true, std::iter::empty::<&str>());
+        let launch = launch_behavior(true, std::iter::empty::<&str>());
         assert_eq!(
             launch,
             LaunchBehavior {
@@ -475,7 +476,7 @@ mod tests {
 
     #[test]
     fn proof_mode_suppresses_blur_dismiss() {
-        let launch = launch_behavior(false, true, std::iter::empty::<&str>());
+        let launch = launch_behavior(false, std::iter::empty::<&str>());
         assert!(should_suppress_blur_dismiss(launch, true));
     }
 

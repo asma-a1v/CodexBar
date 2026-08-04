@@ -48,22 +48,23 @@ impl SurfaceMode {
             },
             // TrayPanel is the "Pop Out Dashboard" flyout: anchored above the
             // tray icon, always-on-top, auto-hides on click-outside (blur), and
-            // never shows in the taskbar. It is resizable so the user can widen
-            // or heighten it; the chosen size persists (position stays anchored).
+            // never shows in the taskbar. Its size follows measured web content;
+            // users do not resize it into a fixed, internally scrolling panel.
             Self::TrayPanel => WindowProperties {
                 visible: true,
                 decorations: false,
-                resizable: true,
+                resizable: false,
                 width: 328.0,
                 height: 776.0,
-                min_width: Some(300.0),
-                min_height: Some(360.0),
+                min_width: None,
+                min_height: None,
                 always_on_top: true,
                 blur_dismiss: true,
                 skip_taskbar: true,
             },
-            // PopOut is the default "window mode": a normal, draggable,
-            // resizable window that shows in the taskbar. This app draws its
+            // PopOut is the optional full window: a normal, draggable,
+            // resizable surface that remains owned by the tray app and hidden
+            // from the taskbar. This app draws its
             // own chrome (borderless + DWM dark caption + frontend drag
             // region), so PopOut must use `decorations: false` like the
             // working Settings window — native decorations are cancelled by
@@ -78,7 +79,7 @@ impl SurfaceMode {
                 min_height: Some(240.0),
                 always_on_top: false,
                 blur_dismiss: false,
-                skip_taskbar: false,
+                skip_taskbar: true,
             },
             Self::Settings => WindowProperties {
                 visible: true,
@@ -90,7 +91,7 @@ impl SurfaceMode {
                 min_height: None,
                 always_on_top: false,
                 blur_dismiss: false,
-                skip_taskbar: false,
+                skip_taskbar: true,
             },
         }
     }
@@ -110,8 +111,8 @@ pub struct WindowProperties {
     /// Whether the window should auto-hide when it loses focus.
     #[allow(dead_code)]
     pub blur_dismiss: bool,
-    /// Whether the window should be hidden from the Windows taskbar. Widget
-    /// surfaces (TrayPanel) stay hidden; the PopOut window mode shows there.
+    /// Whether the window should be hidden from the Windows taskbar. CodexBar
+    /// is tray-owned, so all of its surfaces stay out of the taskbar.
     pub skip_taskbar: bool,
 }
 
@@ -204,12 +205,12 @@ mod tests {
         sm.transition(SurfaceMode::TrayPanel);
         let t = sm.transition(SurfaceMode::PopOut).unwrap();
         assert_eq!(t.from, SurfaceMode::TrayPanel);
-        // PopOut is borderless (custom DWM chrome), resizable, shows in the
-        // taskbar, and never blur-dismisses.
+        // PopOut is borderless (custom DWM chrome), resizable, remains hidden
+        // from the taskbar, and never blur-dismisses.
         assert!(!t.properties.decorations);
         assert!(t.properties.resizable);
         assert!(!t.properties.blur_dismiss);
-        assert!(!t.properties.skip_taskbar);
+        assert!(t.properties.skip_taskbar);
     }
 
     #[test]
@@ -270,16 +271,16 @@ mod tests {
     }
 
     #[test]
-    fn tray_panel_is_resizable_blur_dismiss_flyout() {
+    fn tray_panel_is_content_sized_blur_dismiss_flyout() {
         let props = SurfaceMode::TrayPanel.window_properties();
-        // "Pop Out Dashboard" flyout: resizable, anchored, auto-hide, no taskbar.
-        assert!(props.resizable);
+        // Tray flyout: content-sized, anchored, auto-hide, no taskbar.
+        assert!(!props.resizable);
         assert!(props.blur_dismiss);
         assert!(props.always_on_top);
         assert!(props.skip_taskbar);
         assert!(!props.decorations);
-        assert_eq!(props.min_width, Some(300.0));
-        assert_eq!(props.min_height, Some(360.0));
+        assert_eq!(props.min_width, None);
+        assert_eq!(props.min_height, None);
     }
 
     #[test]
@@ -287,6 +288,7 @@ mod tests {
         let props = SurfaceMode::Settings.window_properties();
         assert_eq!(props.width, 496.0);
         assert_eq!(props.height, 580.0);
+        assert!(props.skip_taskbar);
     }
 
     #[test]
