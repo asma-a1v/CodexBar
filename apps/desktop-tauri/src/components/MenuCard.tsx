@@ -9,6 +9,7 @@ import { formatRelativeUpdated } from "../lib/relativeTime";
 import type { LocaleKey } from "../i18n/keys";
 import { providerSupportsChartData } from "../lib/providerCharts";
 import MenuCardDetails, { describeCard, type MetricEntry } from "./MenuCardDetails";
+import CodexAccountsMenu from "./CodexAccountsMenu";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -52,7 +53,7 @@ interface MenuCardProps {
   onLayoutChange?: () => void;
 }
 
-function maskEmail(email: string): string {
+export function maskEmail(email: string): string {
   const at = email.indexOf("@");
   if (at <= 1) return "••••@••••";
   return email[0] + "•".repeat(at - 1) + email.slice(at);
@@ -63,8 +64,13 @@ function localizeWindowLabel(
   raw: string | undefined,
   t: (key: LocaleKey) => string,
 ): string {
-  if (raw?.trim().toLowerCase() === "weekly") {
+  const normalized = raw?.trim().toLowerCase();
+  if (normalized === "weekly") {
     return t("ProviderWeeklyLabel");
+  }
+  // F5 (upstream 0.48.0): monthly (30-day) window label.
+  if (normalized === "monthly") {
+    return t("ProviderMonthly");
   }
   return raw ?? "";
 }
@@ -172,7 +178,9 @@ export default function MenuCard({
   if (provider.tertiary)
     metrics.push({
       id: "tertiary",
-      label: t("DetailWindowTertiary"),
+      // F5 (upstream 0.48.0): use the cadence-based label (e.g. "Monthly") instead
+      // of the generic "DetailWindowTertiary" slot key when tertiaryLabel is set.
+      label: localizeWindowLabel(provider.tertiaryLabel, t) || t("DetailWindowTertiary"),
       snap: provider.tertiary,
     });
   for (const extra of provider.extraRateWindows ?? []) {
@@ -239,6 +247,10 @@ export default function MenuCard({
           presence={presence}
           onLayoutChange={onLayoutChange}
         />
+      )}
+
+      {provider.providerId === "codex" && (
+        <CodexAccountsMenu hideEmail={hideEmail} />
       )}
     </article>
   );

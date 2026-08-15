@@ -112,11 +112,8 @@ pub fn close_settings_window(
     crate::shell::settings_window::dismiss(&app, &window)
 }
 
-/// Persist a user-chosen size for the "Pop Out Dashboard" flyout window.
-/// Only the size is stored (via a size-only `StoredSize` entry — no
-/// fabricated `x`/`y`); the flyout is always re-anchored above the tray on
-/// open. The frontend calls this on genuine user drag-resizes, not on its own
-/// auto-fit resizes, so auto-fit sizes never freeze the panel.
+/// Keep accepting the flyout-size commands used by older frontend builds.
+/// The current tray panel is content-sized and does not call this command.
 #[tauri::command]
 pub fn set_flyout_size(width: f64, height: f64) -> Result<(), String> {
     let width = (width.round() as i64).clamp(1, i64::from(u32::MAX)) as u32;
@@ -125,12 +122,6 @@ pub fn set_flyout_size(width: f64, height: f64) -> Result<(), String> {
     Ok(())
 }
 
-/// Return the remembered flyout size, if the user has manually resized it.
-/// The frontend uses this to decide whether to auto-fit (no stored size) or
-/// honor the user's size (stored) on open. Transparently migrates a
-/// pre-existing size stored under the legacy `SurfaceMode::TrayPanel`
-/// shared-window geometry key (from before the flyout became its own
-/// window), so upgrading users don't lose their remembered size.
 #[tauri::command]
 pub fn flyout_stored_size() -> Result<Option<(u32, u32)>, String> {
     Ok(crate::shell::flyout_window::stored_size())

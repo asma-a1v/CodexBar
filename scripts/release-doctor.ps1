@@ -157,7 +157,10 @@ if (-not $SkipGitHub) {
         try {
             $ghJsonPath = Join-Path $env:TEMP "win-codexbar-release-doctor-gh.json"
             $ghErrPath = Join-Path $env:TEMP "win-codexbar-release-doctor-gh.err"
-            & $gh.Source release view $tag --json assets,url 1>$ghJsonPath 2>$ghErrPath
+            $repoFlag = @()
+            $originUrl = (& $git.Source config --get remote.origin.url 2>$null)
+            if ($originUrl) { $repoFlag = @("-R", ($originUrl -replace '^https://github\.com/','' -replace '\.git$','' -replace '^git@github\.com:','')) }
+            & $gh.Source release view $tag @repoFlag --json assets,url 1>$ghJsonPath 2>$ghErrPath
             if ($LASTEXITCODE -eq 0) {
                 $release = Get-Content -Raw $ghJsonPath | ConvertFrom-Json
                 Write-Ok "GitHub release exists: $($release.url)"

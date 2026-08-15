@@ -2361,6 +2361,69 @@ body:has(.tray-panel-reveal) {
   font-size: 0.82rem;
 }
 
+/* ── Codex multi-account (ADR 0003) ─────────────────────────────────── */
+
+.provider-detail-note {
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.3);
+  color: var(--provider-status-ok, #4ade80);
+  border-radius: 8px;
+  padding: 8px 10px;
+  margin-bottom: 12px;
+  font-size: 0.82rem;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.codex-accounts-list {
+  gap: 6px;
+}
+
+.codex-accounts-card {
+  padding: 8px 10px;
+}
+
+.codex-accounts-add {
+  margin-top: 8px;
+}
+
+.codex-usage {
+  font-size: 0.74rem;
+  font-weight: 500;
+  color: var(--provider-row-text-secondary);
+}
+
+.codex-usage--blocked {
+  color: var(--provider-status-error);
+}
+
+/* CodexAccountsSection cards sit in the fixed 720px settings window next to a
+   3-button actions row (~242px). A long account email has no break
+   opportunities, so without containment it overflows the info column and
+   paints over the actions. Ellipsize the info column/title instead, and pin
+   the actions row in place with flex-shrink: 0 + nowrap. */
+.codex-accounts-card .credential-card__info {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-accounts-card .credential-card__info strong {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.codex-accounts-card .credential-card__actions {
+  flex-shrink: 0;
+  flex-wrap: nowrap;
+  white-space: nowrap;
+}
+
 .provider-detail-pace__stage {
   font-size: 0.86rem;
   font-weight: 600;
@@ -3740,6 +3803,143 @@ html:has(.menu-surface--tray) {
   padding-bottom: var(--menu-card-section-y);
 }
 
+/* ── Multi-account Codex lanes (ADR 0003, option A) ─────────────────── */
+
+.codex-menu-accounts {
+  margin-top: 4px;
+  border-top: 1px solid var(--divider, var(--provider-row-divider, rgba(128, 128, 128, 0.18)));
+  padding-top: 4px;
+}
+
+.codex-menu-accounts__summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 0.72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--provider-row-text-secondary);
+  user-select: none;
+}
+
+.codex-menu-accounts__summary::-webkit-details-marker {
+  display: none;
+}
+
+.codex-menu-accounts__summary::before {
+  content: "▸";
+  display: inline-block;
+  width: 0.8em;
+  color: var(--provider-row-text-secondary);
+  transition: transform 0.12s;
+}
+
+.codex-menu-accounts[open] > .codex-menu-accounts__summary::before {
+  transform: rotate(90deg);
+}
+
+.codex-menu-accounts__count {
+  margin-left: auto;
+  font-size: 0.68rem;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--provider-row-text-secondary);
+}
+
+.codex-menu-accounts__error {
+  margin-top: 6px;
+  font-size: 0.72rem;
+  color: var(--provider-status-error);
+}
+
+.codex-menu-accounts__list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.codex-menu-accounts__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.codex-menu-accounts__row--active .codex-menu-accounts__email {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.codex-menu-accounts__meta {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.codex-menu-accounts__email {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.74rem;
+  color: var(--provider-row-text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.codex-menu-accounts__badge {
+  font-size: 0.6rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--provider-status-ok, #4ade80);
+}
+
+.codex-menu-accounts__bar {
+  display: block;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--provider-row-divider, rgba(128, 128, 128, 0.18));
+  overflow: hidden;
+}
+
+.codex-menu-accounts__bar-fill {
+  display: block;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--accent, currentColor);
+}
+
+.codex-menu-accounts__switch {
+  flex-shrink: 0;
+  font-size: 0.68rem;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 5px;
+  color: var(--text-primary);
+  background: transparent;
+  border: 1px solid var(--provider-row-divider, rgba(128, 128, 128, 0.3));
+  cursor: pointer;
+}
+
+.codex-menu-accounts__switch:hover:not(:disabled) {
+  border-color: var(--accent, currentColor);
+}
+
+.codex-menu-accounts__switch:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
 /* Header VStack(spacing: 4) with two HStacks */
 .menu-card__header {
   display: flex;
@@ -3933,6 +4133,7 @@ html:has(.menu-surface--tray) {
   align-items: baseline;
   justify-content: space-between;
   gap: 8px;
+  min-width: 0; /* allow children to shrink/ellipsis inside flex */
 }
 
 .menu-metric__pct {
@@ -3940,12 +4141,20 @@ html:has(.menu-surface--tray) {
   font-size: 11px;
   color: var(--text-primary);
   font-variant-numeric: tabular-nums;
+  flex: 0 0 auto;
 }
 
 .menu-metric__reset {
   font-size: 11px;
   color: var(--text-secondary);
   white-space: nowrap;
+  /* Long provider descriptions (credits remaining, etc.) used to overflow
+     the tray card because nowrap had no max-width/ellipsis. */
+  min-width: 0;
+  max-width: 62%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: right;
 }
 
 .menu-metric__exhausted {
@@ -4206,6 +4415,8 @@ html:has(.menu-surface--tray) {
   border: 1px solid rgba(255, 255, 255, 0.10);
   box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
   overflow: hidden;
+  /* The flyout width is fixed by the content-sizing controller. */
+  min-width: 0;
 }
 .menu-surface--popout {
   width: 100%;

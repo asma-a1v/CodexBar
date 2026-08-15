@@ -5,6 +5,12 @@ import {
   reanchorTrayPanel,
   revealTrayPanelWindow,
 } from "../lib/tauri";
+import {
+  decideTrayHeight,
+  EMPTY_AUTOFIT_STATE,
+  recordAutoFitCommit,
+  type TrayAutoFitState,
+} from "../lib/traySizing";
 
 const TRAY_WIDTH = 328;
 const TRAY_MAX_MEASURE_HEIGHT = 920;
@@ -38,16 +44,18 @@ export function useTrayPanelLayout({
   const layoutReadyRef = useRef(false);
   const resizeRunRef = useRef(0);
   const layoutTimerRef = useRef<number | undefined>(undefined);
-  // Track the last logical target so content-only refreshes do not resize or
-  // re-anchor an already-correct flyout.
-  const autoFitLogicalRef = useRef<{ width: number; height: number } | null>(
-    null,
-  );
+  const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const sizingStateRef = useRef<TrayAutoFitState>(EMPTY_AUTOFIT_STATE);
 
   // The tray flyout is content-sized only; it has no user-resizable mode.
+  // Record the physical frame Windows actually applied so repeated layout
+  // passes can distinguish a real content change from DPI rounding.
   const applySize = useCallback(async (size: LogicalSize): Promise<void> => {
     try {
-      await getCurrentWindow().setSize(size);
+      const win = getCurrentWindow();
+      await win.setSize(size);
+      const actual = await win.innerSize();
+      lastSizeRef.current = { width: actual.width, height: actual.height };
     } catch {
       /* ignore */
     }
@@ -95,6 +103,8 @@ export function useTrayPanelLayout({
       const run = ++resizeRunRef.current;
       const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
       if (!surface) return;
+      const html = document.documentElement;
+      const pageBody = document.body;
       const workArea = await getWorkAreaRect().catch(() => null);
       const maxHeight = Math.max(
         minHeight,
@@ -105,6 +115,33 @@ export function useTrayPanelLayout({
       );
 
       const body = surface.querySelector<HTMLElement>(".menu-surface__body");
+      const stack = surface.querySelector<HTMLElement>(".menu-stack");
+      const previous = {
+        htmlOverflow: html.style.overflow,
+        bodyOverflow: pageBody.style.overflow,
+        bodyMinHeight: pageBody.style.minHeight,
+        surfaceMinHeight: surface.style.minHeight,
+        surfaceHeight: surface.style.height,
+        surfaceMaxHeight: surface.style.maxHeight,
+        surfaceOverflow: surface.style.overflow,
+        bodyInnerOverflow: body?.style.overflow,
+        bodyFlex: body?.style.flex,
+        stackOverflow: stack?.style.overflow,
+      };
+      let committedHeight = false;
+
+      html.style.overflow = "visible";
+      pageBody.style.overflow = "visible";
+      pageBody.style.minHeight = "0";
+      surface.style.minHeight = "0";
+      surface.style.height = "auto";
+      surface.style.maxHeight = "none";
+      surface.style.overflow = "visible";
+      if (body) {
+        body.style.overflow = "visible";
+        body.style.flex = "0 0 auto";
+      }
+      if (stack) stack.style.overflow = "visible";
 
       const revealPanel = async () => {
         if (run !== resizeRunRef.current) return;
@@ -118,13 +155,17 @@ export function useTrayPanelLayout({
 
       try {
         if (!layoutReadyRef.current) {
-          autoFitLogicalRef.current = { width: TRAY_WIDTH, height: minHeight };
+          sizingStateRef.current = recordAutoFitCommit(
+            sizingStateRef.current,
+            TRAY_WIDTH,
+            minHeight,
+            window.devicePixelRatio,
+          );
           await applySize(new LogicalSize(TRAY_WIDTH, minHeight));
         }
 
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
         await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-
         if (run !== resizeRunRef.current) return;
 
         const surfaceRect = surface.getBoundingClientRect();
@@ -142,16 +183,24 @@ export function useTrayPanelLayout({
         contentHeight =
           Math.ceil(maxBottom - surfaceRect.top) + TRAY_HEIGHT_SAFETY_PX;
 
-        const height = Math.min(Math.max(contentHeight, minHeight), maxHeight);
+        const decision = decideTrayHeight(
+          {
+            measuredHeight: contentHeight,
+            expectedWidth: TRAY_WIDTH,
+            minHeight,
+            maxHeight,
+            scaleFactor: window.devicePixelRatio,
+            zoom: 1,
+            lastAppliedPhysicalHeight: lastSizeRef.current?.height ?? null,
+          },
+          sizingStateRef.current,
+        );
+        sizingStateRef.current = decision.state;
+        surface.style.maxHeight = `${decision.height}px`;
+        committedHeight = true;
 
-        const previousSize = autoFitLogicalRef.current;
-        const shouldResize =
-          previousSize === null ||
-          previousSize.width !== TRAY_WIDTH ||
-          Math.abs(previousSize.height - height) > 2;
-        if (shouldResize) {
-          autoFitLogicalRef.current = { width: TRAY_WIDTH, height };
-          await applySize(new LogicalSize(TRAY_WIDTH, height));
+        if (decision.commit) {
+          await applySize(new LogicalSize(TRAY_WIDTH, decision.height));
           await Promise.resolve(reanchorTrayPanel()).catch(() => {});
         }
 
@@ -159,6 +208,21 @@ export function useTrayPanelLayout({
       } catch (error) {
         console.warn("CodexBar tray panel resize failed", error);
         void revealPanel();
+      } finally {
+        if (!committedHeight) {
+          surface.style.maxHeight = previous.surfaceMaxHeight;
+        }
+        surface.style.minHeight = previous.surfaceMinHeight;
+        surface.style.height = previous.surfaceHeight;
+        surface.style.overflow = previous.surfaceOverflow;
+        html.style.overflow = previous.htmlOverflow;
+        pageBody.style.overflow = previous.bodyOverflow;
+        pageBody.style.minHeight = previous.bodyMinHeight;
+        if (body) {
+          body.style.overflow = previous.bodyInnerOverflow ?? "";
+          body.style.flex = previous.bodyFlex ?? "";
+        }
+        if (stack) stack.style.overflow = previous.stackOverflow ?? "";
       }
     };
 

@@ -103,7 +103,11 @@ export interface CurrentSurfaceState {
 
 export interface AgentSession {
   id: string;
-  provider: "codex" | "claude";
+  provider: "codex" | "claude" | "pi";
+  /** Pi-family dialect (upstream 0.48.0 #2626); absent for Codex/Claude. */
+  dialect?: "pi" | "omp";
+  /** Optional session title (Pi-family `session_info`/`title` records). */
+  sessionName?: string;
   source: "cli" | "desktopApp" | "ide" | "unknown";
   state: "active" | "idle";
   pid: number | null;
@@ -308,6 +312,10 @@ export interface UsageSpendRow {
   thirtyDay: number | null;
   currency: string;
   source: string;
+  /** F8: true when served from stale cache while a re-scan is in progress. */
+  refreshing?: boolean;
+  /** ISO 8601 timestamp of the stale snapshot when refreshing. */
+  staleUpdatedAt?: string;
 }
 
 export interface UsageSpendSummary {
@@ -440,6 +448,8 @@ export interface ProviderUsageSnapshot {
   secondaryLabel?: string;
   modelSpecific: RateWindowSnapshot | null;
   tertiary: RateWindowSnapshot | null;
+  /** F5: duration-cadence label for tertiary ("monthly", "weekly" etc.) */
+  tertiaryLabel?: string;
   extraRateWindows: Array<{
     id: string;
     title: string;
@@ -734,4 +744,59 @@ export interface CookieSourceOption {
 export interface RegionOption {
   value: string;
   label: string;
+}
+
+// ── Codex multi-account (ADR 0003) ───────────────────────────────────
+
+export type CodexAccountSource = "ambient" | "managedByApp";
+
+export interface CodexAccount {
+  id: string;
+  nickname: string | null;
+  emailHint: string | null;
+  authSubject: string | null;
+  providerAccountId: string | null;
+  codexHomePath: string;
+  source: CodexAccountSource;
+  createdAt: string;
+  updatedAt: string;
+  lastAuthenticatedAt: string | null;
+}
+
+export interface CodexUsageWindow {
+  usedPercent: number;
+  resetAt: string | null;
+  limitWindowSeconds: number;
+}
+
+export interface CodexCreditsBalance {
+  hasCredits: boolean;
+  unlimited: boolean;
+  balance: number | null;
+}
+
+export interface CodexAccountUsageSnapshot {
+  email: string | null;
+  providerAccountId: string | null;
+  plan: string | null;
+  allowed: boolean | null;
+  limitReached: boolean | null;
+  primaryWindow: CodexUsageWindow | null;
+  secondaryWindow: CodexUsageWindow | null;
+  credits: CodexCreditsBalance | null;
+  updatedAt: string;
+}
+
+export interface CodexSwitchResult {
+  materializedAccount: CodexAccount | null;
+  backupPath: string | null;
+  ambientAccount: CodexAccount | null;
+  desktopSessionBackupPath: string | null;
+  desktopSessionRestorePath: string | null;
+  desktopSessionRestoreExists: boolean;
+}
+
+export interface CodexAccountsStateBridge {
+  accounts: CodexAccount[];
+  snapshots: Record<string, CodexAccountUsageSnapshot>;
 }

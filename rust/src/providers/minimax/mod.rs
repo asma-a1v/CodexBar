@@ -6,6 +6,7 @@
 mod coding_plan;
 mod coding_plan_html;
 mod local_storage;
+mod token_plan;
 
 // Re-exports for local storage import
 #[allow(unused_imports)]
@@ -612,9 +613,32 @@ impl MiniMaxProvider {
         cookie_header: &str,
         region: MiniMaxRegion,
     ) -> Result<ProviderFetchResult, ProviderError> {
-        let snapshot = self
+        let snapshot = match self
             .fetch_coding_plan_with_cookie(cookie_header, region)
-            .await?;
+            .await
+        {
+            Ok(snapshot) => snapshot,
+            Err(err) if coding_plan::is_token_plan_without_coding_plan(&err) => {
+                // Token Plan accounts have no coding-plan subscription: the
+                // legacy remains endpoint answers base_resp 2062 ("no active
+                // token plan subscription"). Fall back to the console
+                // token-plan endpoints (issue #254); when they carry nothing,
+                // surface the original coding-plan error unchanged.
+                match token_plan::fetch_token_plan_with_cookie(self, cookie_header, region).await {
+                    Ok(result) => return Ok(result),
+                    Err(token_plan_err @ ProviderError::AuthRequired) => {
+                        return Err(token_plan_err);
+                    }
+                    Err(token_plan_err) => {
+                        tracing::debug!(
+                            "MiniMax token-plan fallback unavailable: {token_plan_err}"
+                        );
+                        return Err(err);
+                    }
+                }
+            }
+            Err(err) => return Err(err),
+        };
         let mut result = ProviderFetchResult::new(snapshot, "web");
 
         // Best-effort billing enrichment — never kills the fetch.

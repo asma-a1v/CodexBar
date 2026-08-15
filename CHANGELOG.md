@@ -1,5 +1,59 @@
 # Changelog
 
+## [Windows] 0.50.0 - 2026-08-16
+
+Windows release aligned with upstream CodexBar **0.50.0**, built on the latest
+Win-CodexBar baseline through the 0.49.x maintenance cycle.
+
+### Added
+- Codex multi-account management in provider settings and the tray panel.
+- CodeBuddy CN credit usage and the modular CLI usage dashboard.
+- Upstream 0.48 provider updates for Copilot, CommandCode, OpenRouter,
+  ZoomMate, OpenCode Go, Kimi, GLM/z.ai, and MiniMax.
+
+### Fixed
+- Keep the tray flyout content-sized and non-resizable, without an internal
+  scrollbar or tray zoom controls.
+- Retain bounded two-state resize-cycle detection at fractional Windows DPI,
+  with extra height safety so the all-providers view does not flicker between
+  overflowing and fitting.
+- Preserve tray-only startup, taskbar suppression, the transparent two-bar
+  usage icon, the plain Quit cross, and the dedicated EXE/installer icon.
+
+### Notes
+- Upstream 0.50 changes that only target AppKit menu-bar layout, WidgetKit,
+  macOS Cursor sessions, or other macOS-only surfaces do not apply to this
+  Tauri/Windows build.
+
+---
+
+## [Windows] 0.48.0 - 2026-08-09
+
+Windows port of upstream CodexBar **0.47.0 → 0.48.0**.
+
+### Added
+- Providers: CodeBuddy CN credit usage (#269).
+- Codex: multi-account management — Codex accounts panel in provider settings and tray menu flyout for switching accounts (#255–#260).
+- Serve: modular usage dashboard (coordinator/snapshot structure with provider icons) from upstream 0.48.0 (#271).
+- Sessions: unified Pi-family (pi + OMP) agent sessions with live-process correlation, PID-only rows, and a unified AgentSessions view; `sessions --json-v2` with legacy `--json` fallback negotiated over SSH (#271).
+- Upstream 0.48.0: Copilot AI credits counter, CommandCode rolling windows + GOAT plan, OpenRouter key meter, ZoomMate browser cookie scope, OpenCode Go per-model daily cost breakdown (#271).
+- Regional: Kimi Desktop monthly membership enrichment, GLM Coding Plan 5-hour/weekly windows, z.ai Global vs BigModel CN region routing with cross-region endpoint override rejection (#271).
+
+### Fixed
+- Codex weekly window detection when the 5-hour session window is missing (#268).
+- MiniMax CN Token Plan web fetch via token-plan endpoints (#254, #262).
+- Tray: auto-fit measure scaled by active zoom + proof anchor clamp (#265, #266).
+- Tray: Codex accounts card overflow and weekly-only tray bar (#264).
+- Tray: fractional-DPI flyout resize oscillation via two-state cycle detection (#261, #272).
+- Upstream 0.48.0: bounded serve request heads, bounded Codex JSONL cost cache (oversize persistence refused), Claude OAuth terminal/transient refresh classification, Codex reset backfill (#271).
+
+### Changed
+- Upstream 0.48.0 provider and CLI behavior ported onto the Windows tray/desktop shell (#271).
+- Repo automation: contributor interaction guard relaxed to a 14-day account-age floor and 15 PRs per 7-day window (#263).
+- Docs: SignPath code-signing policy and privacy statement published; code signing is pending SignPath onboarding — release artifacts remain unsigned with SHA-256 sidecars (#270).
+
+---
+
 ## [Windows] 0.47.0 - 2026-08-04
 
 Windows port of upstream CodexBar **0.46.0 → 0.47.0**.
