@@ -200,11 +200,11 @@ describe("TrayPanel provider grid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     eventMocks.listeners.clear();
-    tauriMocks.flyoutStoredSize.mockResolvedValue(null);
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);
     tauriMocks.reanchorTrayPanel.mockResolvedValue(undefined);
+    tauriMocks.flyoutStoredSize.mockResolvedValue(null);
     tauriMocks.getWorkAreaRect.mockResolvedValue({
       x: 0,
       y: 0,
@@ -761,4 +761,5 @@ describe("TrayPanel provider grid", () => {
       );
     });
   });
+
 });

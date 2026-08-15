@@ -22,13 +22,6 @@ use crate::state::AppState;
 use crate::surface::SurfaceMode;
 
 pub const FLYOUT_LABEL: &str = "flyout";
-
-/// Geometry-store key for the flyout's remembered SIZE (position is never
-/// stored — the flyout always re-anchors above the tray on open). Kept as
-/// its own key (distinct from the legacy `SurfaceMode::TrayPanel::as_str()`
-/// `"trayPanel"` key) — `geometry_store::load_size` migrates a pre-existing
-/// `"trayPanel"` entry into this key on first read, so upgrading users keep
-/// their remembered flyout size.
 const FLYOUT_SIZE_KEY: &str = "flyout";
 
 /// Same window used to close a same-click blur-dismiss/reopen race as the
@@ -41,13 +34,12 @@ const BLUR_DISMISS_CLICK_WINDOW: Duration = Duration::from_millis(250);
 /// `was_tray_panel_recently_shown` guard for the old shared window.
 const RECENTLY_SHOWN_GRACE: Duration = Duration::from_millis(500);
 
-/// Read the remembered flyout size, if any (migrating a legacy
-/// `"trayPanel"`-keyed size on first read — see `geometry_store::load_size`).
+/// Read the last manually stored flyout size for compatibility with builds
+/// that exposed resize controls. The current content-sized panel ignores it.
 pub fn stored_size() -> Option<(u32, u32)> {
     geometry_store::load_size(FLYOUT_SIZE_KEY).map(|size| (size.width, size.height))
 }
 
-/// Persist a user-chosen flyout size. Size-only — no fabricated position.
 pub fn save_stored_size(width: u32, height: u32) {
     geometry_store::save_size(FLYOUT_SIZE_KEY, StoredSize { width, height });
 }
@@ -251,11 +243,8 @@ pub fn handle_window_event(window: &tauri::Window, event: &tauri::WindowEvent) -
             }
             true
         }
-        // Size persistence is entirely frontend-driven (genuine user
-        // drag-resizes call `set_flyout_size`, auto-fit resizes never do) —
-        // mirrors `shell::position::remember_current_geometry_if_eligible`
-        // skipping TrayPanel for the same reason on the old shared window.
-        // Position is never persisted (always re-anchored above the tray).
+        // The content-sizing controller owns flyout size and position is never
+        // persisted; every content change re-anchors above the tray.
         tauri::WindowEvent::Moved(_) | tauri::WindowEvent::Resized(_) => true,
         tauri::WindowEvent::CloseRequested { api, .. } => {
             // Hide-not-close, matching Settings/FloatBar lifecycle handling —
@@ -353,11 +342,8 @@ mod tests {
     }
 
     #[test]
-    fn flyout_size_key_is_distinct_from_legacy_tray_panel_key() {
-        // The whole point of the migration in geometry_store::load_size is
-        // that this key differs from the legacy SurfaceMode::TrayPanel key
-        // ("trayPanel") — otherwise there'd be nothing to migrate FROM.
-        assert_ne!(FLYOUT_SIZE_KEY, SurfaceMode::TrayPanel.as_str());
+    fn flyout_geometry_store_key_is_stable() {
+        assert_eq!(FLYOUT_SIZE_KEY, "flyout");
     }
 
     #[test]

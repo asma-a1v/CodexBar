@@ -68,6 +68,7 @@ pub enum ProviderId {
     Zed,
     CrossModel,
     Qoder,
+    CodeBuddy,
     Sakana,
     Sub2Api,
     Wayfinder,
@@ -142,6 +143,7 @@ impl ProviderId {
             ProviderId::Zed,
             ProviderId::CrossModel,
             ProviderId::Qoder,
+            ProviderId::CodeBuddy,
             ProviderId::Sakana,
             ProviderId::Sub2Api,
             ProviderId::Wayfinder,
@@ -216,6 +218,7 @@ impl ProviderId {
             ProviderId::Zed => "zed",
             ProviderId::CrossModel => "crossmodel",
             ProviderId::Qoder => "qoder",
+            ProviderId::CodeBuddy => "codebuddy",
             ProviderId::Sakana => "sakana",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "wayfinder",
@@ -292,6 +295,7 @@ impl ProviderId {
             // Soft-removed (upstream #2254); still resolvable via CLI for legacy configs.
             ProviderId::CrossModel => "CrossModel (removed)",
             ProviderId::Qoder => "Qoder",
+            ProviderId::CodeBuddy => "CodeBuddy",
             ProviderId::Sakana => "Sakana AI",
             ProviderId::Sub2Api => "sub2api",
             ProviderId::Wayfinder => "Wayfinder",
@@ -339,6 +343,7 @@ impl ProviderId {
             ProviderId::CommandCode => Some("commandcode.ai"),
             ProviderId::Grok => Some("grok.com"),
             ProviderId::Qoder => Some("qoder.com"),
+            ProviderId::CodeBuddy => Some("codebuddy.cn"),
             ProviderId::Sakana => Some("console.sakana.ai"),
             ProviderId::LongCat => Some("longcat.chat"),
             // Token-based providers (don't use cookies)
@@ -457,6 +462,9 @@ impl ProviderId {
                 Some(ProviderId::CrossModel)
             }
             "qoder" => Some(ProviderId::Qoder),
+            "codebuddy" | "code-buddy" | "codebuddy-cn" | "codebuddycn" | "腾讯codebuddy" => {
+                Some(ProviderId::CodeBuddy)
+            }
             "sakana" | "sakana-ai" | "sakana ai" => Some(ProviderId::Sakana),
             "sub2api" | "sub-2-api" | "sub 2 api" => Some(ProviderId::Sub2Api),
             "wayfinder" => Some(ProviderId::Wayfinder),
@@ -593,6 +601,13 @@ pub struct FetchContext {
     /// When true, Auto mode prefers web before local (token-account scope,
     /// manual cookie source, etc.). Workspace overrides are checked separately.
     pub auto_prefer_web: bool,
+
+    /// Foreground usage reads (`codexbar usage`, `codexbar serve`) set this so
+    /// providers join slow optional enrichment with the full optional-item
+    /// timeout budget measured from task start; background/UI polls keep the
+    /// short join grace instead (upstream 0.48.0
+    /// `requiresOptionalUsageCompleteness`, #2583).
+    pub requires_optional_usage_completeness: bool,
 }
 
 impl Default for FetchContext {
@@ -608,6 +623,7 @@ impl Default for FetchContext {
             api_region: None,
             gateway_url: None,
             auto_prefer_web: false,
+            requires_optional_usage_completeness: false,
         }
     }
 }
@@ -724,7 +740,7 @@ mod tests {
     #[test]
     fn test_provider_id_all() {
         let all = ProviderId::all();
-        assert_eq!(all.len(), 68);
+        assert_eq!(all.len(), 69);
         assert!(all.contains(&ProviderId::Claude));
         assert!(all.contains(&ProviderId::Codex));
         assert!(all.contains(&ProviderId::Kimi));
@@ -762,6 +778,7 @@ mod tests {
         assert!(all.contains(&ProviderId::Zed));
         assert!(all.contains(&ProviderId::CrossModel));
         assert!(all.contains(&ProviderId::Qoder));
+        assert!(all.contains(&ProviderId::CodeBuddy));
         assert!(all.contains(&ProviderId::Sakana));
         assert!(all.contains(&ProviderId::Sub2Api));
         assert!(all.contains(&ProviderId::Wayfinder));

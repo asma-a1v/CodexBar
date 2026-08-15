@@ -41,6 +41,11 @@ Or download the latest installer/portable build from [GitHub Releases](https://g
 
 Winget distribution is approved through [microsoft/winget-pkgs](https://github.com/microsoft/winget-pkgs/tree/master/manifests/f/Finesssee/Win-CodexBar). New versions can take a little time to appear because every Winget update is pinned to a specific release URL and installer hash.
 
+## Code signing
+
+> **Code signing:** Free signing via SignPath.io (certificate: SignPath Foundation) is **planned, pending onboarding — not yet wired into the release pipeline**. See [docs/CODE_SIGNING.md](docs/CODE_SIGNING.md) for the signing policy.
+> Windows release installers are currently unsigned, which may cause an incorrect SmartScreen/Defender alert — verify the SHA-256 published alongside each release; see [docs/PRIVACY.md](docs/PRIVACY.md) for data handling.
+
 ## First Run
 
 1. Launch **CodexBar** from the Start Menu or portable executable.

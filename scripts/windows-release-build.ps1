@@ -32,25 +32,19 @@
     After packaging, run scripts/windows-smoke-install.ps1 against the generated
     installer and uninstall it again.
 
-.PARAMETER UploadRelease
-    GitHub release tag to upload assets to after packaging, for example v0.27.5.
-    Requires the GitHub CLI to be installed and authenticated.
 
 .EXAMPLE
     .\scripts\windows-release-build.ps1 -Ref v0.27.4
 
-.EXAMPLE
-    .\scripts\windows-release-build.ps1 -Ref v0.27.5 -SmokeInstall -UploadRelease v0.27.5
 #>
 
 param(
     [string]$Ref = "HEAD",
-    [string]$RepoUrl = "https://github.com/Finesssee/Win-CodexBar.git",
+    [string]$RepoUrl = "https://github.com/nesszer/Win-CodexBar.git",
     [string]$WorkRoot = "C:\code\Win-CodexBar-release",
     [switch]$RefreshInstallerDependencies,
     [switch]$WarmCacheOnly,
-    [switch]$SmokeInstall,
-    [string]$UploadRelease = ""
+    [switch]$SmokeInstall
 )
 
 Set-StrictMode -Version Latest
@@ -71,10 +65,27 @@ $AssetsDir = Join-Path $WorkRoot "assets"
 $DesktopCargoTargetDir = Join-Path $CacheDir "cargo-target"
 $CliCargoTargetDir = Join-Path $CacheDir "cargo-target-cli"
 
-$UserCargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
-if (Test-Path $UserCargoBin) {
-    $env:Path = "$UserCargoBin;$env:Path"
+function Add-PathIfPresent {
+    param([AllowNull()][string]$Path)
+
+    if ([string]::IsNullOrWhiteSpace($Path) -or -not (Test-Path -LiteralPath $Path -PathType Container)) {
+        return
+    }
+    if (@($env:Path -split ';') -notcontains $Path) {
+        $env:Path = "$Path;$env:Path"
+    }
 }
+
+$UserCargoBin = Join-Path $env:USERPROFILE ".cargo\bin"
+Add-PathIfPresent $UserCargoBin
+foreach ($nodeRoot in @($env:ProgramFiles, ${env:ProgramFiles(x86)}, $env:LOCALAPPDATA)) {
+    if (-not [string]::IsNullOrWhiteSpace($nodeRoot)) {
+        Add-PathIfPresent (Join-Path $nodeRoot 'nodejs')
+    }
+}
+if ($env:APPDATA) { Add-PathIfPresent (Join-Path $env:APPDATA 'npm') }
+if ($env:LOCALAPPDATA) { Add-PathIfPresent (Join-Path $env:LOCALAPPDATA 'pnpm') }
+if ($env:LOCALAPPDATA) { Add-PathIfPresent (Join-Path $env:LOCALAPPDATA 'CodexBar\release-toolchain\pnpm') }
 
 function Require-Command {
     param([string]$Name)
@@ -92,9 +103,16 @@ function Invoke-Native {
         [string[]]$ArgumentList
     )
 
-    & $FilePath @ArgumentList
-    if ($LASTEXITCODE -ne 0) {
-        throw "$FilePath exited with code $LASTEXITCODE"
+    $previousErrorActionPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        & $FilePath @ArgumentList 2>&1 | ForEach-Object { Write-Host $_ }
+        $nativeExitCode = $LASTEXITCODE
+    } finally {
+        $ErrorActionPreference = $previousErrorActionPreference
+    }
+    if ($nativeExitCode -ne 0) {
+        throw "$FilePath exited with code $nativeExitCode"
     }
 }
 
@@ -182,9 +200,63 @@ function Get-ObjdumpImportsWebView2Loader {
 }
 
 $git = Require-Command "git"
-$cargo = Require-Command "cargo"
-$pnpm = Require-Command "pnpm"
+$rustupBinCandidates = @()
+if ($env:CARGO_HOME) {
+    $rustupBinCandidates += Join-Path $env:CARGO_HOME 'bin'
+}
+if ($env:USERPROFILE) {
+    $rustupBinCandidates += Join-Path $env:USERPROFILE '.cargo\bin'
+}
+foreach ($rustupBinDir in $rustupBinCandidates) {
+    if ((Test-Path -LiteralPath $rustupBinDir -PathType Container) -and (@($env:Path -split ';') -notcontains $rustupBinDir)) {
+        $env:Path = "$rustupBinDir;$env:Path"
+    }
+}
 $rustup = Get-Command rustup -ErrorAction SilentlyContinue
+if (-not $rustup) {
+    throw 'rustup is required for Windows release builds.'
+}
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    & $rustup.Source set auto-self-update disable 2>&1 | ForEach-Object { Write-Host $_ }
+    $rustupExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($rustupExitCode -ne 0) {
+    Write-Host "Warning: rustup auto-self-update disable failed with exit code $rustupExitCode"
+}
+$toolchain = 'stable-x86_64-pc-windows-msvc'
+$target = if ($env:CARGO_BUILD_TARGET) { $env:CARGO_BUILD_TARGET } else { 'x86_64-pc-windows-msvc' }
+Invoke-Native $rustup.Source @('toolchain', 'install', $toolchain, '--profile', 'default')
+$previousErrorActionPreference = $ErrorActionPreference
+try {
+    $ErrorActionPreference = 'Continue'
+    & $rustup.Source target add $target --toolchain $toolchain 2>&1 | ForEach-Object { Write-Host $_ }
+    $rustupExitCode = $LASTEXITCODE
+} finally {
+    $ErrorActionPreference = $previousErrorActionPreference
+}
+if ($rustupExitCode -ne 0) {
+    throw "$($rustup.Source) target add $target --toolchain $toolchain exited with code $rustupExitCode"
+}
+$env:RUSTUP_TOOLCHAIN = $toolchain
+$rustupBinDir = Split-Path -Parent $rustup.Source
+foreach ($proxy in @('cargo', 'rustc', 'rustfmt', 'clippy-driver', 'rls', 'rust-analyzer')) {
+    $proxyPath = Join-Path $rustupBinDir "$proxy.exe"
+    if (-not (Test-Path -LiteralPath $proxyPath)) {
+        Copy-Item -LiteralPath $rustup.Source -Destination $proxyPath -Force
+        Write-Host "Created rustup proxy: $proxyPath"
+    }
+}
+$env:Path = "$rustupBinDir;$env:Path"
+$cargo = Get-Command cargo -ErrorAction Stop
+$rustcCmd = Get-Command rustc -ErrorAction Stop
+$pnpm = Require-Command "pnpm"
+Write-Host "Rustup command: $($rustup.Source)"
+Write-Host "Cargo command: $($cargo.Source)"
+Write-Host "Rustc command: $($rustcCmd.Source)"
 
 New-Item -ItemType Directory -Force $WorkRoot, $CacheDir, $DesktopCargoTargetDir, $CliCargoTargetDir, $PnpmStoreDir, $InstallerDepsDir, $AssetsDir | Out-Null
 
@@ -213,16 +285,8 @@ try {
         $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-msvc"
     }
     if ($env:CARGO_BUILD_TARGET -and $rustup) {
-        $toolchain = "stable-x86_64-pc-windows-msvc"
-        & $rustup.Source set auto-self-update disable
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "Warning: rustup auto-self-update disable failed with exit code $LASTEXITCODE"
-        }
-        Invoke-Native $rustup.Source @("toolchain", "install", $toolchain, "--profile", "minimal")
-        if ($env:CARGO_BUILD_TARGET -ne "x86_64-pc-windows-msvc") {
-            Invoke-Native $rustup.Source @("target", "add", $env:CARGO_BUILD_TARGET, "--toolchain", $toolchain)
-        }
-        $env:RUSTUP_TOOLCHAIN = $toolchain
+        $installedRustTargets = @(& $rustup.Source target list --installed --toolchain $toolchain)
+        Write-Host "Rust installed targets ($toolchain): $($installedRustTargets -join ', ')"
     }
     $env:PNPM_HOME = if ($env:PNPM_HOME) { $env:PNPM_HOME } else { Join-Path $CacheDir "pnpm-home" }
 
@@ -427,23 +491,6 @@ try {
         }
     }
 
-    if ($UploadRelease) {
-        $gh = Require-Command "gh"
-        $assetPaths = @(
-            $installerAsset,
-            "$installerAsset.sha256",
-            $portableExe,
-            "$portableExe.sha256"
-        )
-        foreach ($path in $assetPaths) {
-            if (-not (Test-Path $path)) {
-                throw "Missing upload asset: $path"
-            }
-        }
-
-        Invoke-Native $gh.Source @("release", "view", $UploadRelease)
-        Invoke-Native $gh.Source (@("release", "upload", $UploadRelease) + $assetPaths + @("--clobber"))
-    }
 
     Write-Host ""
     Write-Host "Release assets:"
