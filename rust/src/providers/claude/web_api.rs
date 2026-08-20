@@ -310,27 +310,7 @@ impl ClaudeWebApiFetcher {
         // Step 4: Fetch account info - optional
         let account = self.get_account_info(&headers).await.ok();
 
-        // Build the result. When five_hour is null (enterprise/credit accounts with no live
-        // session), emit a fixed 5h 0% placeholder and mark it informational so notifications
-        // and automatic metrics can skip the phantom session lane.
-        let primary = usage
-            .five_hour
-            .as_ref()
-            .map(|w| self.to_rate_window(w, Some(300))) // 5 hours = 300 minutes
-            .unwrap_or_else(RateWindow::no_active_session);
-
-        // Prefer limits[] weekly_all over legacy seven_day (same as OAuth path).
-        let secondary = super::scoped_weekly::weekly_all_window(&usage.limits).or_else(|| {
-            usage
-                .seven_day
-                .as_ref()
-                .map(|w| self.to_rate_window(w, Some(10080))) // 7 days = 10080 minutes
-        });
-
-        let model_specific = usage
-            .seven_day_opus
-            .as_ref()
-            .map(|w| self.to_rate_window(w, Some(10080)));
+        let (primary, secondary, model_specific) = self.build_rate_windows(&usage);
 
         let mut snapshot = UsageSnapshot::new(primary);
 
@@ -611,7 +591,10 @@ impl ClaudeWebApiFetcher {
 
     /// Convert a usage window to a RateWindow
     fn to_rate_window(&self, window: &UsageWindow, window_minutes: Option<u32>) -> RateWindow {
-        let used_percent = normalize_utilization(window.utilization.unwrap_or(0.0));
+        // `utilization` is already expressed in percent units: `1.0` means 1%,
+        // not 100%. Treating values <= 1 as fractions reported a 1% session as a
+        // fully consumed quota.
+        let used_percent = window.utilization.unwrap_or(0.0);
 
         let resets_at = window
             .resets_at
@@ -621,6 +604,47 @@ impl ClaudeWebApiFetcher {
         let reset_description = resets_at.map(Self::format_reset_time);
 
         RateWindow::with_details(used_percent, window_minutes, resets_at, reset_description)
+    }
+
+    /// Build (primary, secondary, model_specific) rate windows from a usage
+    /// response, applying the limits[]-over-legacy preference chain.
+    ///
+    /// Extracted so the exact chain tested in `issue_279_session_limits_win_*`
+    /// and `session_falls_back_*` is the same code production runs — no
+    /// duplicated inline copy in tests can silently drift.
+    fn build_rate_windows(
+        &self,
+        usage: &UsageResponse,
+    ) -> (RateWindow, Option<RateWindow>, Option<RateWindow>) {
+        // Prefer limits[] session over legacy five_hour (mirrors the weekly
+        // lane preferring weekly_all over seven_day). A stale
+        // five_hour.utilization can transiently report 1.0 (100%) right after
+        // a window rollover while the limits[] entry already reflects the
+        // fresh value (#279, same bug class as #210). When both are absent,
+        // fall back to the informational 5h placeholder below.
+        let primary = super::scoped_weekly::session_window(&usage.limits)
+            .or_else(|| {
+                usage
+                    .five_hour
+                    .as_ref()
+                    .map(|w| self.to_rate_window(w, Some(300))) // 5 hours = 300 minutes
+            })
+            .unwrap_or_else(RateWindow::no_active_session);
+
+        // Prefer limits[] weekly_all over legacy seven_day (same as OAuth path).
+        let secondary = super::scoped_weekly::weekly_all_window(&usage.limits).or_else(|| {
+            usage
+                .seven_day
+                .as_ref()
+                .map(|w| self.to_rate_window(w, Some(10080))) // 7 days = 10080 minutes
+        });
+
+        let model_specific = usage
+            .seven_day_opus
+            .as_ref()
+            .map(|w| self.to_rate_window(w, Some(10080)));
+
+        (primary, secondary, model_specific)
     }
 
     /// Parse ISO8601 date string
@@ -649,14 +673,6 @@ impl ClaudeWebApiFetcher {
 impl Default for ClaudeWebApiFetcher {
     fn default() -> Self {
         Self::new()
-    }
-}
-
-fn normalize_utilization(utilization: f64) -> f64 {
-    if utilization > 0.0 && utilization <= 1.0 {
-        utilization * 100.0
-    } else {
-        utilization
     }
 }
 
@@ -756,7 +772,7 @@ mod tests {
     }
 
     #[test]
-    fn converts_fractional_utilization_to_percent() {
+    fn keeps_sub_one_utilization_in_percent_units() {
         let window = UsageWindow {
             utilization: Some(0.23),
             resets_at: None,
@@ -764,7 +780,23 @@ mod tests {
 
         let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
 
-        assert!((rate.used_percent - 23.0).abs() < f64::EPSILON);
+        assert!((rate.used_percent - 0.23).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn one_percent_session_is_not_reported_as_full_quota() {
+        let window = UsageWindow {
+            utilization: Some(1.0),
+            resets_at: None,
+        };
+
+        let rate = ClaudeWebApiFetcher::new().to_rate_window(&window, Some(300));
+
+        assert!(
+            (rate.used_percent - 1.0).abs() < f64::EPSILON,
+            "session was {}, expected 1% (not 100%)",
+            rate.used_percent
+        );
     }
 
     #[test]
@@ -1022,6 +1054,70 @@ mod tests {
         assert_eq!(extra.is_enabled, Some(true));
         assert_eq!(extra.monthly_credit_limit, Some(2000.0));
         assert_eq!(extra.used_credits, Some(550.0));
+    }
+
+    #[test]
+    fn issue_279_session_limits_win_over_stale_five_hour_after_rollover() {
+        // Right after a 5h window rollover the legacy five_hour.utilization
+        // can transiently report 1.0 (normalizes to 100%) even though
+        // claude.ai shows only 5% for the fresh window. The limits[] entry
+        // (kind=="session") carries the true value and must win.
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 1.0, "resets_at": "2026-08-13T12:49:59.578826Z"},
+                "seven_day": {"utilization": 0.01, "resets_at": "2026-07-26T22:59:59Z"},
+                "limits": [
+                    {
+                        "kind": "session",
+                        "group": "session",
+                        "percent": 5,
+                        "resets_at": "2026-08-13T12:49:59.578826Z"
+                    },
+                    {
+                        "kind": "weekly_all",
+                        "group": "weekly",
+                        "percent": 1,
+                        "resets_at": "2026-07-26T22:59:59Z"
+                    }
+                ]
+            }"#,
+        )
+        .expect("issue 279 body");
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let (primary, secondary, _) = fetcher.build_rate_windows(&usage);
+
+        // Primary session must be 5%, not the stale 100%.
+        assert!(
+            (primary.used_percent - 5.0).abs() < f64::EPSILON,
+            "primary was {}, expected 5% (not 100%)",
+            primary.used_percent
+        );
+        assert!((primary.used_percent - 100.0).abs() > 1.0);
+        assert_eq!(primary.window_minutes, Some(300));
+        assert!(primary.resets_at.is_some());
+
+        // Weekly lane is unaffected (still prefers limits weekly_all).
+        let weekly = secondary.expect("weekly");
+        assert!((weekly.used_percent - 1.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn session_falls_back_to_legacy_five_hour_without_limits_entry() {
+        // When no limits[] session entry exists, the legacy five_hour field
+        // is still the source of truth (backwards compatible).
+        let usage: super::UsageResponse = serde_json::from_str(
+            r#"{
+                "five_hour": {"utilization": 10.0, "resets_at": "2026-08-13T12:49:59Z"}
+            }"#,
+        )
+        .expect("legacy-only body");
+
+        let fetcher = ClaudeWebApiFetcher::new();
+        let (primary, _, _) = fetcher.build_rate_windows(&usage);
+
+        assert!((primary.used_percent - 10.0).abs() < f64::EPSILON);
+        assert_eq!(primary.window_minutes, Some(300));
     }
 
     #[test]

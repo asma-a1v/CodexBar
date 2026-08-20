@@ -774,7 +774,8 @@ fn provider_cache_upsert_replaces_existing_provider() {
         wayfinder_usage: None,
         source_label: "CLI".to_string(),
     };
-    let mut first = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+    let mut first =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     let mut second = first.clone();
     first.error = Some("old".to_string());
     second.error = Some("new".to_string());
@@ -796,10 +797,11 @@ fn provider_cache_prunes_disabled_providers() {
         wayfinder_usage: None,
         source_label: "CLI".to_string(),
     };
-    let codex = ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+    let codex =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     let claude_meta = instantiate_provider(ProviderId::Claude).metadata().clone();
     let claude =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &claude_meta, &result);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &claude_meta, &result, None);
 
     let mut cache = vec![codex, claude];
     super::prune_provider_cache_to_enabled(&mut cache, &[ProviderId::Codex]);
@@ -826,7 +828,7 @@ fn hiding_codex_spark_rows_preserves_other_extra_usage() {
         source_label: "CLI".to_string(),
     };
     let mut snapshot =
-        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result);
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Codex, &metadata, &result, None);
     snapshot.extra_rate_windows = vec![
         NamedRateWindowSnapshot {
             id: "codex-spark".to_string(),
@@ -855,7 +857,8 @@ fn claude_transient_auth_failure_preserves_first_last_good_snapshot() {
         wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -883,7 +886,8 @@ fn claude_repeated_auth_failure_surfaces_error() {
         wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let first_error = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -916,7 +920,8 @@ fn claude_cli_parse_failure_keeps_last_good_every_time() {
         wayfinder_usage: None,
         source_label: "CLI".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -949,7 +954,8 @@ fn claude_hard_credentials_missing_does_not_preserve_stale() {
         wayfinder_usage: None,
         source_label: "OAuth".to_string(),
     };
-    let good = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let good =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
     let err = ProviderUsageSnapshot::from_error(
         ProviderId::Claude,
         &metadata,
@@ -1004,7 +1010,9 @@ fn non_claude_error_message_is_preserved() {
 
 #[test]
 fn chart_data_serde_roundtrip_preserves_fields() {
-    use super::{DailyCostPoint, DailyUsageBreakdown, ProviderChartData, ServiceUsagePoint};
+    use super::{
+        DailyCostPoint, DailyTokenPoint, DailyUsageBreakdown, ProviderChartData, ServiceUsagePoint,
+    };
 
     let original = ProviderChartData {
         provider_id: "codex".into(),
@@ -1037,6 +1045,11 @@ fn chart_data_serde_roundtrip_preserves_fields() {
             total_credits_used: 13.5,
         }],
         local_usage: None,
+        tokens_history: vec![DailyTokenPoint {
+            date: "2025-01-01".into(),
+            tokens: 123_456,
+        }],
+        tokens_incomplete: true,
     };
 
     let json = serde_json::to_string(&original).expect("serialize");
@@ -1050,6 +1063,9 @@ fn chart_data_serde_roundtrip_preserves_fields() {
     assert!(json.contains("\"localUsage\":null"));
     assert!(json.contains("\"creditsUsed\":10.0"));
     assert!(json.contains("\"totalCreditsUsed\":13.5"));
+    assert!(json.contains("\"tokensHistory\""));
+    assert!(json.contains("\"tokens\":123456"));
+    assert!(json.contains("\"tokensIncomplete\":true"));
 
     let back: ProviderChartData = serde_json::from_str(&json).expect("deserialize");
     assert_eq!(back.provider_id, "codex");
@@ -1058,6 +1074,8 @@ fn chart_data_serde_roundtrip_preserves_fields() {
     assert_eq!(back.credits_history[0].value, 42.0);
     assert_eq!(back.usage_breakdown[0].services.len(), 2);
     assert_eq!(back.usage_breakdown[0].total_credits_used, 13.5);
+    assert_eq!(back.tokens_history[0].tokens, 123_456);
+    assert!(back.tokens_incomplete);
 }
 
 #[test]
@@ -1081,7 +1099,8 @@ fn japanese_provider_snapshot_localizes_weekly_label() {
         source_label: "OAuth".to_string(),
     };
 
-    let snapshot = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
 
     // Secondary label stays raw; localization happens at render time.
     assert_eq!(snapshot.secondary_label, Some("Weekly".to_string()));
@@ -1109,7 +1128,8 @@ fn japanese_provider_snapshot_localizes_pace_reserve_description() {
         source_label: "OAuth".to_string(),
     };
 
-    let snapshot = ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result);
+    let snapshot =
+        ProviderUsageSnapshot::from_fetch_result(ProviderId::Claude, &metadata, &result, None);
 
     // Reserve data stays raw; localization happens at render time.
     let secondary = snapshot.secondary.as_ref().expect("secondary window");

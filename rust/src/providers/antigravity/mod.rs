@@ -9,7 +9,7 @@ use serde::Deserialize;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::process::Command;
-use std::sync::OnceLock;
+use std::sync::{LazyLock, OnceLock};
 
 use crate::core::{
     FetchContext, Provider, ProviderError, ProviderFetchResult, ProviderId, ProviderMetadata,
@@ -26,7 +26,39 @@ pub struct AntigravityProvider {
 
 /// Return a regex that matches `--<flag> <value>` or `--<flag>=<value>`.
 fn flag_re(flag: &str) -> Regex {
-    Regex::new(&format!(r"--{f}(?:\s+|\s*=\s*)(\S+)", f = flag)).expect("valid flag pattern")
+    Regex::new(&format!("--{f}(?:\\s+|\\s*=\\s*)(\\S+)", f = flag)).expect("valid flag pattern")
+}
+
+/// The kind of local Antigravity process a `ProcessInfo` was derived from.
+///
+/// The desktop IDE/app language server authenticates local requests with a
+/// `--csrf_token` flag and requires the `X-Codeium-Csrf-Token` header. The
+/// `agy` CLI hosts the same language server in-process but launches it without
+/// that flag and serves the quota endpoints with no CSRF header.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ProcessSource {
+    /// Desktop IDE/app language server — requires a CSRF token.
+    Ide,
+    /// `agy` CLI language server — no CSRF token required.
+    Cli,
+}
+
+/// True when `command_line` looks like the `agy` CLI language server process.
+///
+/// `agy.exe` (and `antigravity-cli` / `antigravity_cli`) hosts the same local
+/// language server as the IDE but under a different process name and without a
+/// `--csrf_token` flag. Match either the bare `agy` executable or the
+/// `antigravity-cli` package name; a leading path separator prevents unrelated
+/// names (e.g. `notantigravity-cli`) from matching.
+fn is_agy_cli_command(command_line: &str) -> bool {
+    static CLI_PATH_RE: LazyLock<Regex> = LazyLock::new(|| {
+        Regex::new(r"(^|[\\/])(antigravity-cli|antigravity_cli)([\s/\\]|$)")
+            .expect("valid antigravity-cli pattern")
+    });
+    static AGY_RE: LazyLock<Regex> =
+        LazyLock::new(|| Regex::new(r"(^|[\\/])agy(\.exe)?(\s|$)").expect("valid agy pattern"));
+    let lower = command_line.to_ascii_lowercase();
+    CLI_PATH_RE.is_match(&lower) || AGY_RE.is_match(&lower)
 }
 
 impl AntigravityProvider {
@@ -57,7 +89,10 @@ impl AntigravityProvider {
         cmd.args([
                 "-ExecutionPolicy", "Bypass",
                 "-Command",
-                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' -or $_.Name -like 'language_server.exe' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
+                // Match the desktop IDE/app language server (language_server.exe /
+                // language_server_windows*) and the `agy` CLI (agy / agy.exe), which
+                // hosts the same language server in-process with no --csrf_token flag.
+                "Get-CimInstance Win32_Process | Where-Object { $_.Name -like '*language_server_windows*' -or $_.Name -like 'language_server.exe' -or $_.Name -eq 'agy.exe' -or $_.Name -eq 'agy' } | ForEach-Object { \"$($_.ProcessId)`t$($_.CommandLine)\" }"
             ]);
         #[cfg(windows)]
         cmd.creation_flags(CREATE_NO_WINDOW);
@@ -84,48 +119,66 @@ impl AntigravityProvider {
         let port_re = flag_re("extension_server_port");
         let https_port_re = flag_re("https_server_port");
 
+        // Prefer desktop IDE/app matches (which carry a --csrf_token) over the
+        // tokenless `agy` CLI so the CSRF-protected endpoint is used when both
+        // happen to be running. Only fall back to a CLI match when no IDE match
+        // is found, mirroring upstream's process-kind precedence.
+        let mut cli_match: Option<ProcessInfo> = None;
+
         for line in stdout.lines() {
-            if line.contains("--csrf_token") {
-                // Line is "<pid>\t<command line>"; split off the PID prefix we added so the
-                // PID can be used to enumerate the process's real listening ports below.
-                let (pid, line) = match line.split_once('\t') {
-                    Some((p, rest)) => (p.trim().parse::<u32>().ok(), rest),
-                    None => (None, line),
-                };
+            // Line is "<pid>\t<command line>"; split off the PID prefix we added so the
+            // PID can be used to enumerate the process's real listening ports below.
+            let (pid, line) = match line.split_once('\t') {
+                Some((p, rest)) => (p.trim().parse::<u32>().ok(), rest),
+                None => (None, line),
+            };
 
-                let csrf_token = csrf_re
-                    .captures(line)
-                    .and_then(|c| c.get(1))
-                    .map(|m| m.as_str().to_string());
+            let csrf_token = csrf_re
+                .captures(line)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
 
-                let ext_csrf_token = ext_csrf_re
-                    .captures(line)
-                    .and_then(|c| c.get(1))
-                    .map(|m| m.as_str().to_string());
+            let ext_csrf_token = ext_csrf_re
+                .captures(line)
+                .and_then(|c| c.get(1))
+                .map(|m| m.as_str().to_string());
 
-                let port = port_re
-                    .captures(line)
-                    .and_then(|c| c.get(1))
-                    .and_then(|m| m.as_str().parse::<u16>().ok())
-                    .or_else(|| {
-                        https_port_re
-                            .captures(line)
-                            .and_then(|c| c.get(1))
-                            .and_then(|m| m.as_str().parse::<u16>().ok())
-                    });
+            let port = port_re
+                .captures(line)
+                .and_then(|c| c.get(1))
+                .and_then(|m| m.as_str().parse::<u16>().ok())
+                .or_else(|| {
+                    https_port_re
+                        .captures(line)
+                        .and_then(|c| c.get(1))
+                        .and_then(|m| m.as_str().parse::<u16>().ok())
+                });
 
-                if let Some(token) = csrf_token {
-                    return Some(ProcessInfo {
-                        csrf_token: token,
-                        extension_server_csrf_token: ext_csrf_token,
-                        extension_port: port,
-                        pid,
-                    });
-                }
+            // Desktop IDE/app language server: requires --csrf_token.
+            if let Some(token) = csrf_token {
+                return Some(ProcessInfo {
+                    csrf_token: token,
+                    extension_server_csrf_token: ext_csrf_token,
+                    extension_port: port,
+                    pid,
+                    source: ProcessSource::Ide,
+                });
+            }
+
+            // `agy` CLI: hosts the same language server without --csrf_token.
+            // Allow an empty CSRF token; the CLI's quota endpoint requires none.
+            if cli_match.is_none() && is_agy_cli_command(line) {
+                cli_match = Some(ProcessInfo {
+                    csrf_token: String::new(),
+                    extension_server_csrf_token: None,
+                    extension_port: port,
+                    pid,
+                    source: ProcessSource::Cli,
+                });
             }
         }
 
-        None
+        cli_match
     }
 
     /// Find the actual API port by probing the language server's candidate ports.
@@ -271,18 +324,27 @@ impl AntigravityProvider {
             }
         });
 
-        // Use extension server CSRF token if available, otherwise fall back to language server token
-        let csrf_token = process_info
-            .extension_server_csrf_token
-            .as_deref()
-            .unwrap_or(&process_info.csrf_token);
-
-        let resp = client
+        // The `agy` CLI serves the quota endpoints without a CSRF token; the
+        // desktop IDE/app server requires one. Only attach the CSRF header when
+        // the matched process is the desktop server (and a token was found).
+        let requires_csrf = process_info.source == ProcessSource::Ide;
+        let csrf_token = if requires_csrf {
+            process_info
+                .extension_server_csrf_token
+                .as_deref()
+                .unwrap_or(&process_info.csrf_token)
+        } else {
+            ""
+        };
+        let mut request = client
             .post(&url)
             .header("Content-Type", "application/json")
             .header("Connect-Protocol-Version", "1")
-            .header("X-Codeium-Csrf-Token", csrf_token)
-            .json(&body)
+            .json(&body);
+        if requires_csrf {
+            request = request.header("X-Codeium-Csrf-Token", csrf_token);
+        }
+        let resp = request
             .send()
             .await
             .map_err(|e| ProviderError::Other(format!("API request failed: {}", e)))?;
@@ -386,10 +448,21 @@ impl AntigravityProvider {
             snapshot = snapshot.with_model_specific(ter);
         }
 
+        // Upstream 0.50.1 #2963: one lane per quota bucket. When Antigravity
+        // emits multiple model configs that map to the same quota bucket
+        // (e.g. multiple Claude variants in the same 5h session), show one
+        // lane per quota bucket, not one per model. Dedup by (remaining,
+        // reset_time) — models sharing the same quota state collapse.
+        let mut seen_buckets: Vec<(Option<f64>, Option<String>)> = Vec::new();
         for config in quota_configs {
             let Some(quota) = &config.quota_info else {
                 continue;
             };
+            let bucket = (quota.remaining_fraction, quota.reset_time.clone());
+            if seen_buckets.contains(&bucket) {
+                continue;
+            }
+            seen_buckets.push(bucket);
             let title = clean_model_label(model_label(config));
             if title.is_empty() {
                 continue;
@@ -431,7 +504,16 @@ impl Provider for AntigravityProvider {
         &self.metadata
     }
 
-    async fn fetch_usage(&self, _ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+    async fn fetch_usage(&self, ctx: &FetchContext) -> Result<ProviderFetchResult, ProviderError> {
+        // `oauth` is not supported (no remote API path is ported yet); surface it
+        // explicitly instead of silently probing locally. Both `auto` and `cli`
+        // resolve to the same local language-server probe: `detect_process_info`
+        // prefers the CSRF-protected desktop IDE/app server and falls back to the
+        // tokenless `agy` CLI when only that is running.
+        if ctx.source_mode == SourceMode::OAuth {
+            return Err(ProviderError::UnsupportedSource(ctx.source_mode));
+        }
+
         tracing::debug!("Fetching Antigravity usage via local probe");
 
         match self.fetch_user_status().await {
@@ -457,6 +539,9 @@ struct ProcessInfo {
     extension_server_csrf_token: Option<String>,
     extension_port: Option<u16>,
     pid: Option<u32>,
+    /// Whether the process is the desktop IDE/app server (CSRF required) or the
+    /// `agy` CLI (no CSRF). See [`ProcessSource`].
+    source: ProcessSource,
 }
 
 // API Response types
@@ -680,170 +765,5 @@ fn clean_model_label(label: &str) -> String {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_classify_model_families() {
-        assert_eq!(classify_model("Claude 3.5 Sonnet"), ModelFamily::Claude);
-        assert_eq!(classify_model("claude-4-opus"), ModelFamily::Claude);
-        assert_eq!(
-            classify_model("Claude Thinking"),
-            ModelFamily::ClaudeThinking
-        );
-        assert_eq!(
-            classify_model("claude-3.5-sonnet-thinking"),
-            ModelFamily::ClaudeThinking
-        );
-        assert_eq!(classify_model("Gemini 2.5 Pro Low"), ModelFamily::GeminiPro);
-        assert_eq!(classify_model("gemini-pro-low"), ModelFamily::GeminiPro);
-        assert_eq!(classify_model("Pro Low Latency"), ModelFamily::GeminiPro);
-        assert_eq!(classify_model("Gemini 2.5 Flash"), ModelFamily::GeminiFlash);
-        assert_eq!(classify_model("gemini-flash"), ModelFamily::GeminiFlash);
-        assert_eq!(classify_model("Flash Model"), ModelFamily::GeminiFlash);
-        assert_eq!(classify_model("GPT-4o"), ModelFamily::Other);
-        assert_eq!(classify_model("unknown-model"), ModelFamily::Other);
-    }
-
-    #[test]
-    fn parses_current_language_server_process() {
-        let output = r"4242	C:\Users\test\AppData\Local\Programs\Antigravity\resources\bin\language_server.exe --csrf_token 11111111-2222-3333-4444-555555555555 --extension_server_port 54123";
-
-        let process = AntigravityProvider::parse_process_info(output).expect("process info");
-
-        assert_eq!(process.pid, Some(4242));
-        assert_eq!(process.extension_port, Some(54123));
-        assert_eq!(process.csrf_token, "11111111-2222-3333-4444-555555555555");
-    }
-
-    #[test]
-    fn parses_language_server_without_extension_server_port() {
-        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --standalone --override_ide_name antigravity --subclient_type hub --override_ide_version 2.0.11 --https_server_port 0 --csrf_token 68dda2fb-6b26-40c0-aeef-b9a628615714 --app_data_dir antigravity";
-
-        let process = AntigravityProvider::parse_process_info(output)
-            .expect("process info should be detected");
-
-        assert_eq!(process.pid, Some(34564));
-        assert_eq!(process.extension_port, Some(0));
-        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
-    }
-
-    #[test]
-    fn parses_language_server_without_any_port_arg() {
-        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --standalone --csrf_token aabbccdd-1122-3344-5566-778899001122 --app_data_dir antigravity";
-
-        let process = AntigravityProvider::parse_process_info(output)
-            .expect("process info should be detected");
-
-        assert_eq!(process.pid, Some(34564));
-        assert_eq!(process.extension_port, None);
-        assert_eq!(process.csrf_token, "aabbccdd-1122-3344-5566-778899001122");
-    }
-
-    #[test]
-    fn parses_equals_form_args() {
-        let output = "34564\tC:\\Users\\test\\AppData\\Local\\Programs\\Antigravity\\resources\\bin\\language_server.exe --csrf_token=68dda2fb-6b26-40c0-aeef-b9a628615714 --https_server_port=61999";
-
-        let process = AntigravityProvider::parse_process_info(output)
-            .expect("process info should be detected");
-
-        assert_eq!(process.pid, Some(34564));
-        assert_eq!(process.extension_port, Some(61999));
-        assert_eq!(process.csrf_token, "68dda2fb-6b26-40c0-aeef-b9a628615714");
-    }
-
-    fn make_response(models: Vec<(&str, f64)>) -> UserStatusResponse {
-        let json = serde_json::json!({
-            "userStatus": {
-                "cascadeModelConfigData": {
-                    "clientModelConfigs": models.iter().map(|(label, remaining)| {
-                        serde_json::json!({
-                            "label": label,
-                            "quotaInfo": {
-                                "remainingFraction": remaining
-                            }
-                        })
-                    }).collect::<Vec<_>>()
-                }
-            }
-        });
-        serde_json::from_value(json).unwrap()
-    }
-
-    #[test]
-    fn test_parse_user_status_standard() {
-        let resp = make_response(vec![
-            ("Claude 3.5 Sonnet", 0.8),
-            ("Gemini 2.5 Pro Low", 0.5),
-            ("Gemini 2.5 Flash", 0.9),
-        ]);
-        let provider = AntigravityProvider::new();
-        let snap = provider.parse_user_status(resp).unwrap();
-
-        assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
-        let sec = snap.secondary.unwrap();
-        assert!((sec.used_percent - 50.0).abs() < 0.1);
-        let ter = snap.model_specific.unwrap();
-        assert!((ter.used_percent - 10.0).abs() < 0.1);
-        assert_eq!(snap.extra_rate_windows.len(), 3);
-        assert!(
-            snap.extra_rate_windows
-                .iter()
-                .any(|window| window.title == "Gemini 2.5 Flash")
-        );
-    }
-
-    #[test]
-    fn test_parse_user_status_thinking_skipped() {
-        let resp = make_response(vec![
-            ("Claude Thinking", 0.6),
-            ("Claude 3.5 Sonnet", 0.7),
-            ("Gemini 2.5 Flash", 0.5),
-        ]);
-        let provider = AntigravityProvider::new();
-        let snap = provider.parse_user_status(resp).unwrap();
-
-        assert!((snap.primary.used_percent - 30.0).abs() < 0.1);
-    }
-
-    #[test]
-    fn test_parse_user_status_fallback_first() {
-        let resp = make_response(vec![("GPT-4o", 0.4), ("Mistral Large", 0.6)]);
-        let provider = AntigravityProvider::new();
-        let snap = provider.parse_user_status(resp).unwrap();
-
-        assert!((snap.primary.used_percent - 60.0).abs() < 0.1);
-        assert!(snap.secondary.is_none());
-        assert!(snap.model_specific.is_none());
-    }
-
-    #[test]
-    fn test_noisy_models_do_not_drive_summary_windows() {
-        let resp = make_response(vec![
-            ("Gemini 2.5 Flash Image", 0.01),
-            ("Gemini 2.5 Pro Lite", 0.02),
-            ("Gemini autocomplete internal", 0.03),
-            ("Claude 4 Sonnet", 0.8),
-            ("Gemini 2.5 Pro Low", 0.6),
-            ("Gemini 2.5 Flash", 0.7),
-        ]);
-        let provider = AntigravityProvider::new();
-        let snap = provider.parse_user_status(resp).unwrap();
-
-        assert!((snap.primary.used_percent - 20.0).abs() < 0.1);
-        assert!((snap.secondary.unwrap().used_percent - 40.0).abs() < 0.1);
-        assert!((snap.model_specific.unwrap().used_percent - 30.0).abs() < 0.1);
-        assert!(
-            snap.extra_rate_windows
-                .iter()
-                .any(|window| window.title == "Gemini 2.5 Flash Image")
-        );
-    }
-
-    #[test]
-    fn not_running_error_tells_user_how_to_start() {
-        let error = ProviderError::NotInstalled(NOT_RUNNING_MESSAGE.to_string()).to_string();
-
-        assert!(error.contains("Start Google Antigravity and sign in"));
-    }
-}
+#[path = "tests.rs"]
+mod tests;

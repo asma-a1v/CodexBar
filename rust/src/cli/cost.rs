@@ -7,6 +7,8 @@ use clap::Args;
 use super::usage::{OutputFormat, ProviderSelection};
 use crate::core::{CostScanOptions, ProviderId};
 use crate::cost_scanner::{CostScanner, CostSummary};
+use crate::settings::Settings;
+use crate::spend_contract::build_local_spend_contract_from_summary;
 
 /// Arguments for the cost command
 #[derive(Args, Debug, Default)]
@@ -45,6 +47,25 @@ pub struct CostArgs {
     /// observable effect in the current environment.
     #[arg(long = "provider-native-only")]
     pub provider_native_only: bool,
+
+    /// Group text output by Codex local conversation/session.
+    #[arg(long = "group-by", value_parser = ["session"])]
+    pub group_by: Option<String>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CostGroupBy {
+    None,
+    Session,
+}
+
+impl CostGroupBy {
+    fn from_arg(raw: Option<&str>) -> Self {
+        match raw {
+            Some("session") => Self::Session,
+            _ => Self::None,
+        }
+    }
 }
 
 /// Run the cost command
@@ -56,6 +77,7 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
     };
 
     let providers = ProviderSelection::from_arg(args.provider.as_deref())?;
+    let group_by = CostGroupBy::from_arg(args.group_by.as_deref());
     let use_color = !args.no_color && is_terminal();
     let mut scan_options = CostScanOptions::app_driven();
     scan_options.include_pi_sessions = !args.provider_native_only;
@@ -105,7 +127,7 @@ pub async fn run(args: CostArgs) -> anyhow::Result<()> {
 
     match format {
         OutputFormat::Text => {
-            print_text_output(&results, use_color, args.days);
+            print_text_output(&results, use_color, args.days, group_by);
         }
         OutputFormat::Json => {
             print_json_output(&results, args.pretty, args.days)?;
@@ -124,7 +146,7 @@ struct CostResult {
 }
 
 /// Print text output
-fn print_text_output(results: &[CostResult], use_color: bool, days: u32) {
+fn print_text_output(results: &[CostResult], use_color: bool, days: u32, group_by: CostGroupBy) {
     for (i, result) in results.iter().enumerate() {
         if use_color {
             println!(
@@ -135,12 +157,20 @@ fn print_text_output(results: &[CostResult], use_color: bool, days: u32) {
             println!("{} Cost (last {} days)", result.display_name, days);
         }
 
-        if !result.supported {
+        if group_by == CostGroupBy::Session && result.provider == "codex" {
+            print_codex_session_output(result, days);
+        } else if group_by == CostGroupBy::Session {
+            println!("  Session grouping is only available for Codex local conversations");
+        } else if !result.supported {
             println!("  Local cost scanning not available for this provider");
             println!("  (Only Codex and Claude have local logs)");
         } else if result.summary.sessions_count == 0 {
-            println!("  No usage data found");
-            println!("  Check that you have used {} locally", result.display_name);
+            if result.summary.known_zero {
+                println!("  No usage in the last {} days (scan complete)", days);
+            } else {
+                println!("  No usage data found");
+                println!("  Check that you have used {} locally", result.display_name);
+            }
         } else {
             // Total cost
             if use_color {
@@ -211,9 +241,74 @@ fn print_text_output(results: &[CostResult], use_color: bool, days: u32) {
     }
 }
 
+fn print_codex_session_output(result: &CostResult, days: u32) {
+    let index = crate::codex_workspaces::CodexWorkspacesIndex::new(days);
+    let snapshot = match index.load_snapshot(false, |_| {}) {
+        Ok(snapshot) => snapshot,
+        Err(err) => {
+            println!("  Conversation history unavailable: {err}");
+            return;
+        }
+    };
+
+    println!("  Conversations (last {} days):", snapshot.history_days);
+    if snapshot.source_status.is_partial() {
+        println!("  Conversation history is incomplete while local indexing catches up.");
+    }
+
+    if snapshot.sessions.is_empty() {
+        println!("  —");
+    } else {
+        for session in &snapshot.sessions {
+            let id = short_session_id(&session.id);
+            let cost = if session.cost_estimate.unknown_tokens > 0 {
+                format!("~${:.2} partial", session.cost_estimate.known_usd)
+            } else {
+                format!("${:.2}", session.cost_estimate.known_usd)
+            };
+            let model = session.top_model.as_deref().unwrap_or("unknown model");
+            println!(
+                "  Session {id}: {cost} · {} tokens · {model}",
+                format_number(session.totals.total_tokens)
+            );
+            if let Some(activity) = session.latest_activity {
+                println!(
+                    "    {}",
+                    activity
+                        .with_timezone(&chrono::Local)
+                        .format("%b %d, %H:%M")
+                );
+            }
+        }
+    }
+
+    if !result.summary.history_coverage_established {
+        println!("  Coverage: partial (cost history catch-up in progress)");
+    }
+    println!("  Not a subscription bill or plan value · local usage × public API prices");
+}
+
+fn short_session_id(value: &str) -> String {
+    let trimmed = value.trim();
+    if trimmed.chars().count() <= 12 {
+        return trimmed.to_string();
+    }
+    let prefix: String = trimmed.chars().take(4).collect();
+    let suffix: String = trimmed
+        .chars()
+        .rev()
+        .take(8)
+        .collect::<Vec<_>>()
+        .into_iter()
+        .rev()
+        .collect();
+    format!("{prefix}...{suffix}")
+}
+
 /// Print JSON output
-fn print_json_output(results: &[CostResult], pretty: bool, days: u32) -> anyhow::Result<()> {
-    let payloads: Vec<serde_json::Value> = results
+fn build_json_payloads(results: &[CostResult], days: u32) -> Vec<serde_json::Value> {
+    let settings = Settings::load();
+    results
         .iter()
         .map(|r| {
             if !r.supported {
@@ -223,59 +318,42 @@ fn print_json_output(results: &[CostResult], pretty: bool, days: u32) -> anyhow:
                     "error": "Local cost scanning not available for this provider"
                 })
             } else {
+                let spend_contract = matches!(r.provider.as_str(), "codex" | "claude" | "opencodego")
+                    .then(|| build_local_spend_contract_from_summary(
+                        &r.provider,
+                        days.clamp(1, 365),
+                        settings.open_codex_usage_logs_enabled && r.provider == "codex",
+                        settings.hide_native_codex_cost_when_open_codex_present && r.provider == "codex",
+                        r.summary.clone(),
+                    ));
                 serde_json::json!({
                     "provider": r.provider,
                     "supported": true,
                     "days_scanned": days,
-                    "cost": {
-                        "total_usd": r.summary.total_cost_usd,
-                        "currency": "USD"
-                    },
-                    "tokens": {
-                        "input": r.summary.input_tokens,
-                        "output": r.summary.output_tokens,
-                        "cached": r.summary.cached_tokens
-                    },
+                    "cost": {"total_usd": r.summary.total_cost_usd, "currency": "USD"},
+                    "tokens": {"input": r.summary.input_tokens, "output": r.summary.output_tokens, "cached": r.summary.cached_tokens},
                     "sessions_count": r.summary.sessions_count,
-                    // A16 (upstream 0.48.0): scan completeness for the requested
-                    // window. null for non-Codex; true/false for Codex.
-                    "historyCoverageIsEstablished": if r.provider == "codex" {
-                        serde_json::Value::Bool(r.summary.history_coverage_established)
-                    } else {
-                        serde_json::Value::Null
-                    },
-                    // F18 (upstream 0.48.0): pricing completeness. "complete" or
-                    // {"partial": {"unpriced_models": [...]}}.
+                    "historyCoverageIsEstablished": if r.provider == "codex" { serde_json::Value::Bool(r.summary.history_coverage_established) } else { serde_json::Value::Null },
+                    "knownZero": if r.provider == "codex" { serde_json::Value::Bool(r.summary.known_zero) } else { serde_json::Value::Null },
                     "modelPricingCompleteness": match &r.summary.model_pricing_completeness {
-                        crate::cost_scanner::ModelPricingCompleteness::Complete => {
-                            serde_json::Value::String("complete".to_string())
-                        }
-                        crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } => {
-                            serde_json::json!({
-                                "partial": {
-                                    "unpriced_models": unpriced_models
-                                }
-                            })
-                        }
+                        crate::cost_scanner::ModelPricingCompleteness::Complete => serde_json::Value::String("complete".to_string()),
+                        crate::cost_scanner::ModelPricingCompleteness::Partial { unpriced_models } => serde_json::json!({"partial": {"unpriced_models": unpriced_models}}),
                     },
                     "by_model": r.summary.by_model,
                     "by_speed": r.summary.by_speed,
                     "by_speed_tokens": r.summary.by_speed_tokens.iter().map(|(bucket, counts)| {
-                        (bucket.clone(), serde_json::json!({
-                            "input": counts.input_tokens,
-                            "output": counts.output_tokens,
-                            "cached": counts.cached_tokens,
-                            "total": counts.total()
-                        }))
+                        (bucket.clone(), serde_json::json!({"input": counts.input_tokens, "output": counts.output_tokens, "cached": counts.cached_tokens, "total": counts.total()}))
                     }).collect::<serde_json::Map<_, _>>(),
-                    "period": {
-                        "start": r.summary.period_start.map(|d| d.to_string()),
-                        "end": r.summary.period_end.map(|d| d.to_string())
-                    }
+                    "period": {"start": r.summary.period_start.map(|d| d.to_string()), "end": r.summary.period_end.map(|d| d.to_string())},
+                    "spendContract": spend_contract
                 })
             }
         })
-        .collect();
+        .collect()
+}
+
+fn print_json_output(results: &[CostResult], pretty: bool, days: u32) -> anyhow::Result<()> {
+    let payloads = build_json_payloads(results, days);
 
     let output = if pretty {
         serde_json::to_string_pretty(&payloads)?
@@ -339,6 +417,7 @@ mod tests {
             "tokens": { "input": 0, "output": 0, "cached": 0 },
             "sessions_count": 1,
             "historyCoverageIsEstablished": true,
+            "knownZero": false,
             "modelPricingCompleteness": {
                 "partial": { "unpriced_models": ["codex-auto-review"] }
             },
@@ -387,5 +466,22 @@ mod tests {
         // Default CostArgs has provider_native_only = false (backward compat).
         let args = CostArgs::default();
         assert!(!args.provider_native_only);
+    }
+
+    #[test]
+    fn cost_output_format_rejects_toon() {
+        assert!("toon".parse::<OutputFormat>().is_err());
+    }
+
+    #[test]
+    fn group_by_defaults_none_and_accepts_session() {
+        assert_eq!(CostGroupBy::from_arg(None), CostGroupBy::None);
+        assert_eq!(CostGroupBy::from_arg(Some("session")), CostGroupBy::Session);
+    }
+
+    #[test]
+    fn short_session_id_is_privacy_conscious() {
+        assert_eq!(short_session_id("abc"), "abc");
+        assert_eq!(short_session_id("1234567890abcdef"), "1234...90abcdef");
     }
 }

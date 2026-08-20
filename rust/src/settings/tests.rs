@@ -22,24 +22,56 @@ fn test_settings_default() {
     assert!(!settings.float_bar_show_cost);
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
-    assert!(!settings.low_power_mode);
+    assert_eq!(
+        settings.low_power_mode_preference,
+        LowPowerModePreference::Off
+    );
 }
 
 #[test]
-fn low_power_mode_defaults_false_and_round_trips() {
+fn low_power_mode_migrates_legacy_boolean_and_round_trips_preference() {
     let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
-        .expect("missing low_power_mode defaults false");
-    assert!(!defaulted.low_power_mode);
+        .expect("missing low power fields defaults off");
+    assert_eq!(
+        defaulted.low_power_mode_preference,
+        LowPowerModePreference::Off
+    );
 
-    let enabled = Settings {
-        low_power_mode: true,
+    let legacy: Settings =
+        serde_json::from_str(r#"{ "enabled_providers": [], "low_power_mode": true }"#)
+            .expect("legacy low_power_mode migrates");
+    assert_eq!(legacy.low_power_mode_preference, LowPowerModePreference::On);
+
+    let automatic = Settings {
+        low_power_mode_preference: LowPowerModePreference::Automatic,
         ..Settings::default()
     };
-    let json = serde_json::to_string(&enabled).expect("serialize low_power_mode");
-    assert!(json.contains("\"low_power_mode\":true"));
+    let json = serde_json::to_string(&automatic).expect("serialize low power preference");
+    assert!(json.contains(r#""low_power_mode_preference":"automatic""#));
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize low power preference");
+    assert_eq!(
+        loaded.low_power_mode_preference,
+        LowPowerModePreference::Automatic
+    );
+}
 
-    let loaded: Settings = serde_json::from_str(&json).expect("deserialize low_power_mode");
-    assert!(loaded.low_power_mode);
+#[test]
+fn open_codex_usage_logs_default_off_and_round_trip() {
+    let defaulted: Settings = serde_json::from_str(r#"{ "enabled_providers": [] }"#)
+        .expect("missing open_codex_usage_logs_enabled defaults false");
+    assert!(!defaulted.open_codex_usage_logs_enabled);
+
+    let enabled = Settings {
+        open_codex_usage_logs_enabled: true,
+        hide_native_codex_cost_when_open_codex_present: true,
+        ..Settings::default()
+    };
+    let json = serde_json::to_string(&enabled).expect("serialize OpenCodex usage opt-in");
+    assert!(json.contains(r#""open_codex_usage_logs_enabled":true"#));
+
+    let loaded: Settings = serde_json::from_str(&json).expect("deserialize OpenCodex usage opt-in");
+    assert!(loaded.open_codex_usage_logs_enabled);
+    assert!(loaded.hide_native_codex_cost_when_open_codex_present);
 }
 
 #[test]
@@ -581,7 +613,7 @@ fn test_language_defaults_to_english() {
 #[test]
 fn test_language_all_variants_available() {
     let languages = Language::all();
-    assert_eq!(languages.len(), 7);
+    assert_eq!(languages.len(), 8);
     assert!(languages.contains(&Language::English));
     assert!(languages.contains(&Language::Chinese));
     assert!(languages.contains(&Language::ChineseTraditional));
@@ -589,6 +621,7 @@ fn test_language_all_variants_available() {
     assert!(languages.contains(&Language::Korean));
     assert!(languages.contains(&Language::Spanish));
     assert!(languages.contains(&Language::Russian));
+    assert!(languages.contains(&Language::Turkish));
 }
 
 #[test]
@@ -598,6 +631,7 @@ fn test_language_display_names() {
     assert_eq!(Language::ChineseTraditional.display_name(), "繁體中文");
     assert_eq!(Language::Japanese.display_name(), "日本語");
     assert_eq!(Language::Russian.display_name(), "Русский");
+    assert_eq!(Language::Turkish.display_name(), "Türkçe");
 }
 
 #[test]
@@ -605,6 +639,14 @@ fn test_language_resolves_russian_aliases() {
     assert_eq!(Language::resolve("russian"), Some(Language::Russian));
     assert_eq!(Language::resolve("ru-RU"), Some(Language::Russian));
     assert_eq!(Language::resolve("Русский"), Some(Language::Russian));
+}
+
+#[test]
+fn test_language_resolves_turkish_aliases() {
+    assert_eq!(Language::resolve("turkish"), Some(Language::Turkish));
+    assert_eq!(Language::resolve("tr-TR"), Some(Language::Turkish));
+    assert_eq!(Language::resolve("Türkçe"), Some(Language::Turkish));
+    assert_eq!(Language::resolve("turkce"), Some(Language::Turkish));
 }
 
 #[test]

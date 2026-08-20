@@ -84,9 +84,18 @@ impl DeepInfraSnapshot {
     }
 
     fn to_usage_snapshot(&self) -> UsageSnapshot {
+        // Upstream #2822: with a positive spending limit configured, the
+        // primary percent reflects billing-cycle spend against that limit so
+        // the automatic menu-bar metric tracks it; balance-depletion stays
+        // the hard 100% signal.
         let used_percent =
             if self.suspended || self.amount_owed_usd > 0.0 || self.available_balance_usd <= 0.0 {
                 100.0
+            } else if let Some(limit) = self
+                .spending_limit_usd
+                .filter(|limit| *limit > 0.0 && limit.is_finite())
+            {
+                ((self.recent_cost_usd / limit) * 100.0).clamp(0.0, 100.0)
             } else {
                 0.0
             };
@@ -337,7 +346,9 @@ mod tests {
         assert_eq!(snapshot.spending_limit_usd, Some(20.0));
 
         let usage = snapshot.to_usage_snapshot();
-        assert_eq!(usage.primary.used_percent, 0.0);
+        // Upstream #2822: positive spending limit drives the percent from
+        // billing-cycle spend (3.94 / 20.00 ≈ 19.7%), not a flat 0%.
+        assert!((usage.primary.used_percent - 19.7).abs() < 0.05);
         assert_eq!(
             usage.primary.reset_description.as_deref(),
             Some("$95.81 available · $3.94 spent this month")
@@ -347,6 +358,25 @@ mod tests {
         assert_eq!(cost.used, 3.94);
         assert_eq!(cost.limit, Some(20.0));
         assert_eq!(cost.period, "Billing cycle");
+    }
+
+    #[test]
+    fn spend_over_limit_clamps_to_100_and_zero_limit_stays_binary() {
+        // Spend beyond the positive limit clamps at 100% instead of exceeding.
+        let snapshot = parse_snapshot_for_testing(
+            &checklist_json(-50.0, 30.0, Some(20.0), false, None),
+            &usage_json(3000.0),
+        )
+        .unwrap();
+        assert_eq!(snapshot.to_usage_snapshot().primary.used_percent, 100.0);
+
+        // No (or non-positive) limit keeps the legacy binary balance signal.
+        let snapshot = parse_snapshot_for_testing(
+            &checklist_json(-50.0, 1.0, Some(0.0), false, None),
+            &usage_json(100.0),
+        )
+        .unwrap();
+        assert_eq!(snapshot.to_usage_snapshot().primary.used_percent, 0.0);
     }
 
     #[test]

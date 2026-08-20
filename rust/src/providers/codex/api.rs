@@ -15,6 +15,10 @@ const DEFAULT_BASE_URL: &str = "https://chatgpt.com/backend-api";
 const USAGE_PATH: &str = "/wham/usage";
 const RESET_CREDITS_PATH: &str = "/wham/rate-limit-reset-credits";
 const CREDENTIAL_CACHE_TTL: Duration = Duration::from_secs(5);
+/// How long an external OAuth token set is trusted after the CLI last
+/// refreshed it. Matches the CLI's own `needs_refresh` window (8 days) so a
+/// token the CLI considers fresh is also trusted here (upstream 0.50.1 #2944).
+const EXTERNAL_OAUTH_STALENESS_WINDOW: chrono::TimeDelta = chrono::Duration::days(8);
 
 static CREDENTIAL_CACHE: OnceLock<Mutex<Option<CachedCodexCredentials>>> = OnceLock::new();
 
@@ -147,6 +151,16 @@ impl CodexApi {
         let auth_path = self.get_auth_path();
 
         if !auth_path.exists() {
+            // Upstream 0.50.0 #2679: when the CLI targets Amazon Bedrock or
+            // another custom backend without ChatGPT auth, sign-in guidance
+            // is wrong — rate limits simply are not available there.
+            if self.uses_custom_backend() {
+                return Err(ProviderError::NotInstalled(
+                    "Codex uses a custom backend (chatgpt_base_url / model_provider) without \
+                     ChatGPT auth. ChatGPT rate limits are unavailable for this setup."
+                        .to_string(),
+                ));
+            }
             return Err(ProviderError::NotInstalled(
                 "Codex auth.json not found. Run `codex login` in a terminal to sign in."
                     .to_string(),
@@ -165,6 +179,7 @@ impl CodexApi {
         })?;
 
         let credentials = Self::parse_credentials_json(&content)?;
+        Self::enforce_external_oauth_gate(&credentials)?;
         Self::store_cached_credentials(auth_path, modified, credentials.clone());
         Ok(credentials)
     }
@@ -180,11 +195,13 @@ impl CodexApi {
                 return Ok(CodexCredentials {
                     access_token: trimmed.to_string(),
                     account_id: None,
+                    is_external_oauth: false,
+                    last_refresh: None,
                 });
             }
         }
 
-        // Otherwise, look for tokens object
+        // Otherwise, look for tokens object (external OAuth source)
         let tokens = json.get("tokens").ok_or_else(|| {
             ProviderError::Parse("Codex auth.json exists but contains no tokens.".to_string())
         })?;
@@ -204,10 +221,47 @@ impl CodexApi {
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string());
 
+        // Upstream 0.50.1 #2944: an OAuth token set with a refresh_token is an
+        // external (CLI-owned) OAuth source. The `last_refresh` timestamp
+        // (written by the CLI) lets us detect staleness.
+        let has_refresh_token = tokens
+            .get("refresh_token")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| !s.trim().is_empty());
+        let last_refresh = json
+            .get("last_refresh")
+            .and_then(|v| v.as_str())
+            .and_then(parse_timestamp);
+
         Ok(CodexCredentials {
             access_token,
             account_id,
+            is_external_oauth: has_refresh_token,
+            last_refresh,
         })
+    }
+
+    /// Upstream 0.50.1 #2944: when `codex_external_oauth_sources_allowed` is
+    /// OFF (the default), stale external OAuth credential files fail closed
+    /// instead of being used silently. An external OAuth source is an
+    /// auth.json `tokens` object with a `refresh_token` (CLI-owned OAuth,
+    /// not an API key). "Stale" means the CLI has not refreshed the token
+    /// recently (no `last_refresh`, or older than the staleness window).
+    fn enforce_external_oauth_gate(credentials: &CodexCredentials) -> Result<(), ProviderError> {
+        if !credentials.is_external_oauth {
+            return Ok(());
+        }
+        if crate::settings::Settings::load().codex_external_oauth_sources_allowed {
+            return Ok(());
+        }
+        let now = Utc::now();
+        let is_stale = credentials
+            .last_refresh
+            .is_none_or(|last| now - last > EXTERNAL_OAUTH_STALENESS_WINDOW);
+        if is_stale {
+            return Err(ProviderError::AuthRequired);
+        }
+        Ok(())
     }
 
     fn credential_cache() -> &'static Mutex<Option<CachedCodexCredentials>> {
@@ -269,6 +323,15 @@ impl CodexApi {
         }
 
         DEFAULT_BASE_URL.to_string()
+    }
+
+    /// Whether config.toml points the CLI at a backend that does not
+    /// authenticate against ChatGPT (Bedrock / other custom providers).
+    fn uses_custom_backend(&self) -> bool {
+        let Ok(content) = std::fs::read_to_string(self.codex_dir().join("config.toml")) else {
+            return false;
+        };
+        parse_chatgpt_base_url(&content).is_some() || config_uses_non_chatgpt_provider(&content)
     }
 
     fn build_result_from_json(
@@ -731,6 +794,14 @@ impl Default for CodexApi {
 struct CodexCredentials {
     access_token: String,
     account_id: Option<String>,
+    /// True when the source is an external OAuth token set (has a
+    /// `refresh_token`), as opposed to an `OPENAI_API_KEY`. Used by the
+    /// `codex_external_oauth_sources_allowed` gate (upstream 0.50.1 #2944).
+    is_external_oauth: bool,
+    /// `last_refresh` timestamp from auth.json, when present. Used to detect
+    /// stale external OAuth tokens that should fail closed when the opt-in
+    /// setting is OFF.
+    last_refresh: Option<DateTime<Utc>>,
 }
 
 struct CachedCodexCredentials {
@@ -879,6 +950,23 @@ fn timestamp_to_datetime(timestamp: Option<i64>) -> Option<DateTime<Utc>> {
     timestamp.and_then(|ts| Utc.timestamp_opt(ts, 0).single())
 }
 
+/// Parse an ISO-8601 / RFC-3339 timestamp from the `last_refresh` field of
+/// auth.json. Accepts the same formats the Codex CLI writes.
+fn parse_timestamp(raw: &str) -> Option<DateTime<Utc>> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    DateTime::parse_from_rfc3339(trimmed)
+        .ok()
+        .map(|dt| dt.with_timezone(&Utc))
+        .or_else(|| {
+            chrono::NaiveDateTime::parse_from_str(trimmed, "%Y-%m-%dT%H:%M:%S%.f")
+                .ok()
+                .map(|naive| DateTime::<Utc>::from_naive_utc_and_offset(naive, Utc))
+        })
+}
+
 fn json_f64(value: &serde_json::Value) -> Option<f64> {
     value
         .as_f64()
@@ -974,6 +1062,21 @@ fn format_reset_countdown(reset_at: Option<DateTime<Utc>>) -> Option<String> {
     }
 }
 
+/// Whether config.toml selects a non-ChatGPT model provider (e.g. Bedrock),
+/// meaning the CLI never authenticates against ChatGPT.
+fn config_uses_non_chatgpt_provider(config_content: &str) -> bool {
+    config_content.lines().any(|line| {
+        let Some((key, value)) = line.trim().split_once('=') else {
+            return false;
+        };
+        if !key.trim().eq_ignore_ascii_case("model_provider") {
+            return false;
+        }
+        let provider = value.trim().trim_matches('"').trim_matches('\'');
+        !provider.is_empty() && !provider.eq_ignore_ascii_case("openai")
+    })
+}
+
 fn parse_chatgpt_base_url(config_content: &str) -> Option<String> {
     for line in config_content.lines() {
         // Skip comments
@@ -1034,6 +1137,24 @@ fn capitalize(s: &str) -> String {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    #[test]
+    fn non_chatgpt_model_provider_is_detected_for_guidance() {
+        // Upstream 0.50.0 #2679: Bedrock and other custom backends get
+        // rate-limit guidance instead of login instructions.
+        assert!(config_uses_non_chatgpt_provider(
+            "model_provider = \"bedrock\"\n"
+        ));
+        assert!(config_uses_non_chatgpt_provider(
+            "# relay\nmodel_provider = 'ollama'"
+        ));
+        assert!(!config_uses_non_chatgpt_provider(
+            "model_provider = \"openai\""
+        ));
+        assert!(!config_uses_non_chatgpt_provider(
+            "model = \"gpt-5\"\napproval_policy = \"never\""
+        ));
+    }
 
     #[test]
     fn parses_codex_credentials_without_retaining_refresh_token() {
@@ -1522,5 +1643,94 @@ mod tests {
         assert!(secondary.is_none());
         assert!(tertiary.is_none());
         assert_eq!(code_review.unwrap().window_minutes, Some(999));
+    }
+
+    // ── Upstream 0.50.1 #2944: external OAuth source gate ──────────────────
+
+    #[test]
+    fn api_key_credentials_are_not_external_oauth() {
+        let creds = CodexApi::parse_credentials_json(r#"{"OPENAI_API_KEY": "sk-test"}"#)
+            .expect("credentials");
+        assert!(!creds.is_external_oauth);
+        assert!(creds.last_refresh.is_none());
+        assert!(CodexApi::enforce_external_oauth_gate(&creds).is_ok());
+    }
+
+    #[test]
+    fn oauth_tokens_with_refresh_token_are_external_source() {
+        let creds = CodexApi::parse_credentials_json(
+            r#"{
+                "tokens": {
+                    "access_token": "access",
+                    "refresh_token": "refresh",
+                    "account_id": "acct_123"
+                }
+            }"#,
+        )
+        .expect("credentials");
+        assert!(creds.is_external_oauth);
+        assert!(creds.last_refresh.is_none());
+    }
+
+    #[test]
+    fn oauth_tokens_without_refresh_token_are_not_external() {
+        let creds = CodexApi::parse_credentials_json(
+            r#"{
+                "tokens": {
+                    "access_token": "access",
+                    "account_id": "acct_123"
+                }
+            }"#,
+        )
+        .expect("credentials");
+        assert!(!creds.is_external_oauth);
+    }
+
+    #[test]
+    fn external_oauth_gate_fails_closed_for_stale_tokens() {
+        let creds = CodexCredentials {
+            access_token: "access".to_string(),
+            account_id: None,
+            is_external_oauth: true,
+            last_refresh: None,
+        };
+        let err = CodexApi::enforce_external_oauth_gate(&creds)
+            .expect_err("stale external OAuth must fail closed");
+        assert!(matches!(err, ProviderError::AuthRequired));
+    }
+
+    #[test]
+    fn external_oauth_gate_fails_closed_for_old_last_refresh() {
+        let old = Utc::now() - chrono::Duration::days(10);
+        let creds = CodexCredentials {
+            access_token: "access".to_string(),
+            account_id: None,
+            is_external_oauth: true,
+            last_refresh: Some(old),
+        };
+        let err = CodexApi::enforce_external_oauth_gate(&creds)
+            .expect_err("old external OAuth must fail closed");
+        assert!(matches!(err, ProviderError::AuthRequired));
+    }
+
+    #[test]
+    fn external_oauth_gate_passes_fresh_tokens() {
+        let fresh = Utc::now() - chrono::Duration::hours(1);
+        let creds = CodexCredentials {
+            access_token: "access".to_string(),
+            account_id: None,
+            is_external_oauth: true,
+            last_refresh: Some(fresh),
+        };
+        assert!(CodexApi::enforce_external_oauth_gate(&creds).is_ok());
+    }
+
+    #[test]
+    fn parse_timestamp_reads_iso8601() {
+        assert!(parse_timestamp("2026-08-17T10:00:00Z").is_some());
+        assert!(parse_timestamp("2026-08-17T10:00:00.123Z").is_some());
+        assert!(parse_timestamp("  2026-08-17T10:00:00Z  ").is_some());
+        assert!(parse_timestamp("").is_none());
+        assert!(parse_timestamp("not-a-date").is_none());
     }
 }

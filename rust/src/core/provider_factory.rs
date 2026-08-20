@@ -12,9 +12,9 @@ use crate::providers::{
     ClaudeProvider, ClinePassProvider, CodeBuddyProvider, CodebuffProvider, CodexProvider,
     CommandCodeProvider, CopilotProvider, CrofProvider, CrossModelProvider, CursorProvider,
     DeepInfraProvider, DeepSeekProvider, DeepgramProvider, DevinProvider, DoubaoProvider,
-    ElevenLabsProvider, FactoryProvider, GeminiProvider, GrokProvider, GroqProvider,
-    InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider, KiroProvider,
-    LLMProxyProvider, LiteLLMProvider, LongCatProvider, ManusProvider, MiMoProvider,
+    ElevenLabsProvider, FactoryProvider, FireworksProvider, GeminiProvider, GrokProvider,
+    GroqProvider, InfiniProvider, JetBrainsProvider, KiloProvider, KimiK2Provider, KimiProvider,
+    KiroProvider, LLMProxyProvider, LiteLLMProvider, LongCatProvider, ManusProvider, MiMoProvider,
     MiniMaxProvider, MistralProvider, NanoGPTProvider, NeuralwattProvider, NotionProvider,
     OllamaProvider, OpenAIApiProvider, OpenCodeGoProvider, OpenCodeProvider, OpenRouterProvider,
     PerplexityProvider, PoeProvider, QoderProvider, QwenCloudProvider, SakanaProvider,
@@ -98,6 +98,7 @@ pub fn instantiate(id: ProviderId) -> Box<dyn Provider> {
         ProviderId::QwenCloud => Box::new(QwenCloudProvider::new()),
         ProviderId::Notion => Box::new(NotionProvider::new()),
         ProviderId::Xai => Box::new(XaiProvider::new()),
+        ProviderId::Fireworks => Box::new(FireworksProvider::new()),
     }
 }
 

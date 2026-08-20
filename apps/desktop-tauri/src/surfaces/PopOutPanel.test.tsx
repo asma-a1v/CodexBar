@@ -18,6 +18,7 @@ const tauriMocks = vi.hoisted(() => ({
   getProviderChartData: vi.fn(),
   getLocaleStrings: vi.fn(),
   setUiLanguage: vi.fn(),
+  getDeepSeekPricingStatus: vi.fn().mockResolvedValue(null),
 }));
 
 const eventMocks = vi.hoisted(() => ({
@@ -96,6 +97,7 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
     providerId: id,
     displayName,
     primary: rateWindow(used),
+    selectedMetric: rateWindow(used),
     primaryLabel: "Monthly",
     secondary: null,
     modelSpecific: null,
@@ -175,6 +177,8 @@ function settings(): SettingsSnapshot {
     claudeDailyRoutinesUsageVisible: true,
     alibabaTokenPlanRegion: "cn",
     weeklyProgressWorkDays: null,
+    costSummaryDisplayStyle: "compact",
+    providerAccentColors: {},
   };
 }
 

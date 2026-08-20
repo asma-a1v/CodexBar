@@ -30,6 +30,8 @@ const tauriMocks = vi.hoisted(() => ({
   getCurrentSurfaceState: vi.fn(),
   getLocaleStrings: vi.fn(),
   setUiLanguage: vi.fn(),
+  getDeepSeekPricingStatus: vi.fn().mockResolvedValue(null),
+  getUsageSpendSummary: vi.fn(),
 }));
 
 const eventMocks = vi.hoisted(() => ({
@@ -82,6 +84,7 @@ function provider(id: string, displayName: string, used = 20): ProviderUsageSnap
     providerId: id,
     displayName,
     primary: rateWindow(used),
+    selectedMetric: rateWindow(used),
     primaryLabel: "Monthly",
     secondary: null,
     modelSpecific: null,
@@ -161,6 +164,8 @@ function settings(overrides: Partial<SettingsSnapshot> = {}): SettingsSnapshot {
     claudeDailyRoutinesUsageVisible: true,
     alibabaTokenPlanRegion: "cn",
     weeklyProgressWorkDays: null,
+    costSummaryDisplayStyle: "compact",
+    providerAccentColors: {},
     ...overrides,
   };
 }
@@ -200,6 +205,9 @@ describe("TrayPanel provider grid", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     eventMocks.listeners.clear();
+    tauriMocks.getDeepSeekPricingStatus.mockResolvedValue(null);
+    tauriMocks.getUsageSpendSummary.mockResolvedValue({ rows: [], models: [] });
+    tauriMocks.flyoutStoredSize.mockResolvedValue(null);
     tauriMocks.refreshProviders.mockResolvedValue(undefined);
     tauriMocks.refreshProvidersIfStale.mockResolvedValue(undefined);
     tauriMocks.dismissTrayPanel.mockResolvedValue(undefined);

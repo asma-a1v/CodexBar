@@ -32,6 +32,42 @@ pub use types::*;
 mod tests;
 
 /// Application settings
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "lowercase")]
+pub enum LowPowerModePreference {
+    #[default]
+    Off,
+    On,
+    Automatic,
+}
+
+impl LowPowerModePreference {
+    pub fn resolve(self, system_battery_saver_enabled: bool) -> bool {
+        match self {
+            Self::Off => false,
+            Self::On => true,
+            Self::Automatic => system_battery_saver_enabled,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Off => "off",
+            Self::On => "on",
+            Self::Automatic => "automatic",
+        }
+    }
+
+    pub fn parse(value: &str) -> Option<Self> {
+        match value.trim().to_ascii_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "on" => Some(Self::On),
+            "automatic" => Some(Self::Automatic),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(from = "RawSettings", default)]
 pub struct Settings {
@@ -50,10 +86,9 @@ pub struct Settings {
     #[serde(default)]
     pub refresh_all_providers_on_menu_open: bool,
 
-    /// When true, automatic background refresh is floored to once per 30 minutes.
-    /// Manual refresh stays immediate.
+    /// Off/On/Automatic background-work power preference (upstream 0.53).
     #[serde(default)]
-    pub low_power_mode: bool,
+    pub low_power_mode_preference: LowPowerModePreference,
 
     /// Whether to start minimized
     pub start_minimized: bool,
@@ -269,6 +304,14 @@ pub struct Settings {
     #[serde(default = "default_true")]
     pub claude_daily_routines_usage_visible: bool,
 
+    /// Explicit consent to read (and refresh) Claude Code's own credentials
+    /// (`~/.claude/.credentials.json` / Credential Manager). Default OFF —
+    /// upstream #2634: without consent the OAuth source stays closed and Auto
+    /// falls back to labeled reduced-fidelity CLI usage; refreshed tokens are
+    /// never rotated into Claude Code's storage without consent (#2745).
+    #[serde(default)]
+    pub claude_allow_reading_claude_code_credentials: bool,
+
     /// Optional work-week length [2,6] for session-equivalent weekly forecast.
     /// `None` uses wall-clock time until weekly reset.
     #[serde(default)]
@@ -277,6 +320,26 @@ pub struct Settings {
     /// Alibaba Token Plan API region: "cn" | "intl" | "cn-personal" | "intl-personal".
     #[serde(default = "default_alibaba_token_plan_region")]
     pub alibaba_token_plan_region: String,
+
+    /// Opt-in: allow Codex usage reads from external (non-CLI-owned) OAuth
+    /// credential sources. Default OFF — when disabled, stale external OAuth
+    /// credential files fail closed instead of being used silently (upstream
+    /// 0.50.1 #2944). The CLI-owned `auth.json` is always read read-only; this
+    /// gate only controls whether stale external OAuth tokens are trusted.
+    #[serde(default)]
+    pub codex_external_oauth_sources_allowed: bool,
+
+    /// How cost is rendered on provider MenuCards (#2976).
+    #[serde(default)]
+    pub cost_summary_display_style: CostSummaryDisplayStyle,
+
+    /// Opt-in read-only import of OpenCodex usage.jsonl into Usage & Spend / CLI cost output.
+    #[serde(default)]
+    pub open_codex_usage_logs_enabled: bool,
+
+    /// Hide native Codex spend rows when an OpenCodex import is present.
+    #[serde(default)]
+    pub hide_native_codex_cost_when_open_codex_present: bool,
 }
 
 fn default_window_scale_percent() -> u16 {
@@ -412,7 +475,7 @@ impl Default for Settings {
             refresh_interval_secs: 300, // 5 minutes
             adaptive_refresh: false,
             refresh_all_providers_on_menu_open: false,
-            low_power_mode: false,
+            low_power_mode_preference: LowPowerModePreference::Off,
             start_minimized: false,
             start_at_login: false,
             show_notifications: true,
@@ -467,8 +530,13 @@ impl Default for Settings {
             float_bar_show_cost: false,
             promote_tray_icon: true,
             claude_daily_routines_usage_visible: true,
+            claude_allow_reading_claude_code_credentials: false,
             weekly_progress_work_days: None,
             alibaba_token_plan_region: default_alibaba_token_plan_region(),
+            codex_external_oauth_sources_allowed: false,
+            cost_summary_display_style: CostSummaryDisplayStyle::default(),
+            open_codex_usage_logs_enabled: false,
+            hide_native_codex_cost_when_open_codex_present: false,
         }
     }
 }
@@ -1101,5 +1169,34 @@ impl Settings {
     }
     pub fn set_claude_avoid_keychain_prompts(&mut self, v: bool) {
         self.set_avoid_keychain_prompts(ProviderId::Claude, v)
+    }
+
+    // ── Per-provider accent color override (#2972) ──────────────────
+
+    /// The user-overridden accent color for `id`, or `None` to use the
+    /// shipped brand color.
+    pub fn accent_color(&self, id: ProviderId) -> Option<&str> {
+        self.provider_configs
+            .get(&id)
+            .and_then(|c| c.accent_color.as_deref())
+            .filter(|s| !s.trim().is_empty())
+    }
+
+    /// Set the accent color override for `id`. Pass an empty string or
+    /// `None` to clear the override and revert to the shipped brand color.
+    pub fn set_accent_color(&mut self, id: ProviderId, color: Option<impl Into<String>>) {
+        let entry = self.provider_config_mut(id);
+        entry.accent_color = color
+            .map(Into::into)
+            .filter(|s: &String| !s.trim().is_empty());
+    }
+
+    /// Resolve the effective accent color for `id`: the user override if
+    /// set, otherwise the shipped brand color from the provider registry.
+    pub fn effective_accent_color(&self, id: ProviderId) -> String {
+        if let Some(override_color) = self.accent_color(id) {
+            return override_color.trim().to_string();
+        }
+        crate::core::brand_color(id).to_string()
     }
 }

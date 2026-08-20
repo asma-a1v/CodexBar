@@ -7,6 +7,7 @@ use codexbar::core::{
     instantiate_provider,
 };
 use codexbar::locale;
+use codexbar::login::{self, LoginOutcome, LoginPhase};
 use codexbar::providers::copilot::{CopilotApi, device_flow::CopilotDeviceFlow};
 use codexbar::secure_file::{self, SecureFileStatus};
 use codexbar::settings::{
@@ -23,6 +24,7 @@ use crate::surface::SurfaceMode;
 use crate::surface_target::SurfaceTarget;
 
 mod chart;
+mod spend_contract;
 mod tokens;
 mod updater;
 mod usage_spend;
@@ -63,6 +65,7 @@ pub use system::*;
 mod tests;
 
 pub use chart::*;
+pub use spend_contract::*;
 pub use tokens::*;
 pub use updater::*;
 pub use usage_spend::*;

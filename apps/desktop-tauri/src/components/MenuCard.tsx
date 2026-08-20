@@ -1,5 +1,6 @@
-import { useCallback, useEffect, useState } from "react";
+import { type CSSProperties, useCallback, useEffect, useState } from "react";
 import type {
+  CostSummaryDisplayStyle,
   ProviderChartData,
   ProviderUsageSnapshot,
 } from "../types/bridge";
@@ -10,6 +11,9 @@ import type { LocaleKey } from "../i18n/keys";
 import { providerSupportsChartData } from "../lib/providerCharts";
 import MenuCardDetails, { describeCard, type MetricEntry } from "./MenuCardDetails";
 import CodexAccountsMenu from "./CodexAccountsMenu";
+import { DEEPSEEK_PRICING_EVENT } from "../hooks/useDeepSeekPricingStatus";
+import { getDeepSeekPricingStatus } from "../lib/tauri";
+import type { DeepSeekPricingStatus } from "../types/bridge";
 
 /** Small copy-to-clipboard button matching macOS CopyIconButton (doc.on.doc → checkmark). */
 function CopyIconButton({ text }: { text: string }) {
@@ -44,14 +48,18 @@ export interface MenuCardDisplayOptions {
   showResetWhenExhausted?: boolean;
   showAsUsed?: boolean;
   compactMetrics?: boolean;
+  costSummaryDisplayStyle?: CostSummaryDisplayStyle;
 }
 
 interface MenuCardProps {
   provider: ProviderUsageSnapshot;
   display: MenuCardDisplayOptions;
   isRefreshing?: boolean;
+  /** Per-provider accent color override (hex); applied as CSS --provider-accent. */
+  accentColor?: string;
   onLayoutChange?: () => void;
 }
+
 
 export function maskEmail(email: string): string {
   const at = email.indexOf("@");
@@ -106,6 +114,7 @@ export default function MenuCard({
   provider,
   display,
   isRefreshing = false,
+  accentColor,
   onLayoutChange,
 }: MenuCardProps) {
   const {
@@ -114,9 +123,20 @@ export default function MenuCard({
     showResetWhenExhausted = false,
     showAsUsed = false,
     compactMetrics = false,
+    costSummaryDisplayStyle,
   } = display;
   const { t } = useLocale();
   const [chartData, setChartData] = useState<ProviderChartData | null>(null);
+  const [pricingStatus, setPricingStatus] = useState<DeepSeekPricingStatus | null>(null);
+
+  useEffect(() => {
+    if (provider.providerId !== "deepseek") return;
+    const onPricing = (event: Event) =>
+      setPricingStatus((event as CustomEvent<DeepSeekPricingStatus>).detail);
+    window.addEventListener(DEEPSEEK_PRICING_EVENT, onPricing);
+    void getDeepSeekPricingStatus().then(setPricingStatus).catch(() => {});
+    return () => window.removeEventListener(DEEPSEEK_PRICING_EVENT, onPricing);
+  }, [provider.providerId]);
 
   useEffect(() => {
     if (!providerSupportsChartData(provider.providerId)) {
@@ -193,7 +213,7 @@ export default function MenuCard({
   }
   const visibleMetrics = compactMetrics ? metrics.slice(0, 2) : metrics;
 
-  const presence = describeCard(provider, chartData, visibleMetrics);
+  const presence = describeCard(provider, chartData, visibleMetrics, costSummaryDisplayStyle);
   const { hasDetails } = presence;
   const cardClassName = [
     "menu-card",
@@ -205,7 +225,11 @@ export default function MenuCard({
     .join(" ");
 
   return (
-    <article className={cardClassName} aria-busy={isRefreshing}>
+    <article
+      className={cardClassName}
+      aria-busy={isRefreshing}
+      style={accentColor ? ({ "--provider-accent": accentColor } as CSSProperties) : undefined}
+    >
       <header className="menu-card__header">
         <div className="menu-card__title-row">
           <div className="menu-card__name-group">
@@ -241,12 +265,40 @@ export default function MenuCard({
             resetTimeRelative,
             showResetWhenExhausted,
             showAsUsed,
+            costSummaryDisplayStyle,
           }}
           metrics={visibleMetrics}
           chartData={chartData}
           presence={presence}
           onLayoutChange={onLayoutChange}
         />
+      )}
+
+      {provider.providerId === "deepseek" && pricingStatus && (
+        <section
+          className="menu-card__pricing-status"
+          aria-label={t("DeepSeekPricingTitle")}
+        >
+          <strong>
+            {t("DeepSeekPricingTitle")}: {t(
+              pricingStatus.period === "peak"
+                ? "DeepSeekPricingPeak"
+                : pricingStatus.period === "offPeak"
+                  ? "DeepSeekPricingOffPeak"
+                  : "DeepSeekPricingStandard",
+            )}
+          </strong>
+          <span>
+            {t("DeepSeekPricingCurrent")} {pricingStatus.currentLocalTime}
+          </span>
+          <span>
+            {t("DeepSeekPricingNext")} {pricingStatus.nextTransitionLocalTime ?? "—"}
+          </span>
+          <span>
+            {t("DeepSeekPricingEffective")} {pricingStatus.effectiveLocalTime}
+          </span>
+          <small>{t("DeepSeekPricingAdvice")}</small>
+        </section>
       )}
 
       {provider.providerId === "codex" && (

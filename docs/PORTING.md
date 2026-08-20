@@ -10,8 +10,8 @@ wire-shape source**, not code to cherry-pick.
 | Item | Value |
 |------|--------|
 | Upstream repo | `steipete/CodexBar` |
-| Last landed baseline | **v0.46.0** (`e53abbeb`) |
-| Current port branch | **v0.47.0** (this work) |
+| Last landed baseline | **v0.53.0** (`ea5d5999`) |
+| Current port branch | **v0.53.0** (shipped) |
 | PR naming | One PR per upstream release: `Port upstream CodexBar X.Y.Z` |
 
 Version bumps of *this* repo are a **separate later step**. A port PR lands
@@ -210,6 +210,43 @@ Baseline: upstream **v0.46.0** @ `e53abbeb`. Branch: `port/upstream-0.47.0`.
 | Item | Reason |
 |------|--------|
 | Claude #2493 / #2494 (cold-boot) | DEFER-with-evidence — upstream behavior tied to macOS lifecycle / paths that do not map cleanly; do not guess-port |
+
+---
+
+## Appendix — Worked example: upstream 0.49.0–0.53.0
+
+Baseline: upstream **v0.46.0** @ `e53abbeb` → **v0.53.0**. PRs #337–#346.
+
+### Ported
+
+| Upstream | PR | Items |
+|----------|-----|-------|
+| 0.49.0 | #337 | Provider parity, settings schema updates |
+| 0.50.0 | #338 | Provider usage parsing fixes |
+| 0.51.0 | #339 | Billing/usage wire-shape updates |
+| 0.52.0 | #341, #344, #346 | TOON provider, gRPC-web/proto billing, UsageSourceSection changes |
+| 0.53.0 | #341, #344, #346 | Locale parity, billing internals, deferred items |
+
+Bug fixes landed alongside the ports: #333, #334, #335, #336, #342, #343.
+
+### Skipped
+
+| Item | Reason |
+|------|--------|
+| iCloud sync | CloudKit / macOS — no Windows counterpart |
+| Keychain work | macOS Keychain; Windows uses DPAPI + `secure_file` |
+| `libproc` usage | macOS process APIs |
+| Menu SwiftUI churn | AppKit/SwiftUI menu bar — different shell (Tauri tray) |
+
+### Deferred (not portable as written)
+
+| Item | Reason |
+|------|--------|
+| Full upstream 0.53 locale parity (all 23 languages) | Only `en-US` ported; full 23-language catalog is a follow-up |
+| TOON v4.1 spec conformance depth | Basic provider ported; full spec compliance deferred pending upstream stabilization |
+| Grok gRPC-web+proto billing internals | Wire shape captured; deep proto decoding deferred |
+| Codex fork-accounting timezone audit | Upstream timezone handling needs evidence before porting |
+| UsageSourceSection backend-driven options | `GrokUsageSourceSection` renamed but still hardcodes options — backend-driven enumeration deferred |
 
 ---
 

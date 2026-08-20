@@ -28,6 +28,7 @@ import { CostSection } from "./sections/CostSection";
 import { QuickActionsSection } from "./sections/QuickActionsSection";
 import { ChartsSection } from "./sections/charts/ChartsSection";
 import { CookieSourceSection } from "./sections/CookieSourceSection";
+import { GrokUsageSourceSection } from "./sections/GrokUsageSourceSection";
 import { RegionSection } from "./sections/RegionSection";
 import { CodexUsageOptions } from "./sections/credentials/CodexUsageOptions";
 import { CodexAccountsSection } from "./sections/credentials/CodexAccountsSection";
@@ -35,6 +36,7 @@ import { TokenAccountsPanel } from "../tokens/TokenAccountsPanel";
 import { ApiKeySection } from "./ApiKeySection";
 import { CookieSection } from "./CookieSection";
 import { MenuBarMetricSection } from "./sections/MenuBarMetricSection";
+import { AccentColorSection } from "./sections/AccentColorSection";
 import { ProviderIssueNotice } from "./sections/ProviderIssueNotice";
 import { CredentialStorageSection } from "./sections/CredentialStorageSection";
 import { CredentialsDispatcher } from "./sections/CredentialsDispatcher";
@@ -45,6 +47,8 @@ interface Props {
   cookieDomain?: string | null;
   resetTimeRelative: boolean;
   providerMetrics: SettingsSnapshot["providerMetrics"];
+  /** Per-provider accent color overrides (CLI name → hex color). */
+  providerAccentColors: SettingsSnapshot["providerAccentColors"];
   wayfinderGatewayUrl: string;
   settingsDisabled: boolean;
   onSettingsChange: (patch: SettingsUpdate) => void;
@@ -62,6 +66,7 @@ export function ProviderDetailPane({
   cookieDomain = null,
   resetTimeRelative,
   providerMetrics,
+  providerAccentColors,
   wayfinderGatewayUrl,
   settingsDisabled,
   onSettingsChange,
@@ -298,9 +303,21 @@ export function ProviderDetailPane({
         t={t}
         onChange={onSettingsChange}
       />
+      <AccentColorSection
+        providerId={detail.id}
+        accentColor={providerAccentColors[detail.id] ?? null}
+        t={t}
+        onChange={onSettingsChange}
+      />
       <PaceSection pace={detail.pace} t={t} />
       <CostSection cost={detail.cost} t={t} />
 
+      <GrokUsageSourceSection
+        providerId={detail.id}
+        currentValue={detail.usageSource}
+        t={t}
+        onChanged={reload}
+      />
       <CookieSourceSection
         providerId={detail.id}
         currentValue={detail.cookieSource}
@@ -340,6 +357,7 @@ export function ProviderDetailPane({
       <ChartsSection
         providerId={detail.id}
         accountEmail={detail.email}
+        accentColor={providerAccentColors[detail.id]}
         t={t}
       />
 

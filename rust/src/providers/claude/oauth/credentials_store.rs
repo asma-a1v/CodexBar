@@ -96,6 +96,13 @@ pub(super) fn load_credentials() -> Result<(ClaudeOAuthCredentials, CredentialSo
         return Ok((creds, CredentialSource::Environment));
     }
 
+    // Claude Code's own credential stores require explicit consent.
+    if !crate::providers::claude::claude_code_consent() {
+        return Err(ProviderError::OAuth(
+            "Reading Claude Code's credentials is off. Enable \"Allow reading Claude Code's credentials\" in Settings → Providers → Claude to use OAuth, or rely on Auto/CLI usage.".to_string(),
+        ));
+    }
+
     // Try credentials file
     let file_error = match load_from_file() {
         Ok(creds) => return Ok((creds, CredentialSource::File(credentials_path()?))),
@@ -329,6 +336,12 @@ fn credentials_path() -> Result<PathBuf, ProviderError> {
 pub(super) fn persist_refreshed_credentials(
     credentials: &ClaudeOAuthCredentials,
 ) -> Result<(), ProviderError> {
+    // Never rotate Claude Code's refresh-token chain without explicit
+    // consent (#2745): skipping the persist keeps CodexBar read-only.
+    if !crate::providers::claude::claude_code_consent() {
+        return Ok(());
+    }
+
     let path = credentials_path()?;
     if !path.exists() {
         // Loaded from keyring/env; there is no file to update.

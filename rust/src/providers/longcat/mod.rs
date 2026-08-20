@@ -16,6 +16,8 @@ const HOST: &str = "https://longcat.chat";
 const USER_CURRENT: &str = "/api/v1/user-current";
 const TOKEN_USAGE: &str = "/api/lc-platform/v1/tokenUsage";
 const PENDING_FUEL: &str = "/api/lc-platform/v1/pending-fuel-packages";
+/// Live token-pack lot summary (upstream 0.49.4 #2670).
+const TOKEN_PACKS_SUMMARY: &str = "/api/pay/quota/metering/token-packs/summary";
 
 pub struct LongCatProvider {
     metadata: ProviderMetadata,
@@ -68,6 +70,33 @@ impl LongCatProvider {
             .await
             .map_err(|e| ProviderError::Parse(format!("Failed to parse LongCat {path}: {e}")))
     }
+
+    /// POST variant of [`Self::get_json`] used by the token-packs summary
+    /// endpoint (upstream 0.49.4 #2670 posts an empty JSON body).
+    async fn post_json(&self, path: &str, cookie: &str) -> Result<Value, ProviderError> {
+        let url = format!("{HOST}{path}");
+        let resp = self
+            .client
+            .post(&url)
+            .header("Cookie", cookie)
+            .header("Accept", "application/json")
+            .header("Content-Type", "application/json")
+            .body("{}")
+            .send()
+            .await?;
+        let status = resp.status();
+        if status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN {
+            return Err(ProviderError::AuthRequired);
+        }
+        if !status.is_success() {
+            return Err(ProviderError::Other(format!(
+                "LongCat API {path} returned HTTP {status}"
+            )));
+        }
+        resp.json()
+            .await
+            .map_err(|e| ProviderError::Parse(format!("Failed to parse LongCat {path}: {e}")))
+    }
 }
 
 impl Default for LongCatProvider {
@@ -100,13 +129,33 @@ impl Provider for LongCatProvider {
                 {
                     return Err(ProviderError::AuthRequired);
                 }
-                let usage_raw = self.get_json(TOKEN_USAGE, &cookie).await?;
+                // Upstream 0.49.4 #2670: prefer the token-packs summary lot;
+                // only fall back to the legacy token-usage endpoint when no
+                // active lot is available.
+                let token_packs = match self.post_json(TOKEN_PACKS_SUMMARY, &cookie).await {
+                    Ok(v) => Some(v),
+                    Err(ProviderError::AuthRequired) => return Err(ProviderError::AuthRequired),
+                    Err(err) => {
+                        tracing::debug!("LongCat token-packs summary probe failed: {err}");
+                        None
+                    }
+                };
+                let usage_raw = if token_packs.as_ref().is_some_and(has_active_token_pack_lot) {
+                    None
+                } else {
+                    Some(self.get_json(TOKEN_USAGE, &cookie).await?)
+                };
                 let fuel = match self.get_json(PENDING_FUEL, &cookie).await {
                     Ok(v) => Some(v),
                     Err(ProviderError::AuthRequired) => return Err(ProviderError::AuthRequired),
                     Err(_) => None,
                 };
-                let snap = build_snapshot(&account, &usage_raw, fuel.as_ref())?;
+                let snap = build_snapshot(
+                    &account,
+                    token_packs.as_ref(),
+                    usage_raw.as_ref(),
+                    fuel.as_ref(),
+                )?;
                 Ok(ProviderFetchResult::new(snap, "web"))
             }
             SourceMode::Cli | SourceMode::OAuth => {
@@ -157,22 +206,53 @@ fn json_str(value: &Value, key: &str) -> Option<String> {
         .filter(|s| !s.is_empty())
 }
 
+/// Whether the token-packs summary carries an ACTIVE lot with a positive
+/// total (upstream `activeTokenPackLot`).
+fn has_active_token_pack_lot(summary: &Value) -> bool {
+    active_token_pack_lot(summary).is_some()
+}
+
+fn active_token_pack_lot(summary: &Value) -> Option<Value> {
+    let lot = envelope_data(summary).get("currentLot")?;
+    if json_str(lot, "status")?.to_uppercase() != "ACTIVE" {
+        return None;
+    }
+    json_f64(lot, "totalToken").filter(|total| *total > 0.0)?;
+    Some(lot.clone())
+}
+
 fn build_snapshot(
     account: &Value,
-    usage_raw: &Value,
+    token_packs: Option<&Value>,
+    usage_raw: Option<&Value>,
     fuel_raw: Option<&Value>,
 ) -> Result<UsageSnapshot, ProviderError> {
     let account_data = envelope_data(account);
-    let usage_outer = envelope_data(usage_raw);
-    let usage = usage_outer
-        .get("usage")
-        .filter(|u| u.is_object())
-        .unwrap_or(usage_outer);
 
-    let total = json_f64(usage, "totalToken")
-        .ok_or_else(|| ProviderError::Parse("tokenUsage data was missing totalToken".into()))?;
-    let remaining = json_f64(usage, "availableToken");
-    let used = remaining.map(|r| (total - r).max(0.0)).unwrap_or(0.0);
+    let (total, used) = if let Some(lot) = token_packs.and_then(active_token_pack_lot) {
+        // Active token-pack lot: consumed/total drive the quota directly.
+        let total = json_f64(&lot, "totalToken")
+            .ok_or_else(|| ProviderError::Parse("token-packs lot missing totalToken".into()))?;
+        let used = json_f64(&lot, "consumedToken").unwrap_or(0.0);
+        (total, used)
+    } else if let Some(usage_raw) = usage_raw {
+        // Legacy token quota: data.usage is the canonical aggregate.
+        let usage_outer = envelope_data(usage_raw);
+        let usage = usage_outer
+            .get("usage")
+            .filter(|u| u.is_object())
+            .unwrap_or(usage_outer);
+        let total = json_f64(usage, "totalToken")
+            .ok_or_else(|| ProviderError::Parse("tokenUsage data was missing totalToken".into()))?;
+        let remaining = json_f64(usage, "availableToken");
+        let used = remaining.map(|r| (total - r).max(0.0)).unwrap_or(0.0);
+        (total, used)
+    } else {
+        return Err(ProviderError::Parse(
+            "LongCat usage data was missing (no active token-pack lot and no tokenUsage payload)"
+                .into(),
+        ));
+    };
 
     let primary = if total > 0.0 {
         let mut w = RateWindow::new(((used / total) * 100.0).clamp(0.0, 100.0));
@@ -282,11 +362,55 @@ mod tests {
                 ]
             }
         });
-        let snap = build_snapshot(&account, &usage, Some(&fuel)).unwrap();
+        let snap = build_snapshot(&account, None, Some(&usage), Some(&fuel)).unwrap();
         assert!((snap.primary.used_percent - 75.0).abs() < 0.01);
         assert_eq!(snap.account_organization.as_deref(), Some("cat"));
         let fuel_w = snap.secondary.unwrap();
         assert!((fuel_w.used_percent - 75.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn active_token_pack_lot_wins_over_legacy_usage() {
+        // Upstream 0.49.4 #2670: the token-packs summary lot is the live
+        // usage source; the legacy endpoint is only a fallback.
+        let account = json!({ "code": 0, "data": { "name": "cat" } });
+        let summary = json!({
+            "code": 0,
+            "data": {
+                "currentLot": {
+                    "status": "active",
+                    "totalToken": 5000,
+                    "consumedToken": 1250
+                }
+            }
+        });
+        let snap = build_snapshot(&account, Some(&summary), None, None).unwrap();
+        assert!((snap.primary.used_percent - 25.0).abs() < 0.01);
+        assert_eq!(snap.primary.reset_description.as_deref(), Some("1250/5000"));
+    }
+
+    #[test]
+    fn inactive_or_empty_lot_falls_back_to_legacy_usage() {
+        let account = json!({ "code": 0, "data": { "name": "cat" } });
+        let inactive = json!({
+            "code": 0,
+            "data": {
+                "currentLot": { "status": "EXPIRED", "totalToken": 5000, "consumedToken": 10 }
+            }
+        });
+        let usage = json!({
+            "code": 0,
+            "data": { "usage": { "totalToken": 1000, "availableToken": 900 } }
+        });
+        let snap = build_snapshot(&account, Some(&inactive), Some(&usage), None).unwrap();
+        assert!((snap.primary.used_percent - 10.0).abs() < 0.01);
+
+        let no_total = json!({ "code": 0, "data": { "currentLot": { "status": "ACTIVE" } } });
+        assert!(!has_active_token_pack_lot(&no_total));
+        assert!(has_active_token_pack_lot(&json!({
+            "code": 0,
+            "data": { "currentLot": { "status": "ACTIVE", "totalToken": 5 } }
+        })));
     }
 
     #[test]

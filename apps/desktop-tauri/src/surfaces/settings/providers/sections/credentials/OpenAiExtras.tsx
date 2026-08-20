@@ -115,6 +115,7 @@ const WORKSPACE_EXTRA_IDS: Record<string, true> = {
   zed: true,
   sub2api: true,
   xai: true,
+  fireworks: true,
 };
 
 function extraConfig(providerId: string, t: Props["t"]) {
@@ -167,6 +168,13 @@ function extraConfig(providerId: string, t: Props["t"]) {
         label: "Team ID",
         placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
         help: "Required. Shown in the xAI Console URL and team settings. Or set XAI_TEAM_ID. Pair with a Management API key (not an inference key).",
+      };
+    case "fireworks":
+      return {
+        title: "Fireworks account",
+        label: "Account slug",
+        placeholder: "your-account-slug",
+        help: "From app.fireworks.ai/accounts/<slug>. Or set FIREWORKS_ACCOUNT_SLUG. Pair with a Fireworks API key to read 30-day rated billing spend.",
       };
     default:
       return null;

@@ -144,9 +144,9 @@ export function LineChart({
         ))}
       </svg>
       <div className="chart__axis">
-        <span>{data[0].label.slice(-5)}</span>
-        <span className="chart__axis-max">{fmt(max)}</span>
-        <span>{data[data.length - 1].label.slice(-5)}</span>
+        <span style={{ left: `${pad}px` }}>{data[0].label.slice(-5)}</span>
+        <span className="chart__axis-max" style={{ left: `${SVG_WIDTH / 2}px` }}>{fmt(max)}</span>
+        <span style={{ left: `${SVG_WIDTH - pad}px` }}>{data[data.length - 1].label.slice(-5)}</span>
       </div>
       {hover && !anim.running && (
         <div

@@ -15,12 +15,19 @@
 //! In proof mode the shell immediately transitions to the requested surface
 //! and suppresses blur-dismiss so the window stays visible for automated
 //! screenshot capture.
+//!
+//! `CODEXBAR_SEED_USAGE_JSON=<abs-path>` additionally seeds one synthetic,
+//! bridge-shaped Codex [`ProviderUsageSnapshot`] into the provider cache at
+//! launch (before the first event/WebView read) and pins it against refresh
+//! eviction for the run. Malformed files log a warning and the shell
+//! continues without seeding — proof runs must never crash on the seed.
 
 use std::sync::Mutex;
 
 use serde::Serialize;
 use tauri::{AppHandle, Manager};
 
+use crate::commands::{CostSnapshotBridge, ProviderUsageSnapshot, RateWindowSnapshot};
 use crate::shell;
 use crate::state::AppState;
 use crate::surface::SurfaceMode;
@@ -242,6 +249,98 @@ pub fn is_proof_mode(app: &AppHandle) -> bool {
         .unwrap_or(false)
 }
 
+// ── Provider-usage seed (CODEXBAR_SEED_USAGE_JSON) ───────────────────
+
+/// Environment variable pointing at a JSON file with one synthetic,
+/// bridge-shaped `ProviderUsageSnapshot` for the codex provider.
+pub const SEED_USAGE_ENV_VAR: &str = "CODEXBAR_SEED_USAGE_JSON";
+
+/// Whether a seed path was configured at launch. While set, the provider
+/// cache is pinned fresh so the synthetic snapshot is never evicted by an
+/// automatic refresh during a proof/capture run.
+pub fn seed_usage_json_active() -> bool {
+    std::env::var_os(SEED_USAGE_ENV_VAR).is_some()
+}
+
+/// Read and validate the seed file referenced by `CODEXBAR_SEED_USAGE_JSON`.
+///
+/// Returns `None` (with a warn, never a crash) when the variable is unset,
+/// the file is unreadable, the JSON is malformed, or the snapshot is not
+/// for the `codex` provider.
+pub fn seed_usage_snapshot_from_env() -> Option<ProviderUsageSnapshot> {
+    let path = std::env::var_os(SEED_USAGE_ENV_VAR)?;
+    let path = std::path::PathBuf::from(path);
+    let raw = match std::fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) => {
+            tracing::warn!(
+                "{SEED_USAGE_ENV_VAR}: cannot read {}: {err}",
+                path.display()
+            );
+            return None;
+        }
+    };
+    match parse_seed_usage_snapshot(&raw) {
+        Ok(snapshot) => Some(snapshot),
+        Err(msg) => {
+            tracing::warn!("{SEED_USAGE_ENV_VAR}: {msg} in {}", path.display());
+            None
+        }
+    }
+}
+
+/// Parse a seed-usage JSON string directly into a canonical
+/// [`ProviderUsageSnapshot`].
+///
+/// The canonical bridge types carry `#[serde(default)]` on optional/derived
+/// fields so the seed JSON can omit them. This function fills in the
+/// computed defaults that serde cannot express from sibling fields
+/// (`remainingPercent` from `usedPercent`, `formattedUsed` from `used`,
+/// `updatedAt` from the current time) and validates that the snapshot is
+/// for the `codex` provider.
+///
+/// Pure: no env vars, no files, no global state.
+pub fn parse_seed_usage_snapshot(json: &str) -> Result<ProviderUsageSnapshot, String> {
+    let mut snapshot: ProviderUsageSnapshot =
+        serde_json::from_str(json).map_err(|e| format!("malformed JSON: {e}"))?;
+
+    if snapshot.provider_id != "codex" {
+        return Err(format!(
+            "snapshot providerId '{}' is not 'codex', ignoring",
+            snapshot.provider_id
+        ));
+    }
+
+    normalize_rate_window(&mut snapshot.primary);
+    snapshot.secondary.as_mut().map(normalize_rate_window);
+    snapshot.model_specific.as_mut().map(normalize_rate_window);
+    snapshot.tertiary.as_mut().map(normalize_rate_window);
+    for extra in &mut snapshot.extra_rate_windows {
+        normalize_rate_window(&mut extra.window);
+    }
+    snapshot.cost.as_mut().map(normalize_cost);
+
+    if snapshot.updated_at.is_empty() {
+        snapshot.updated_at = chrono::Utc::now().to_rfc3339();
+    }
+
+    Ok(snapshot)
+}
+
+/// Recompute `remaining_percent` from `used_percent` (matching the canonical
+/// [`RateWindowSnapshot::from_rate_window`] behaviour) so the seed JSON can
+/// omit it.
+fn normalize_rate_window(w: &mut RateWindowSnapshot) {
+    w.remaining_percent = 100.0 - w.used_percent.clamp(0.0, 100.0);
+}
+
+/// Fill `formatted_used` from `used` when the seed JSON omits it.
+fn normalize_cost(c: &mut CostSnapshotBridge) {
+    if c.formatted_used.is_empty() {
+        c.formatted_used = format!("${:.2}", c.used);
+    }
+}
+
 fn proof_payload_is_supported(surface_mode: SurfaceMode, payload: Option<&str>) -> bool {
     match (surface_mode, payload) {
         (SurfaceMode::Hidden | SurfaceMode::TrayPanel, None) => true,
@@ -401,5 +500,87 @@ mod tests {
             assert_eq!(cfg.surface_mode(), SurfaceMode::PopOut);
             assert_eq!(cfg.surface_target(), SurfaceTarget::Dashboard);
         });
+    }
+
+    #[test]
+    fn parse_seed_snapshot_decodes_codex_usage() {
+        let json = serde_json::json!({
+            "providerId": "codex",
+            "displayName": "Codex",
+            "primary": {
+                "usedPercent": 61.0,
+                "windowMinutes": 300,
+                "resetsAt": "2099-01-02T03:04:05Z",
+                "resetDescription": "seeded 5h",
+            },
+            "primaryLabel": "Session",
+            "secondary": { "usedPercent": 74.0, "windowMinutes": 10080 },
+            "secondaryLabel": "Weekly",
+            "extraRateWindows": [
+                {
+                    "id": "reset-credits",
+                    "title": "Reset Credits",
+                    "window": {
+                        "usedPercent": 0.0,
+                        "resetsAt": "2099-01-09T00:00:00Z",
+                        "resetDescription": "2 reset credits available",
+                        "isInformational": true,
+                    },
+                },
+            ],
+        })
+        .to_string();
+
+        let snapshot = parse_seed_usage_snapshot(&json).expect("seed parses into a snapshot");
+        assert_eq!(snapshot.provider_id, "codex");
+        assert_eq!(snapshot.primary.used_percent, 61.0);
+        assert_eq!(
+            snapshot.primary.resets_at.as_deref(),
+            Some("2099-01-02T03:04:05Z")
+        );
+        assert_eq!(snapshot.primary.remaining_percent, 39.0);
+        assert_eq!(snapshot.primary_label.as_deref(), Some("Session"));
+        assert_eq!(
+            snapshot.secondary.as_ref().map(|s| s.used_percent),
+            Some(74.0)
+        );
+        assert_eq!(
+            snapshot.secondary.as_ref().map(|s| s.remaining_percent),
+            Some(26.0)
+        );
+        assert_eq!(snapshot.extra_rate_windows.len(), 1);
+        assert_eq!(snapshot.extra_rate_windows[0].id, "reset-credits");
+        assert!(snapshot.extra_rate_windows[0].window.is_informational);
+        // Defaults applied: displayName, sourceLabel, updatedAt
+        assert_eq!(snapshot.display_name, "Codex");
+        assert_eq!(snapshot.source_label, "seed");
+        assert!(!snapshot.updated_at.is_empty());
+    }
+
+    #[test]
+    fn parse_seed_snapshot_rejects_non_codex_provider() {
+        let json = r#"{"providerId": "claude", "primary": {"usedPercent": 10.0}}"#;
+        assert!(parse_seed_usage_snapshot(json).is_err());
+    }
+
+    #[test]
+    fn parse_seed_snapshot_rejects_malformed_json() {
+        assert!(parse_seed_usage_snapshot("{not json}").is_err());
+    }
+
+    #[test]
+    fn parse_seed_snapshot_fills_cost_defaults() {
+        let json = r#"{
+            "providerId": "codex",
+            "primary": {"usedPercent": 50.0},
+            "cost": {"used": 12.5, "limit": 100.0}
+        }"#;
+        let snapshot = parse_seed_usage_snapshot(json).unwrap();
+        let cost = snapshot.cost.expect("cost present");
+        assert_eq!(cost.used, 12.5);
+        assert_eq!(cost.limit, Some(100.0));
+        assert_eq!(cost.currency_code, "USD");
+        assert_eq!(cost.period, "month");
+        assert_eq!(cost.formatted_used, "$12.50");
     }
 }

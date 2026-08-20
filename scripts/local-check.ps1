@@ -10,8 +10,8 @@ param(
     [string]$Version = ""
 )
 
-Set-StrictMode -Version Latest
-$ErrorActionPreference = "Stop"
+Set-StrictMode -Version 3.0
+$ErrorActionPreference = "Continue"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
 

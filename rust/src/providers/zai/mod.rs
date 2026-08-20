@@ -324,11 +324,13 @@ impl ZaiProvider {
             })
             .unwrap_or("z.ai");
 
-        // Collect TOKENS_LIMIT entries (upstream uses "TOKENS_LIMIT", legacy uses "tokens")
+        // Collect token/credit limit entries (upstream 0.49.0 #2724: credit
+        // Coding Plans report `CREDIT_LIMIT` rows with the same shape as
+        // `TOKENS_LIMIT`; upstream uses "TOKENS_LIMIT", legacy uses "tokens").
         let is_tokens = |l: &&ZaiLimit| {
             matches!(
                 l.limit_type.as_deref(),
-                Some("TOKENS_LIMIT") | Some("tokens")
+                Some("TOKENS_LIMIT") | Some("CREDIT_LIMIT") | Some("tokens")
             )
         };
         let is_time =
@@ -338,13 +340,28 @@ impl ZaiProvider {
         token_limits.sort_by_key(|l| Self::window_minutes(l).unwrap_or(u32::MAX));
         let time_limit = limits.iter().find(is_time);
 
-        // Compute used percent for a limit entry
+        // Compute used percent for a limit entry (upstream 0.49.0 `parseLimit`):
+        // when the response carries a positive `usage` total, the absolute
+        // used signal (`usage - remaining`, or `currentValue`) wins over the
+        // API's own `percentage`; otherwise `percentage` is trusted, and
+        // legacy `limit`/`used` responses fall back to the old math.
         fn compute_percent(l: &ZaiLimit) -> f64 {
+            if let Some(usage) = l.usage.filter(|&usage| usage > 0.0) {
+                let used = if let Some(remaining) = l.remaining {
+                    let from_remaining = usage - remaining;
+                    let baseline = l.current_value.unwrap_or(from_remaining);
+                    from_remaining.max(baseline)
+                } else {
+                    l.current_value.unwrap_or(0.0)
+                };
+                let clamped = used.clamp(0.0, usage);
+                return (clamped / usage * 100.0).clamp(0.0, 100.0);
+            }
             if let Some(percentage) = l.percentage {
                 return percentage.clamp(0.0, 100.0);
             }
 
-            let limit = l.limit.or(l.usage).unwrap_or(0.0);
+            let limit = l.limit.unwrap_or(0.0);
             if limit <= 0.0 {
                 return if l.used.unwrap_or(0.0) > 0.0 || l.current_value.unwrap_or(0.0) > 0.0 {
                     100.0
@@ -379,7 +396,7 @@ impl ZaiProvider {
                 });
             let is_tokens = matches!(
                 l.limit_type.as_deref(),
-                Some("TOKENS_LIMIT") | Some("tokens")
+                Some("TOKENS_LIMIT") | Some("CREDIT_LIMIT") | Some("tokens")
             );
             let window_mins = if is_tokens {
                 ZaiProvider::window_minutes(l)
@@ -452,7 +469,7 @@ fn rate_window_reset_description(l: &ZaiLimit, window_mins: Option<u32>) -> Opti
     }
     if matches!(
         l.limit_type.as_deref(),
-        Some("TOKENS_LIMIT") | Some("tokens")
+        Some("TOKENS_LIMIT") | Some("CREDIT_LIMIT") | Some("tokens")
     ) && window_mins == Some(300)
     {
         return Some("5-hour".to_string());
@@ -693,6 +710,80 @@ mod tests {
         assert_eq!(usage.primary.used_percent, 75.0);
         assert_eq!(usage.primary.window_minutes, Some(300));
         assert!(usage.primary.resets_at.is_some());
+    }
+
+    #[test]
+    fn credit_limit_plan_drives_primary_and_weekly_windows() {
+        // Upstream 0.49.0 #2724/#2712: credit-based Coding Plans report
+        // CREDIT_LIMIT rows shaped like TOKENS_LIMIT. Without this, usage
+        // sticks at 0% used / 100% remaining.
+        let provider = ZaiProvider::new();
+        let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
+            "code": 200,
+            "data": {
+                "planName": "GLM Coding Lite",
+                "limits": [
+                    {
+                        "type": "CREDIT_LIMIT",
+                        "unit": 3,
+                        "number": 5,
+                        "usage": 500,
+                        "currentValue": 475,
+                        "remaining": 25,
+                        "percentage": 95,
+                        "nextResetTime": 1770648402389_i64
+                    },
+                    {
+                        "type": "CREDIT_LIMIT",
+                        "unit": 6,
+                        "number": 1,
+                        "usage": 3000,
+                        "currentValue": 1200,
+                        "remaining": 1800,
+                        "percentage": 40
+                    }
+                ]
+            }
+        }))
+        .unwrap();
+
+        let usage = provider.parse_quota_response(&quota).unwrap();
+
+        // Shortest window (5h credits) is the primary; longest (weekly) secondary.
+        assert!((usage.primary.used_percent - 95.0).abs() < f64::EPSILON);
+        assert_eq!(usage.primary.window_minutes, Some(300));
+        assert_eq!(usage.primary.reset_description.as_deref(), Some("5-hour"));
+        assert!(usage.primary.resets_at.is_some());
+        let secondary = usage.secondary.expect("weekly credit window");
+        assert!((secondary.used_percent - 40.0).abs() < f64::EPSILON);
+        assert_eq!(secondary.window_minutes, Some(10080));
+    }
+
+    #[test]
+    fn usage_signal_overrides_stale_percentage() {
+        // Upstream 0.49.0 `parseLimit`: a positive `usage` total makes the
+        // absolute used signal authoritative; the API's `percentage` is only
+        // trusted without it.
+        let provider = ZaiProvider::new();
+        let quota: ZaiQuotaResponse = serde_json::from_value(serde_json::json!({
+            "code": 200,
+            "data": {
+                "limits": [{
+                    "type": "CREDIT_LIMIT",
+                    "unit": 3,
+                    "number": 5,
+                    "usage": 500,
+                    "currentValue": 25,
+                    "remaining": 475,
+                    "percentage": 95
+                }]
+            }
+        }))
+        .unwrap();
+
+        let usage = provider.parse_quota_response(&quota).unwrap();
+
+        assert!((usage.primary.used_percent - 5.0).abs() < f64::EPSILON);
     }
 
     #[test]

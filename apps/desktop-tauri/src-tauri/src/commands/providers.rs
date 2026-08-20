@@ -1,4 +1,6 @@
 use super::*;
+use chrono::{Local, Utc};
+use serde::Serialize;
 use std::sync::Arc;
 
 const MAX_CONCURRENT_PROVIDER_FETCHES: usize = 8;
@@ -290,6 +292,12 @@ fn begin_provider_refresh(
 }
 
 fn provider_cache_can_skip_refresh(guard: &AppState, force: bool) -> bool {
+    // Proof-harness seed: pin the synthetic snapshot for the whole run so a
+    // periodic auto-refresh cannot overwrite seeded capture conditions.
+    if !force && crate::proof_harness::seed_usage_json_active() && !guard.provider_cache.is_empty()
+    {
+        return true;
+    }
     !force
         && !guard.provider_cache.is_empty()
         && is_provider_cache_fresh(guard.provider_cache_updated_at, PROVIDER_CACHE_STALE_AFTER)
@@ -343,12 +351,19 @@ fn spawn_provider_refreshes(
             &inputs.api_keys,
             &inputs.token_accounts,
         );
+        // Resolved here rather than inside the fetch: forecast history is keyed by
+        // account, and the managed-account id is the only discriminator Codex exposes.
+        let token_account_id = inputs
+            .token_accounts
+            .get(&id)
+            .and_then(ProviderAccountData::active_account)
+            .map(|account| account.id);
 
         handles.push(tokio::spawn(async move {
             let Ok(_permit) = fetch_permits.acquire_owned().await else {
                 return;
             };
-            refresh_provider(app_handle, id, ctx, generation).await;
+            refresh_provider(app_handle, id, ctx, generation, token_account_id).await;
         }));
     }
 
@@ -373,8 +388,9 @@ async fn refresh_provider(
     id: ProviderId,
     ctx: FetchContext,
     generation: u64,
+    token_account_id: Option<uuid::Uuid>,
 ) {
-    let snapshot = fetch_provider_snapshot(id, ctx).await;
+    let snapshot = fetch_provider_snapshot(id, ctx, token_account_id).await;
 
     let state = app.state::<Mutex<AppState>>();
     let published = if let Ok(mut guard) = state.lock() {
@@ -585,7 +601,11 @@ fn is_claude_timeout_failure(error: Option<&str>) -> bool {
     error.eq_ignore_ascii_case("timeout") || error.to_ascii_lowercase().contains("timed out")
 }
 
-async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderUsageSnapshot {
+async fn fetch_provider_snapshot(
+    id: ProviderId,
+    ctx: FetchContext,
+    token_account_id: Option<uuid::Uuid>,
+) -> ProviderUsageSnapshot {
     let provider = instantiate_provider(id);
     let metadata = provider.metadata().clone();
     let started = std::time::Instant::now();
@@ -594,7 +614,9 @@ async fn fetch_provider_snapshot(id: ProviderId, ctx: FetchContext) -> ProviderU
         match tokio::time::timeout(provider_fetch_timeout(id, &ctx), provider.fetch_usage(&ctx))
             .await
         {
-            Ok(Ok(result)) => ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result),
+            Ok(Ok(result)) => {
+                ProviderUsageSnapshot::from_fetch_result(id, &metadata, &result, token_account_id)
+            }
             Ok(Err(e)) => ProviderUsageSnapshot::from_error(
                 id,
                 &metadata,
@@ -891,6 +913,49 @@ fn predictive_warning_identity(
     Some(format!("{source}:{account}"))
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeepSeekPricingStatus {
+    pub period: &'static str,
+    pub current_local_time: String,
+    pub next_transition_local_time: Option<String>,
+    pub effective_local_time: String,
+}
+
+#[tauri::command]
+pub fn get_deepseek_pricing_status(
+    state: tauri::State<'_, Mutex<AppState>>,
+) -> Option<DeepSeekPricingStatus> {
+    let settings = Settings::load();
+    if !settings.enabled_providers.contains("deepseek") {
+        return None;
+    }
+    let now = Utc::now();
+    let schedule = codexbar::providers::deepseek::pricing::status_at(now);
+    let period = match schedule.period {
+        codexbar::providers::deepseek::pricing::PricingPeriod::Standard => "standard",
+        codexbar::providers::deepseek::pricing::PricingPeriod::Peak => "peak",
+        codexbar::providers::deepseek::pricing::PricingPeriod::OffPeak => "offPeak",
+    };
+    if let Ok(mut app_state) = state.lock() {
+        app_state
+            .notification_manager
+            .notify_pricing_transition(period, &settings);
+    }
+    let local = |instant: chrono::DateTime<Utc>| {
+        instant
+            .with_timezone(&Local)
+            .format("%Y-%m-%d %H:%M:%S %Z")
+            .to_string()
+    };
+    Some(DeepSeekPricingStatus {
+        period,
+        current_local_time: Local::now().format("%Y-%m-%d %H:%M:%S %Z").to_string(),
+        next_transition_local_time: schedule.next_transition.map(local),
+        effective_local_time: local(codexbar::providers::deepseek::pricing::EFFECTIVE_AT),
+    })
+}
+
 #[tauri::command]
 pub async fn refresh_providers(app: tauri::AppHandle) -> Result<(), String> {
     do_refresh_providers(&app).await
@@ -904,17 +969,21 @@ pub async fn refresh_providers_if_stale(app: tauri::AppHandle) -> Result<(), Str
 #[tauri::command]
 pub fn get_cached_providers(
     state: tauri::State<'_, Mutex<AppState>>,
-) -> Vec<ProviderUsageSnapshot> {
+) -> Vec<ProviderUsagePresentationSnapshot> {
     let mut snapshots = state
         .lock()
         .map(|guard| guard.provider_cache.clone())
         .unwrap_or_default();
-    let spark_usage_visible = Settings::load().codex_spark_usage_visible();
+    let settings = Settings::load();
+    let spark_usage_visible = settings.codex_spark_usage_visible();
     for snapshot in &mut snapshots {
         super::filter_hidden_codex_spark_rows(snapshot, spark_usage_visible);
     }
 
     snapshots
+        .into_iter()
+        .map(|snapshot| ProviderUsagePresentationSnapshot::new(snapshot, &settings))
+        .collect()
 }
 
 #[cfg(test)]
@@ -1005,6 +1074,38 @@ mod predictive_warning_tests {
 
         snapshot.plan_name = None;
         assert_eq!(quota_notification_account_identity(&snapshot, None), "");
+    }
+
+    /// The forecast scope key and the notification identity must never disagree.
+    /// If they did, one account would be seen as two identities and its burn history
+    /// would be split, silently halving the sample count behind every forecast.
+    #[test]
+    fn forecast_account_key_matches_notification_identity() {
+        use crate::commands::bridge::forecast_account_key;
+
+        let token = uuid::Uuid::parse_str("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa").unwrap();
+        let mut usage = codexbar::core::UsageSnapshot::new(codexbar::core::RateWindow::new(1.0));
+        let mut snapshot = empty_snapshot();
+
+        for (email, org) in [
+            (Some("Person@Example.com"), Some("Acme Org")),
+            (Some("Person@Example.com"), None),
+            (None, Some("Acme Org")),
+            (None, None),
+        ] {
+            usage.account_email = email.map(str::to_string);
+            usage.account_organization = org.map(str::to_string);
+            snapshot.account_email = usage.account_email.clone();
+            snapshot.account_organization = usage.account_organization.clone();
+
+            for tok in [Some(token), None] {
+                assert_eq!(
+                    forecast_account_key(&usage, tok).unwrap_or_default(),
+                    quota_notification_account_identity(&snapshot, tok),
+                    "identity drift for email={email:?} org={org:?} token={tok:?}"
+                );
+            }
+        }
     }
 }
 
