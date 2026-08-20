@@ -3,6 +3,7 @@
 //! Fetches usage data from OpenCode (opencode.ai)
 //! Uses browser cookies for authentication
 
+pub mod billing;
 pub mod scraper;
 
 // Re-exports for advanced scraping
@@ -20,18 +21,17 @@ use crate::core::{
     RateWindow, SourceMode, UsageSnapshot,
 };
 
-const BASE_URL: &str = "https://opencode.ai";
-const SERVER_URL: &str = "https://opencode.ai/_server";
+pub(super) const BASE_URL: &str = "https://opencode.ai";
+pub(super) const SERVER_URL: &str = "https://opencode.ai/_server";
 const MAX_RESET_SECONDS: i64 = 366 * 24 * 60 * 60;
 const WORKSPACES_SERVER_ID: &str =
     "def39973159c7f0483d8793a822b8dbb10d067e12c65455fcb4608459ba0234f";
 const SUBSCRIPTION_SERVER_ID: &str =
     "7abeebee372f304e050aaaf92be863f4a86490e382f8c79db68fd94040d691b4";
-
 /// OpenCode provider
 pub struct OpenCodeProvider {
     metadata: ProviderMetadata,
-    client: Client,
+    pub(super) client: Client,
 }
 
 impl OpenCodeProvider {
@@ -64,10 +64,24 @@ impl OpenCodeProvider {
         // First get workspace ID
         let workspace_id = self.fetch_workspace_id(cookie_header).await?;
 
-        // Then fetch subscription info
-        let subscription = self
-            .fetch_subscription(&workspace_id, cookie_header)
-            .await?;
+        // Then fetch subscription info. Pay-as-you-go workspaces have no
+        // subscription object, so the subscription server answers null or
+        // fails; their spend lives in the billing payload (upstream 0.49.5
+        // #2504/#2697).
+        let subscription = match self.fetch_subscription(&workspace_id, cookie_header).await {
+            Ok(text) => text,
+            Err(err) if Self::can_fall_back_to_billing(&err) => {
+                match self
+                    .fetch_pay_as_you_go_usage(&workspace_id, cookie_header)
+                    .await
+                {
+                    Err(auth_err) => return Err(auth_err),
+                    Ok(Some(snapshot)) => return Ok(snapshot),
+                    Ok(None) => return Err(err),
+                }
+            }
+            Err(err) => return Err(err),
+        };
 
         // Parse the response
         self.parse_subscription(&subscription)
@@ -521,13 +535,13 @@ impl OpenCodeProvider {
     }
 
     /// Check if response indicates user is signed out
-    fn looks_signed_out(&self, text: &str) -> bool {
+    pub(super) fn looks_signed_out(&self, text: &str) -> bool {
         let lower = text.to_lowercase();
         lower.contains("login") || lower.contains("sign in") || lower.contains("auth/authorize")
     }
 
     /// URL encode a string for query parameters
-    fn url_encode(s: &str) -> String {
+    pub(super) fn url_encode(s: &str) -> String {
         let mut result = String::with_capacity(s.len() * 3);
         for c in s.chars() {
             match c {

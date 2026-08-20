@@ -65,6 +65,12 @@ struct KimiSubscriptionStatsResponse {
 struct KimiSubscriptionBalance {
     amount_used_ratio: Option<serde_json::Value>,
     expire_time: Option<serde_json::Value>,
+    /// Pool scoping (upstream 0.49.0 #2741): only the omni/subscription pool
+    /// is the shared "Total usage" lane; feature-scoped balances are not.
+    #[serde(default)]
+    feature: Option<String>,
+    #[serde(default, rename = "type")]
+    balance_type: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -296,21 +302,26 @@ fn kimi_window_minutes(window: &KimiWindow) -> Option<u32> {
     }
 }
 
-/// Shared merge of the membership-pool windows (`Monthly` + `Code 7-day`)
+/// Shared merge of the membership-pool windows (`Total usage` + `Code 7-day`)
 /// recovered from the subscription-stats endpoint — used by the web fetch and
 /// by the upstream 0.48.0 Code-API/CLI enrichment (#2622).
 fn apply_subscription_windows(
     mut usage: UsageSnapshot,
     subscription: &KimiSubscriptionStatsResponse,
 ) -> UsageSnapshot {
+    // Upstream 0.49.0 #2741: the membership pool is the official "Total usage"
+    // lane — the shared subscription pool (`amountUsedRatio`), not the
+    // Code-only ratio. Feature-scoped or non-subscription balances are skipped.
     if let Some(balance) = subscription.subscription_balance.as_ref()
+        && matches!(balance.feature.as_deref(), None | Some("FEATURE_OMNI"))
+        && matches!(balance.balance_type.as_deref(), None | Some("SUBSCRIPTION"))
         && let Some(ratio) =
             value_as_f64(balance.amount_used_ratio.as_ref()).filter(|value| value.is_finite())
     {
         // Verified monthly sentinel (#2431 / #2566).
         usage = usage.with_extra_rate_window(
             "kimi-monthly",
-            "Monthly",
+            "Total usage",
             RateWindow::with_details(
                 ratio * 100.0,
                 Some(30 * 24 * 60),
@@ -324,19 +335,40 @@ fn apply_subscription_windows(
         && limit.enabled.unwrap_or(true)
         && let Some(ratio) = value_as_f64(limit.ratio.as_ref()).filter(|value| value.is_finite())
     {
-        usage = usage.with_extra_rate_window(
-            "kimi-code-7d",
-            "Code 7-day",
-            RateWindow::with_details(
-                ratio * 100.0,
-                Some(10080),
-                limit.reset_time.as_ref().and_then(parse_kimi_timestamp),
-                None,
-            ),
+        // Upstream 0.49.0 #2741: the membership 7-day Code ratio and the
+        // FEATURE_CODING weekly detail report the same quota through two
+        // endpoints — keep the row only where it genuinely diverges.
+        let window = RateWindow::with_details(
+            ratio * 100.0,
+            Some(10080),
+            limit.reset_time.as_ref().and_then(parse_kimi_timestamp),
+            None,
         );
+        if !is_equivalent_to_weekly_window(&window, &usage.primary) {
+            usage = usage.with_extra_rate_window("kimi-code-7d", "Code 7-day", window);
+        }
     }
 
     usage
+}
+
+/// Upstream `isEquivalentToWeeklyWindow` (#2741): suppress the Code 7-day row
+/// only on positive evidence — the weekly counter must be reliable (window
+/// minutes present), the percentages must agree within 1 point, and both lanes
+/// need reset timestamps within 5 minutes of each other.
+fn is_equivalent_to_weekly_window(window: &RateWindow, weekly: &RateWindow) -> bool {
+    if weekly.window_minutes.is_none() {
+        return false;
+    }
+    if (window.used_percent - weekly.used_percent).abs() > 1.0 {
+        return false;
+    }
+    match (window.resets_at, weekly.resets_at) {
+        (Some(code_reset), Some(weekly_reset)) => {
+            (code_reset - weekly_reset).num_seconds().abs() <= 5 * 60
+        }
+        _ => false,
+    }
 }
 
 async fn kimi_web_post(
@@ -551,7 +583,8 @@ mod tests {
             .iter()
             .find(|window| window.id == "kimi-monthly")
             .unwrap();
-        assert_eq!(monthly.title, "Monthly");
+        // Upstream 0.49.0 #2741: official lane name for the shared pool.
+        assert_eq!(monthly.title, "Total usage");
         assert_eq!(monthly.window.window_minutes, Some(30 * 24 * 60));
         assert!((monthly.window.used_percent - 77.16).abs() < 0.0001);
         let code_7d = snapshot
@@ -562,6 +595,103 @@ mod tests {
         assert_eq!(code_7d.title, "Code 7-day");
         assert_eq!(code_7d.window.window_minutes, Some(10080));
         assert!((code_7d.window.used_percent - 9.46).abs() < 0.0001);
+    }
+
+    #[test]
+    fn feature_scoped_balance_is_not_the_total_usage_lane() {
+        // Upstream 0.49.0 #2741: only the omni/subscription pool maps to the
+        // "Total usage" lane; feature-scoped balances must not.
+        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
+            "usages": [{
+                "scope": "FEATURE_CODING",
+                "detail": { "limit": "2048", "used": "375" }
+            }]
+        }))
+        .unwrap();
+        let subscription: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
+            "subscriptionBalance": {
+                "amountUsedRatio": 0.5,
+                "feature": "FEATURE_CODING",
+                "type": "SUBSCRIPTION"
+            }
+        }))
+        .unwrap();
+
+        let snapshot = web::snapshot_from_web_usage_response(usage, Some(subscription)).unwrap();
+        assert!(
+            snapshot
+                .extra_rate_windows
+                .iter()
+                .all(|window| window.id != "kimi-monthly")
+        );
+    }
+
+    #[test]
+    fn duplicate_code_7d_row_is_hidden_when_matching_weekly() {
+        // Upstream 0.49.0 #2741: when the membership Code 7-day ratio and the
+        // primary weekly window agree (percent within 1 point, resets within
+        // 5 minutes, weekly counter reliable), the extra row is suppressed.
+        let usage: KimiWebUsageResponse = serde_json::from_value(json!({
+            "usages": [{
+                "scope": "FEATURE_CODING",
+                "detail": {
+                    "limit": "1000",
+                    "used": "420",
+                    "resetTime": "2026-08-13T15:28:00Z"
+                }
+            }]
+        }))
+        .unwrap();
+        let subscription_matching: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
+            "ratelimitCode7d": {
+                "ratio": 0.421,
+                "enabled": true,
+                "resetTime": "2026-08-13T15:30:00Z"
+            }
+        }))
+        .unwrap();
+
+        let snapshot =
+            web::snapshot_from_web_usage_response(usage, Some(subscription_matching)).unwrap();
+
+        assert!((snapshot.primary.used_percent - 42.0).abs() < f64::EPSILON);
+        assert!(
+            snapshot
+                .extra_rate_windows
+                .iter()
+                .all(|window| window.id != "kimi-code-7d"),
+            "matching Code 7-day row should be suppressed"
+        );
+
+        // Diverging ratio (or missing reset evidence) keeps the row.
+        let subscription_diverging: KimiSubscriptionStatsResponse = serde_json::from_value(json!({
+            "ratelimitCode7d": {
+                "ratio": 0.9,
+                "enabled": true,
+                "resetTime": "2026-08-13T15:30:00Z"
+            }
+        }))
+        .unwrap();
+        let usage_diverging: KimiWebUsageResponse = serde_json::from_value(json!({
+            "usages": [{
+                "scope": "FEATURE_CODING",
+                "detail": {
+                    "limit": "1000",
+                    "used": "420",
+                    "resetTime": "2026-08-13T15:28:00Z"
+                }
+            }]
+        }))
+        .unwrap();
+        let snapshot =
+            web::snapshot_from_web_usage_response(usage_diverging, Some(subscription_diverging))
+                .unwrap();
+        assert!(
+            snapshot
+                .extra_rate_windows
+                .iter()
+                .any(|window| window.id == "kimi-code-7d")
+        );
     }
 
     #[test]

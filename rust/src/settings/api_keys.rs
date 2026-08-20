@@ -311,6 +311,18 @@ pub fn get_api_key_providers() -> Vec<ProviderConfigInfo> {
             dashboard_url: Some("https://deepinfra.com/dash"),
         },
         ProviderConfigInfo {
+            id: ProviderId::Fireworks,
+            name: "Fireworks",
+            requires_api_key: true,
+            api_key_env_var: Some("FIREWORKS_API_KEY"),
+            api_key_help: Some(
+                "Get your API key from app.fireworks.ai. Also set the account slug from \
+                 app.fireworks.ai/accounts/<slug> (FIREWORKS_ACCOUNT_SLUG).",
+            ),
+            config_file_path: None,
+            dashboard_url: Some("https://app.fireworks.ai"),
+        },
+        ProviderConfigInfo {
             id: ProviderId::AiAnd,
             name: "ai&",
             requires_api_key: true,

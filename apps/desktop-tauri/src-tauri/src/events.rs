@@ -16,6 +16,7 @@ pub const UPDATE_STATE_CHANGED: &str = "update-state-changed";
 pub const LOCALE_CHANGED: &str = "locale-changed";
 pub const SETTINGS_CHANGED: &str = "settings-changed";
 pub const CODEX_ACCOUNTS_UPDATED: &str = "codex-accounts-updated";
+pub const LOGIN_PHASE: &str = "login-phase";
 
 // ── Payloads ─────────────────────────────────────────────────────────
 
@@ -40,6 +41,14 @@ pub struct RefreshStartedPayload {
     pub provider_ids: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoginPhasePayload {
+    pub provider_id: String,
+    pub phase: String,
+    pub auth_link: Option<String>,
+}
+
 // ── Emit helpers ─────────────────────────────────────────────────────
 
 pub fn emit_surface_mode_changed(
@@ -60,11 +69,13 @@ pub fn emit_surface_mode_changed(
 
 pub fn emit_provider_updated(app: &AppHandle, snapshot: &ProviderUsageSnapshot) {
     let mut snapshot = snapshot.clone();
+    let settings = codexbar::settings::Settings::load();
     crate::commands::filter_hidden_codex_spark_rows(
         &mut snapshot,
-        codexbar::settings::Settings::load().codex_spark_usage_visible(),
+        settings.codex_spark_usage_visible(),
     );
-    let _ = app.emit(PROVIDER_UPDATED, snapshot);
+    let presentation = crate::commands::ProviderUsagePresentationSnapshot::new(snapshot, &settings);
+    let _ = app.emit(PROVIDER_UPDATED, presentation);
 }
 
 pub fn emit_refresh_started(app: &AppHandle, provider_ids: Vec<String>) {
@@ -98,4 +109,15 @@ pub fn emit_update_state_changed(app: &AppHandle, payload: &UpdateStatePayload) 
 /// do not share React state. Payload-less; listeners re-fetch the snapshot.
 pub fn emit_settings_changed(app: &AppHandle) {
     let _ = app.emit(SETTINGS_CHANGED, ());
+}
+
+pub fn emit_login_phase(app: &AppHandle, provider_id: &str, phase: &str, auth_link: Option<&str>) {
+    let _ = app.emit(
+        LOGIN_PHASE,
+        LoginPhasePayload {
+            provider_id: provider_id.to_string(),
+            phase: phase.to_string(),
+            auth_link: auth_link.map(|s| s.to_string()),
+        },
+    );
 }

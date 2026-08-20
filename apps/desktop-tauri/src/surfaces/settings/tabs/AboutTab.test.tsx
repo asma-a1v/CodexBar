@@ -97,6 +97,8 @@ const settings: SettingsSnapshot = {
   claudeDailyRoutinesUsageVisible: true,
   alibabaTokenPlanRegion: "cn",
   weeklyProgressWorkDays: null,
+    costSummaryDisplayStyle: "compact",
+    providerAccentColors: {},
 };
 
 describe("AboutTab", () => {

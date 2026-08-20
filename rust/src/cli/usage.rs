@@ -18,9 +18,9 @@ pub struct UsageArgs {
     #[arg(short, long, help = PROVIDER_ARG_HELP)]
     pub provider: Option<String>,
 
-    /// Output format: text or json
+    /// Output format: text, json, or toon
     #[arg(short, long, default_value = "text")]
-    pub format: OutputFormat,
+    pub format: UsageOutputFormat,
 
     /// Shorthand for --format json
     #[arg(long)]
@@ -71,14 +71,36 @@ pub enum OutputFormat {
     Json,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum UsageOutputFormat {
+    #[default]
+    Text,
+    Json,
+    Toon,
+}
+
 impl std::str::FromStr for OutputFormat {
     type Err = String;
-
     fn from_str(s: &str) -> Result<Self, Self::Err> {
         match s.to_lowercase().as_str() {
             "text" => Ok(OutputFormat::Text),
             "json" => Ok(OutputFormat::Json),
             _ => Err(format!("Invalid format: {}. Use 'text' or 'json'", s)),
+        }
+    }
+}
+
+impl std::str::FromStr for UsageOutputFormat {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "text" => Ok(UsageOutputFormat::Text),
+            "json" => Ok(UsageOutputFormat::Json),
+            "toon" => Ok(UsageOutputFormat::Toon),
+            _ => Err(format!(
+                "Invalid format: {}. Use 'text', 'json', or 'toon'",
+                s
+            )),
         }
     }
 }
@@ -146,7 +168,7 @@ pub async fn run(args: UsageArgs) -> anyhow::Result<()> {
 }
 
 struct UsageCommand {
-    format: OutputFormat,
+    format: UsageOutputFormat,
     providers: Vec<ProviderId>,
     use_color: bool,
     brief: bool,
@@ -189,9 +211,9 @@ impl UsageCommand {
     }
 }
 
-fn effective_format(args: &UsageArgs) -> OutputFormat {
+fn effective_format(args: &UsageArgs) -> UsageOutputFormat {
     if args.json {
-        OutputFormat::Json
+        UsageOutputFormat::Json
     } else {
         args.format
     }
@@ -221,18 +243,19 @@ enum UsageOutput {
         results: Vec<serde_json::Value>,
         pretty: bool,
     },
+    Toon(Vec<serde_json::Value>),
 }
 
 async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
     match command.format {
-        OutputFormat::Text => {
+        UsageOutputFormat::Text => {
             let mut sections = Vec::new();
             for provider_id in &command.providers {
                 sections.push(fetch_provider_text_output(*provider_id, command).await);
             }
             UsageOutput::Text(sections)
         }
-        OutputFormat::Json => {
+        UsageOutputFormat::Json => {
             let mut results = Vec::new();
             for provider_id in &command.providers {
                 results.push(fetch_provider_json_output(*provider_id, command).await);
@@ -241,6 +264,13 @@ async fn collect_usage_output(command: &UsageCommand) -> UsageOutput {
                 results,
                 pretty: command.pretty,
             }
+        }
+        UsageOutputFormat::Toon => {
+            let mut results = Vec::new();
+            for provider_id in &command.providers {
+                results.push(fetch_provider_json_output(*provider_id, command).await);
+            }
+            UsageOutput::Toon(results)
         }
     }
 }
@@ -360,12 +390,32 @@ fn render_json_result(
     result: ProviderFetchResult,
     status: Option<&StatusInfo>,
 ) -> serde_json::Value {
+    let usage = &result.usage;
+    let primary_pace = usage
+        .primary
+        .window_minutes
+        .is_some_and(|m| m == crate::core::SESSION_WINDOW_MINUTES)
+        .then(|| UsagePace::weekly(&usage.primary, None, crate::core::SESSION_WINDOW_MINUTES))
+        .flatten()
+        .map(pace_json);
+    let secondary_pace = usage
+        .secondary
+        .as_ref()
+        .and_then(|w| UsagePace::weekly(w, None, w.window_minutes.unwrap_or(10080)))
+        .map(pace_json);
+
     let mut json_result = serde_json::json!({
         "provider": provider_id.cli_name(),
         "source": result.source_label,
         "usage": result.usage,
         "cost": result.cost,
     });
+    if primary_pace.is_some() || secondary_pace.is_some() {
+        json_result["pace"] = serde_json::json!({
+            "primary": primary_pace,
+            "secondary": secondary_pace,
+        });
+    }
 
     if let Some(s) = status {
         json_result["status"] = serde_json::json!({
@@ -375,6 +425,16 @@ fn render_json_result(
     }
 
     json_result
+}
+
+/// Serialize a [`UsagePace`] into a compact JSON object for the `--json` output.
+fn pace_json(pace: UsagePace) -> serde_json::Value {
+    serde_json::json!({
+        "stage": format!("{:?}", pace.stage).to_lowercase(),
+        "deltaPercent": pace.delta_percent,
+        "expectedUsedPercent": pace.expected_used_percent,
+        "willLastToReset": pace.will_last_to_reset,
+    })
 }
 
 fn print_usage_output(output: UsageOutput) -> anyhow::Result<()> {
@@ -389,6 +449,12 @@ fn print_usage_output(output: UsageOutput) -> anyhow::Result<()> {
                 serde_json::to_string(&results)?
             };
             println!("{}", output);
+        }
+        UsageOutput::Toon(results) => {
+            println!(
+                "{}",
+                super::toon::encode(&serde_json::Value::Array(results))
+            );
         }
     }
 
@@ -489,6 +555,17 @@ fn append_usage_window_lines(
     use_color: bool,
 ) {
     append_window_line(lines, metadata.session_label, &usage.primary, use_color);
+    // Upstream 0.50.1 #2957: pace for the 5-hour session window.
+    if usage.primary.window_minutes == Some(crate::core::SESSION_WINDOW_MINUTES)
+        && let Some(pace) =
+            UsagePace::weekly(&usage.primary, None, crate::core::SESSION_WINDOW_MINUTES)
+    {
+        lines.push(format!(
+            "  Pace:    {} {}",
+            pace.stage.emoji(),
+            pace.format_status()
+        ));
+    }
     append_secondary_window_line(
         lines,
         usage.secondary.as_ref(),
@@ -663,6 +740,15 @@ mod tests {
 
     fn fetch_result(usage: UsageSnapshot) -> ProviderFetchResult {
         ProviderFetchResult::new(usage, "test")
+    }
+
+    #[test]
+    fn usage_output_format_accepts_toon() {
+        assert_eq!(
+            "toon".parse::<UsageOutputFormat>(),
+            Ok(UsageOutputFormat::Toon)
+        );
+        assert!("toon".parse::<OutputFormat>().is_err());
     }
 
     #[test]

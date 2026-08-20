@@ -1,5 +1,30 @@
 # Changelog
 
+## [Windows] 0.53.0 - 2026-08-20
+
+Windows release aligned with upstream CodexBar **0.53.0**.
+
+### Added
+- Rebuilt Usage & Spend views with source provenance, coverage, token mix,
+  hourly heatmaps, all-time totals, custom pricing, and OpenCodex import.
+- Grok usage-source selection, DeepSeek pricing status, provider accent colors,
+  and additional provider/CLI improvements including TOON output.
+- Low Power Mode automatic behavior and the latest provider reliability fixes.
+
+### Fixed
+- Settings persistence and crash paths updated from upstream 0.53.0.
+- Kept the tray flyout content-sized and non-resizable without internal
+  scrolling, resize handles, or zoom controls.
+- Preserved tray-only startup, taskbar suppression, the transparent two-bar
+  usage icon, the plain Quit cross, and the dedicated EXE/installer icon.
+
+### Notes
+- Packaged as a per-user NSIS installer for Windows x64.
+- macOS-only AppKit, WidgetKit, and Sparkle changes remain out of scope for the
+  Tauri/Windows build.
+
+---
+
 ## [Windows] 0.50.0 - 2026-08-16
 
 Windows release aligned with upstream CodexBar **0.50.0**, built on the latest
@@ -74,11 +99,6 @@ Windows port of upstream CodexBar **0.46.0 → 0.47.0**.
 
 ### Changed
 - Upstream 0.47.0 provider and CLI behavior ported onto the Windows tray/desktop shell.
-- Retained tray-only startup and taskbar-hidden auxiliary surfaces.
-- Kept the tray flyout content-sized and non-resizable, without zoom controls or internal scrolling.
-- Retained the dedicated EXE/About/User Installer icon and made the dynamic tray icon background transparent so only its usage bar or percentage glyph remains visible.
-- Replaced the boxed quit glyph in the tray panel with a plain cross.
-- Packaged the Windows x64 release as a per-user NSIS installer.
 
 ---
 

@@ -12,6 +12,7 @@ pub struct SettingsUpdate {
     pub adaptive_refresh: Option<bool>,
     pub refresh_all_providers_on_menu_open: Option<bool>,
     pub low_power_mode: Option<bool>,
+    pub low_power_mode_preference: Option<String>,
     pub start_at_login: Option<bool>,
     pub start_minimized: Option<bool>,
     pub show_notifications: Option<bool>,
@@ -69,6 +70,9 @@ pub struct SettingsUpdate {
     pub claude_daily_routines_usage_visible: Option<bool>,
     pub alibaba_token_plan_region: Option<String>,
     pub weekly_progress_work_days: Option<u8>,
+    pub cost_summary_display_style: Option<String>,
+    pub open_codex_usage_logs_enabled: Option<bool>,
+    pub hide_native_codex_cost_when_open_codex_present: Option<bool>,
 }
 
 impl SettingsUpdate {
@@ -83,6 +87,7 @@ impl SettingsUpdate {
         self.enabled_providers.is_some()
             || self.refresh_interval_secs.is_some()
             || self.low_power_mode.is_some()
+            || self.low_power_mode_preference.is_some()
             || self.adaptive_refresh.is_some()
             || self.codex_custom_sessions_dirs.is_some()
             || self.high_usage_threshold.is_some()
@@ -146,8 +151,23 @@ impl SettingsUpdate {
         if let Some(v) = self.refresh_all_providers_on_menu_open {
             settings.refresh_all_providers_on_menu_open = v;
         }
+        if let Some(v) = self.open_codex_usage_logs_enabled {
+            settings.open_codex_usage_logs_enabled = v;
+        }
+        if let Some(v) = self.hide_native_codex_cost_when_open_codex_present {
+            settings.hide_native_codex_cost_when_open_codex_present = v;
+        }
         if let Some(v) = self.low_power_mode {
-            settings.low_power_mode = v;
+            settings.low_power_mode_preference = if v {
+                codexbar::settings::LowPowerModePreference::On
+            } else {
+                codexbar::settings::LowPowerModePreference::Off
+            };
+        }
+        if let Some(value) = self.low_power_mode_preference.as_deref()
+            && let Some(preference) = codexbar::settings::LowPowerModePreference::parse(value)
+        {
+            settings.low_power_mode_preference = preference;
         }
         if let Some(ref s) = self.tray_icon_mode
             && let Some(mode) = parse_tray_icon_mode(s)
@@ -322,6 +342,13 @@ impl SettingsUpdate {
         if let Some(v) = self.weekly_progress_work_days {
             settings.weekly_progress_work_days = if (2..=6).contains(&v) { Some(v) } else { None };
         }
+        if let Some(v) = self
+            .cost_summary_display_style
+            .as_deref()
+            .and_then(crate::commands::bridge::parse_cost_summary_display_style)
+        {
+            settings.cost_summary_display_style = v;
+        }
         self
     }
 
@@ -341,6 +368,11 @@ impl SettingsUpdate {
     }
 
     fn apply_to(self, settings: &mut Settings) -> Result<crate::floatbar::SettingsPatch, String> {
+        if let Some(value) = self.low_power_mode_preference.as_deref()
+            && codexbar::settings::LowPowerModePreference::parse(value).is_none()
+        {
+            return Err(format!("Invalid low power mode preference: {value}"));
+        }
         let float_bar_patch = self.float_bar_patch();
         self.apply_provider_settings(settings)
             .apply_general_settings(settings)?

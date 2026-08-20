@@ -19,7 +19,10 @@ use crate::core::{
 /// which turned the credits call into `/api/v1/auth/credits` -> 404.
 const OPENROUTER_API_BASE: &str = "https://openrouter.ai/api/v1";
 const OPENROUTER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
-const OPENROUTER_KEY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(3);
+/// Optional key-quota enrichment joins on a one-second fast deadline
+/// (upstream 0.49.0 #2778) so a slow `/key` endpoint can never stall the
+/// refresh; degraded enrichment is logged and skipped, never fatal.
+const OPENROUTER_KEY_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(1);
 
 /// Windows Credential Manager target for OpenRouter API token
 const OPENROUTER_CREDENTIAL_TARGET: &str = "codexbar-openrouter";
@@ -203,13 +206,25 @@ impl OpenRouterProvider {
 
     async fn fetch_key_data(api_key: &str) -> Result<Option<KeyData>, ProviderError> {
         let key_client = Self::build_client(OPENROUTER_KEY_TIMEOUT)?;
-        let resp = Self::send_key_request(&key_client, api_key).await;
-
-        let Ok(key_resp) = resp else {
-            return Ok(None);
+        let key_resp = match Self::send_key_request(&key_client, api_key).await {
+            Ok(resp) => resp,
+            // Upstream 0.49.0 #2778: make the degraded fast join explicit —
+            // core usage stays authoritative, only the optional key meter is
+            // dropped.
+            Err(err) => {
+                tracing::debug!(
+                    error = %err,
+                    "OpenRouter key-quota fast join degraded; continuing without key meter"
+                );
+                return Ok(None);
+            }
         };
 
         if !key_resp.status().is_success() {
+            tracing::debug!(
+                status = %key_resp.status(),
+                "OpenRouter key-quota fast join degraded; continuing without key meter"
+            );
             return Ok(None);
         }
 

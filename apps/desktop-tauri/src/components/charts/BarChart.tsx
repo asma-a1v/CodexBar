@@ -146,9 +146,9 @@ export function BarChart({
         })}
       </svg>
       <div className="chart__axis">
-        <span>{data[0].label.slice(-5)}</span>
-        <span className="chart__axis-max">{fmt(max)}</span>
-        <span>{data[data.length - 1].label.slice(-5)}</span>
+        <span style={{ left: `${barWidth / 2}px` }}>{data[0].label.slice(-5)}</span>
+        <span className="chart__axis-max" style={{ left: `${actualWidth / 2}px` }}>{fmt(max)}</span>
+        <span style={{ left: `${actualWidth - barWidth / 2}px` }}>{data[data.length - 1].label.slice(-5)}</span>
       </div>
       {hover && !anim.running && (
         <div

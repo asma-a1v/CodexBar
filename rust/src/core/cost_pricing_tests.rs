@@ -1,3 +1,4 @@
+use super::codex_routed_pricing;
 use super::*;
 
 #[test]
@@ -297,5 +298,95 @@ fn test_codex_fast_cost_usd_base_model_unsuffixed() {
     assert_eq!(
         CostUsagePricing::codex_fast_base_model("my-custom-model"),
         "my-custom-model"
+    );
+}
+
+// ── Upstream 0.50.1 #2946: provider-qualified routed model pricing ──────────
+
+#[test]
+fn codex_routed_provider_detects_known_routes() {
+    assert_eq!(
+        codex_routed_pricing::codex_routed_provider("deepseek/deepseek-chat"),
+        Some("deepseek")
+    );
+    assert_eq!(
+        codex_routed_pricing::codex_routed_provider("kimi/kimi-k2"),
+        Some("kimi")
+    );
+    assert_eq!(
+        codex_routed_pricing::codex_routed_provider("opencode/gpt-5"),
+        Some("opencode")
+    );
+    // Case-insensitive prefix.
+    assert_eq!(
+        codex_routed_pricing::codex_routed_provider("DeepSeek/deepseek-chat"),
+        Some("deepseek")
+    );
+}
+
+#[test]
+fn codex_routed_provider_returns_none_for_unknown_and_unrouted() {
+    assert!(codex_routed_pricing::codex_routed_provider("acme/model-x").is_none());
+    assert!(codex_routed_pricing::codex_routed_provider("gpt-5").is_none());
+    assert!(codex_routed_pricing::codex_routed_provider("deepseek-chat").is_none());
+    assert!(codex_routed_pricing::codex_routed_provider("openai/gpt-5").is_none());
+}
+
+#[test]
+fn codex_routed_model_with_unknown_prefix_stays_unpriced() {
+    // An unknown provider/ prefix must NOT fall back to the OpenAI catalog
+    // (upstream 0.50.1 #2946: unknown prefixes are left unpriced, not guessed).
+    assert!(CostUsagePricing::codex_cost_usd("acme/secret-model", 1_000, 0, 500).is_none());
+}
+
+#[test]
+fn codex_routed_model_strips_prefix_for_lookup() {
+    // A known route prefix produces a clean model id for models.dev lookup.
+    // A nonexistent sub-model returns None (cleanly unpriced) rather than
+    // falling back to the OpenAI catalog.
+    assert!(
+        CostUsagePricing::codex_cost_usd("deepseek/nonexistent-model-xyz", 1_000, 0, 500).is_none()
+    );
+    assert!(
+        CostUsagePricing::codex_cost_usd("kimi/nonexistent-model-xyz", 1_000, 0, 500).is_none()
+    );
+}
+
+// ── Upstream 0.53: Claude first-party models.dev routing ───────────────
+
+#[test]
+fn claude_bare_models_route_to_first_party_vendors() {
+    assert_eq!(
+        CostUsagePricing::claude_models_dev_target("gpt-5")
+            .unwrap()
+            .0,
+        "openai"
+    );
+    assert_eq!(
+        CostUsagePricing::claude_models_dev_target("gemini-2.5-pro")
+            .unwrap()
+            .0,
+        "google"
+    );
+    assert_eq!(
+        CostUsagePricing::claude_models_dev_target("deepseek-chat")
+            .unwrap()
+            .0,
+        "deepseek"
+    );
+    assert_eq!(
+        CostUsagePricing::claude_models_dev_target("claude-sonnet-4-6")
+            .unwrap()
+            .0,
+        "anthropic"
+    );
+}
+
+#[test]
+fn claude_explicit_unknown_vendor_fails_closed() {
+    assert!(CostUsagePricing::claude_models_dev_target("acme/secret-model").is_none());
+    assert_eq!(
+        CostUsagePricing::claude_models_dev_target("openai/gpt-5").unwrap(),
+        ("openai", "gpt-5".to_string())
     );
 }

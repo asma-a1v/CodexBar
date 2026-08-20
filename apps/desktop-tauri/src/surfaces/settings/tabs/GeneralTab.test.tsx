@@ -15,6 +15,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     { value: "korean", display: "한국어" },
     { value: "spanish", display: "Español" },
     { value: "russian", display: "Русский" },
+    { value: "turkish", display: "Türkçe" },
   ]),
 }));
 
@@ -86,6 +87,8 @@ const settings: SettingsSnapshot = {
   claudeDailyRoutinesUsageVisible: true,
   alibabaTokenPlanRegion: "cn",
   weeklyProgressWorkDays: null,
+    costSummaryDisplayStyle: "compact",
+    providerAccentColors: {},
   showResetWhenExhausted: false,
 };
 
@@ -97,7 +100,7 @@ describe("GeneralTab language picker", () => {
     expect(select).toBeInTheDocument();
 
     const options = select.querySelectorAll("option");
-    expect(options.length).toBeGreaterThanOrEqual(7);
+    expect(options.length).toBeGreaterThanOrEqual(8);
   });
 
   it("includes spanish as a selectable option", () => {
@@ -112,6 +115,12 @@ describe("GeneralTab language picker", () => {
     render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
 
     expect(screen.getByText("Русский")).toBeInTheDocument();
+  });
+
+  it("includes turkish as a selectable option", () => {
+    render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
+
+    expect(screen.getByText("Türkçe")).toBeInTheDocument();
   });
 
   it("includes korean as a selectable option", () => {
@@ -148,9 +157,11 @@ describe("GeneralTab language picker", () => {
     const set = vi.fn();
     render(<GeneralTab settings={settings} set={set} saving={false} />);
 
-    fireEvent.click(screen.getByRole("checkbox", { name: "LowPowerMode" }));
+    fireEvent.change(screen.getByDisplayValue("LowPowerModeOff"), {
+      target: { value: "automatic" },
+    });
 
-    expect(set).toHaveBeenCalledWith({ lowPowerMode: true });
+    expect(set).toHaveBeenCalledWith({ lowPowerModePreference: "automatic" });
   });
 
   it("updates the default notification sound set", () => {
@@ -291,3 +302,33 @@ describe("GeneralTab language picker", () => {
     expect(set).toHaveBeenLastCalledWith({ providerUsageThresholds: {} });
   });
 });
+
+
+  it("renders the theme picker with auto/light/dark options in general mode", () => {
+    render(<GeneralTab settings={settings} set={vi.fn()} saving={false} />);
+
+    const select = screen.getByRole("combobox", { name: "ThemeLabel" });
+    expect(select).toBeInTheDocument();
+    expect(select.querySelectorAll("option")).toHaveLength(3);
+    expect(select.querySelector('option[value="light"]')).not.toBeNull();
+    expect(select.querySelector('option[value="dark"]')).not.toBeNull();
+    expect(select.querySelector('option[value="auto"]')).not.toBeNull();
+  });
+
+  it("persists a light theme choice via updateSettings", () => {
+    const set = vi.fn();
+    render(<GeneralTab settings={settings} set={set} saving={false} />);
+
+    const select = screen.getByRole("combobox", { name: "ThemeLabel" });
+    fireEvent.change(select, { target: { value: "light" } });
+
+    expect(set).toHaveBeenCalledWith({ theme: "light" });
+  });
+
+  it("does not render the theme picker in notifications mode", () => {
+    render(
+      <GeneralTab mode="notifications" settings={settings} set={vi.fn()} saving={false} />,
+    );
+
+    expect(screen.queryByRole("combobox", { name: "ThemeLabel" })).toBeNull();
+  });

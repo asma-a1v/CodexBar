@@ -2,6 +2,8 @@
 
 mod adaptive_refresh;
 mod aws_signing;
+mod claude_routed_pricing;
+mod codex_routed_pricing;
 mod cost_cache_budget;
 mod cost_pricing;
 pub mod curl_capture;

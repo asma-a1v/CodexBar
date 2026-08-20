@@ -364,7 +364,15 @@ mod tests {
         let dir = tempdir().unwrap();
         let sessions = dir.path().join("agent").join("sessions");
         std::fs::create_dir_all(&sessions).unwrap();
-        let line = r#"{"id":"shared-1","role":"assistant","provider":"openai-codex","model":"gpt-5","timestamp":"2026-07-20T12:00:00Z","usage":{"input":50,"output":5}}"#;
+        let line = serde_json::json!({
+            "id": "shared-1",
+            "role": "assistant",
+            "provider": "openai-codex",
+            "model": "gpt-5",
+            "timestamp": (Utc::now() - Duration::days(1)).to_rfc3339(),
+            "usage": { "input": 50, "output": 5 }
+        })
+        .to_string();
         for name in ["a.jsonl", "b.jsonl"] {
             let mut f = File::create(sessions.join(name)).unwrap();
             writeln!(f, "{line}").unwrap();

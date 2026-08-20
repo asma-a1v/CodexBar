@@ -13,6 +13,8 @@ use serde::{Deserialize, Serialize};
 pub enum ZaiLimitType {
     /// Token-based limit
     TokensLimit,
+    /// Credit-based limit (credit Coding Plans, upstream 0.49.0 #2724)
+    CreditLimit,
     /// Time-based limit
     TimeLimit,
 }
@@ -21,6 +23,7 @@ impl ZaiLimitType {
     pub fn from_string(s: &str) -> Option<Self> {
         match s {
             "TOKENS_LIMIT" => Some(ZaiLimitType::TokensLimit),
+            "CREDIT_LIMIT" => Some(ZaiLimitType::CreditLimit),
             "TIME_LIMIT" => Some(ZaiLimitType::TimeLimit),
             _ => None,
         }
