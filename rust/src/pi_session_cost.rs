@@ -387,7 +387,9 @@ mod tests {
         for name in ["a.jsonl", "b.jsonl"] {
             total += for_each_pi_entry(
                 &sessions.join(name),
-                Utc::now() - Duration::days(30),
+                DateTime::parse_from_rfc3339("2026-07-01T00:00:00Z")
+                    .unwrap()
+                    .with_timezone(&Utc),
                 PiMappedProvider::Codex,
                 &mut seen,
                 |entry| apply_entry(&mut summary, &entry),

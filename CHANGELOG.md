@@ -1,5 +1,36 @@
 # Changelog
 
+## [Windows] 0.54.0 - 2026-08-22
+
+Windows port of upstream CodexBar **0.53.0 → 0.54.0**.
+
+### Added
+- Providers: Codex PAT (Personal Access Token) usage source with user-agent normalization and fallback narrowing (#353).
+- Providers: Grok local session token scanning — reads local session files for Grok usage data (#353).
+- Providers: OpenCode Go usage API — authenticated usage API with rolling/weekly/monthly windows, auto-fallback from local to API (#353).
+- Providers: OpenRouter Activity spend — 30-day spend tracking via management API key, with daily breakdown, dedup, and conflict detection (#353).
+- Providers: Antigravity idle-family filtering — idle window IDs filtered to family-level granularity for the dashboard (#353).
+- Cost: Historical GPT-5.6 Terra/Luna pricing — date-gated rates: requests before 2026-07-30 use pre-cut pricing, after uses current rates (#353).
+- Cost: OpenCodex spend routing — typed `RouteTarget` enum routes entries to the correct subscription (Codex, OpenCode Go, Kimi, DeepSeek) by model prefix first, then provider label (#353).
+- Cost: xAI daily spend breakdown added to xAI spend snapshot (#353).
+- Cost: Management API token — optional secondary management credential for providers that expose one (OpenRouter Activity) (#353).
+- Settings: `show_pace` toggle for pace visualizations and forecast text in provider menu cards (default: on) (#353).
+- Settings: OpenRouter management API key configuration in Settings → Providers (#353).
+
+### Fixed
+- Tray: Auto-fit ResizeObserver feedback loop fix — panel size adjusts correctly on content changes (#352).
+- Windows shell: preserved tray-only startup, taskbar suppression, content-sized flyout behavior, and the always-on-top FloatBar safeguards.
+- Windows visuals: preserved the transparent two-bar tray icon, plain Quit cross, and dedicated EXE/installer icon.
+
+### Changed
+- Upstream 0.53.0 → 0.54.0 provider, cost, and CLI behavior ported onto the Windows tray/desktop shell (#353).
+
+### Notes
+- Packaged as a per-user NSIS installer for Windows x64.
+- macOS-only AppKit, WidgetKit, and Sparkle changes remain out of scope for the Tauri/Windows build.
+
+---
+
 ## [Windows] 0.53.0 - 2026-08-20
 
 Windows release aligned with upstream CodexBar **0.53.0**.
@@ -49,7 +80,6 @@ Win-CodexBar baseline through the 0.49.x maintenance cycle.
 - Upstream 0.50 changes that only target AppKit menu-bar layout, WidgetKit,
   macOS Cursor sessions, or other macOS-only surfaces do not apply to this
   Tauri/Windows build.
-
 ---
 
 ## [Windows] 0.48.0 - 2026-08-09

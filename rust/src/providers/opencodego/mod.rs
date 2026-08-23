@@ -6,6 +6,7 @@
 //! scrape only; Cli is local-only.
 
 pub(crate) mod local;
+mod usage_api;
 
 use async_trait::async_trait;
 use chrono::Utc;
@@ -574,14 +575,30 @@ impl Provider for OpenCodeGoProvider {
                 match self.fetch_local_with_balance(ctx).await {
                     Ok(result) => return Ok(result),
                     Err(e) => {
-                        tracing::debug!("OpenCode Go local failed in Auto; trying web: {e}");
+                        tracing::debug!("OpenCode Go local failed in Auto; trying API/web: {e}");
+                    }
+                }
+                if let Some(api_key) = usage_api::resolve_api_key(ctx) {
+                    match usage_api::fetch(&self.client, ctx, &api_key, "api").await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            tracing::debug!("OpenCode Go API failed in Auto; trying web: {e}")
+                        }
                     }
                 }
                 self.fetch_web(ctx).await
             }
             SourceMode::Web => self.fetch_web(ctx).await,
             SourceMode::Cli => self.fetch_local_with_balance(ctx).await,
-            SourceMode::OAuth => Err(ProviderError::UnsupportedSource(SourceMode::OAuth)),
+            SourceMode::OAuth => {
+                let api_key = usage_api::resolve_api_key(ctx).ok_or_else(|| {
+                    ProviderError::NotInstalled(
+                        "Missing OpenCode Go API key. Add one in Settings or set OPENCODE_API_KEY."
+                            .to_string(),
+                    )
+                })?;
+                usage_api::fetch(&self.client, ctx, &api_key, "api").await
+            }
         }
     }
 
@@ -643,6 +660,11 @@ impl OpenCodeGoProvider {
     ) -> Result<ProviderFetchResult, ProviderError> {
         let snap = local::fetch_local_usage(Utc::now())?;
         let mut result = snap.to_fetch_result();
+        if let Some(api_key) = usage_api::resolve_api_key(ctx)
+            && let Ok(api_result) = usage_api::fetch(&self.client, ctx, &api_key, "local+api").await
+        {
+            result = api_result;
+        }
         if !ctx.include_credits {
             return Ok(result);
         }
@@ -661,7 +683,8 @@ impl OpenCodeGoProvider {
         if let Some(balance) =
             Self::join_zen_balance(task, started, ctx.requires_optional_usage_completeness).await
         {
-            result = Self::with_zen_balance(result.usage, "local", Some(balance));
+            result =
+                Self::with_zen_balance(result.usage, &result.source_label.clone(), Some(balance));
         }
         Ok(result)
     }

@@ -21,6 +21,8 @@
 
 use std::collections::{BTreeSet, HashMap};
 
+use super::antigravity;
+
 use chrono::{DateTime, Utc};
 use serde::Serialize;
 
@@ -106,6 +108,13 @@ pub struct WindowPayload {
     pub used_percent: f64,
     pub remaining_percent: f64,
     pub reset_at: Option<DateTime<Utc>>,
+    /// Display-only hint. Script clients can ignore this additive schema-v1 key.
+    #[serde(skip_serializing_if = "is_false")]
+    pub idle: bool,
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -217,10 +226,16 @@ pub struct SnapshotInput {
 }
 
 /// Build the stable display-oriented snapshot (pure; no I/O).
+#[allow(
+    clippy::cast_possible_truncation,
+    reason = "provider order is a short config list; index*10 fits u32"
+)]
 pub fn build_snapshot(input: &SnapshotInput) -> SnapshotPayload {
     let mut sort_keys: HashMap<&str, u32> = HashMap::new();
     for (index, id) in input.order.iter().enumerate() {
-        sort_keys.entry(id.as_str()).or_insert(index as u32 * 10);
+        sort_keys
+            .entry(id.as_str())
+            .or_insert_with(|| index as u32 * 10);
     }
 
     let known_ids: BTreeSet<&str> = crate::core::cli_name_map().keys().copied().collect();
@@ -279,6 +294,7 @@ fn build_provider(
             let source = dashboard_source(&result.source_label);
             let identity = make_identity(&result.usage, input.identity);
             let windows = make_windows(
+                &envelope.id,
                 &envelope.session_label,
                 &envelope.weekly_label,
                 &result.usage,
@@ -362,7 +378,7 @@ fn build_account(
     let (identity, windows, pace, error, updated_at) = match &account.fetch {
         Ok(result) => (
             make_identity(&result.usage, identity_mode),
-            make_windows(session_label, weekly_label, &result.usage),
+            make_windows("claude", session_label, weekly_label, &result.usage),
             make_pace(&result.usage),
             None,
             Some(result.usage.updated_at),
@@ -431,10 +447,30 @@ fn dashboard_email(email: Option<&str>, mode: DashboardIdentity) -> Option<Strin
 }
 
 fn make_windows(
+    provider_id: &str,
     session_label: &str,
     weekly_label: &str,
     usage: &UsageSnapshot,
 ) -> Vec<WindowPayload> {
+    // Upstream 0.54 #3061: Antigravity's primary/secondary slots are representatives
+    // of its quota buckets. Keep every bucket in the v1 payload, mark known-idle
+    // families for display clients, and avoid repeating representative rows.
+    if provider_id == "antigravity" && !usage.extra_rate_windows.is_empty() {
+        let idle_ids = antigravity::idle_window_ids(&usage.extra_rate_windows);
+        return usage
+            .extra_rate_windows
+            .iter()
+            .map(|extra| {
+                make_window_with_idle(
+                    &extra.id,
+                    &extra.title,
+                    &extra.window,
+                    idle_ids.contains(&extra.id),
+                )
+            })
+            .collect();
+    }
+
     let mut windows = Vec::new();
     windows.push(make_window("session", session_label, &usage.primary));
     if let Some(secondary) = &usage.secondary {
@@ -458,6 +494,15 @@ fn push_model_and_tertiary_windows(windows: &mut Vec<WindowPayload>, usage: &Usa
 }
 
 fn make_window(kind: &str, label: &str, window: &RateWindow) -> WindowPayload {
+    make_window_with_idle(kind, label, window, false)
+}
+
+fn make_window_with_idle(
+    kind: &str,
+    label: &str,
+    window: &RateWindow,
+    idle: bool,
+) -> WindowPayload {
     let used = window.used_percent.clamp(0.0, 100.0);
     WindowPayload {
         kind: kind.to_string(),
@@ -465,6 +510,7 @@ fn make_window(kind: &str, label: &str, window: &RateWindow) -> WindowPayload {
         used_percent: used,
         remaining_percent: (100.0 - used).clamp(0.0, 100.0),
         reset_at: window.resets_at,
+        idle,
     }
 }
 
@@ -510,6 +556,7 @@ fn pace_stage_name(stage: crate::core::PaceStage) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::core::NamedRateWindow;
     use crate::core::{CostSnapshot, RateWindow};
 
     fn fetch_result(used: f64, email: Option<&str>, plan: Option<&str>) -> ProviderFetchResult {
@@ -672,6 +719,79 @@ mod tests {
             kinds,
             ["session", "weekly", "model", "tertiary", "reset-credits"]
         );
+    }
+
+    fn antigravity_envelope(windows: Vec<NamedRateWindow>) -> ProviderFetchEnvelope {
+        let mut usage = UsageSnapshot::new(RateWindow::new(0.0));
+        usage.extra_rate_windows = windows;
+        ProviderFetchEnvelope {
+            id: "antigravity".to_string(),
+            display_name: "Antigravity".to_string(),
+            session_label: "Session".to_string(),
+            weekly_label: "Weekly".to_string(),
+            fetch: Ok(ProviderFetchResult::new(usage, "local")),
+        }
+    }
+
+    #[test]
+    fn antigravity_dashboard_marks_only_known_idle_family() {
+        let windows = vec![
+            NamedRateWindow::new("model-gemini-pro", "Gemini Pro", RateWindow::new(20.0)),
+            NamedRateWindow::new("model-gemini-flash", "Gemini Flash", RateWindow::new(0.0)),
+            NamedRateWindow::new("model-claude", "Claude Sonnet", RateWindow::new(0.0)),
+            NamedRateWindow::new("model-gpt", "GPT", RateWindow::new(0.0)),
+        ];
+        let json = serde_json::to_value(build_snapshot(&input(
+            vec![antigravity_envelope(windows)],
+            DashboardIdentity::Redacted,
+        )))
+        .unwrap();
+        let windows = json["providers"][0]["windows"].as_array().unwrap();
+        assert_eq!(
+            windows.len(),
+            4,
+            "representative session rows must not duplicate buckets"
+        );
+        let by_label: HashMap<_, _> = windows
+            .iter()
+            .map(|window| (window["label"].as_str().unwrap(), window))
+            .collect();
+        assert!(by_label["Gemini Pro"].get("idle").is_none());
+        assert!(by_label["Gemini Flash"].get("idle").is_none());
+        assert_eq!(by_label["Claude Sonnet"]["idle"], true);
+        assert_eq!(by_label["GPT"]["idle"], true);
+    }
+
+    #[test]
+    fn antigravity_dashboard_keeps_unknown_zero_family_visible() {
+        let windows = vec![
+            NamedRateWindow::new("model-gemini", "Gemini Pro", RateWindow::new(20.0)),
+            NamedRateWindow::new("model-claude", "Claude Sonnet", RateWindow::new(0.0))
+                .with_usage_known(false),
+            NamedRateWindow::new("model-gpt", "GPT", RateWindow::new(0.0)),
+        ];
+        let json = serde_json::to_value(build_snapshot(&input(
+            vec![antigravity_envelope(windows)],
+            DashboardIdentity::Redacted,
+        )))
+        .unwrap();
+        let windows = json["providers"][0]["windows"].as_array().unwrap();
+        assert!(windows.iter().all(|window| window.get("idle").is_none()));
+    }
+
+    #[test]
+    fn antigravity_dashboard_keeps_all_families_after_global_reset() {
+        let windows = vec![
+            NamedRateWindow::new("model-gemini", "Gemini Pro", RateWindow::new(0.0)),
+            NamedRateWindow::new("model-claude", "Claude Sonnet", RateWindow::new(0.0)),
+        ];
+        let json = serde_json::to_value(build_snapshot(&input(
+            vec![antigravity_envelope(windows)],
+            DashboardIdentity::Redacted,
+        )))
+        .unwrap();
+        let windows = json["providers"][0]["windows"].as_array().unwrap();
+        assert!(windows.iter().all(|window| window.get("idle").is_none()));
     }
 
     #[test]

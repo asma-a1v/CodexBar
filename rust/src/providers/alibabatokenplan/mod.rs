@@ -5,7 +5,7 @@
 //! cookies or a manually pasted cookie header.
 //!
 //! Team path: `GetSubscriptionSummary` / BssOpenAPI-V3 (+ optional sec_token).
-//! Personal/Solo path: OneConsole personal token-plan APIs (no sec_token).
+//! Personal/Solo path: OneConsole personal token-plan APIs (+ best-effort sec_token).
 
 mod personal;
 mod region;
@@ -91,7 +91,15 @@ impl AlibabaTokenPlanProvider {
             .map_err(|e| ProviderError::Other(e.to_string()))?;
 
         let snapshot = if region.uses_personal_api() {
-            personal::fetch_personal_usage(&client, &cookie_header, region, ctx).await?
+            let sec_token = Self::resolve_sec_token(&client, &cookie_header, region, ctx).await;
+            personal::fetch_personal_usage(
+                &client,
+                &cookie_header,
+                region,
+                sec_token.as_deref(),
+                ctx,
+            )
+            .await?
         } else {
             self.fetch_team_usage(&client, &cookie_header, region, ctx)
                 .await?
@@ -379,11 +387,14 @@ pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError>
         )));
     }
 
-    if let Some(success) = find_first_bool(value, &["success", "Success"])
-        && !success
-    {
-        let message = find_first_string(value, &["message", "msg", "Message", "errorMessage"])
-            .unwrap_or_else(|| "request failed".to_string());
+    if let Some(frame) = find_failing_success_frame(value) {
+        let code = find_first_string(frame, &["errorCode", "Code", "code"]);
+        let message = find_first_string(
+            frame,
+            &["errorMsg", "message", "msg", "Message", "errorMessage"],
+        )
+        .or_else(|| code.clone())
+        .unwrap_or_else(|| "request failed".to_string());
         let lower = message.to_lowercase();
         if lower.contains("needlogin")
             || lower.contains("login")
@@ -411,6 +422,24 @@ pub(super) fn throw_if_error_payload(value: &Value) -> Result<(), ProviderError>
         return Err(ProviderError::AuthRequired);
     }
     Ok(())
+}
+
+fn find_failing_success_frame(value: &Value) -> Option<&Value> {
+    match value {
+        Value::Object(map) => {
+            let failed_here = ["success", "Success"]
+                .iter()
+                .filter_map(|key| map.get(*key))
+                .filter_map(|value| parse_bool(Some(value)))
+                .any(|success| !success);
+            if failed_here {
+                return Some(value);
+            }
+            map.values().find_map(find_failing_success_frame)
+        }
+        Value::Array(values) => values.iter().find_map(find_failing_success_frame),
+        _ => None,
+    }
 }
 
 fn normalize_cookie_header(raw: &str) -> Option<String> {
@@ -729,22 +758,6 @@ fn find_first_i64(value: &Value, keys: &[&str]) -> Option<i64> {
         Value::Array(values) => values
             .iter()
             .find_map(|nested| find_first_i64(nested, keys)),
-        _ => None,
-    }
-}
-
-fn find_first_bool(value: &Value, keys: &[&str]) -> Option<bool> {
-    match value {
-        Value::Object(map) => keys
-            .iter()
-            .find_map(|key| parse_bool(map.get(*key)))
-            .or_else(|| {
-                map.values()
-                    .find_map(|nested| find_first_bool(nested, keys))
-            }),
-        Value::Array(values) => values
-            .iter()
-            .find_map(|nested| find_first_bool(nested, keys)),
         _ => None,
     }
 }

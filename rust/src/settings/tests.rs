@@ -22,6 +22,7 @@ fn test_settings_default() {
     assert!(!settings.float_bar_show_cost);
     assert!(settings.promote_tray_icon);
     assert!(settings.claude_daily_routines_usage_visible);
+    assert!(!settings.claude_allow_reading_claude_code_credentials);
     assert_eq!(
         settings.low_power_mode_preference,
         LowPowerModePreference::Off

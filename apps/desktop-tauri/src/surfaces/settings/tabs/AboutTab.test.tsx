@@ -95,6 +95,7 @@ const settings: SettingsSnapshot = {
   floatBarShowResetInline: false,
   floatBarShowCost: false,
   claudeDailyRoutinesUsageVisible: true,
+  claudeAllowReadingClaudeCodeCredentials: false,
   alibabaTokenPlanRegion: "cn",
   weeklyProgressWorkDays: null,
     costSummaryDisplayStyle: "compact",
