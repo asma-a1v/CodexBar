@@ -1,5 +1,21 @@
 # Changelog
 
+## [Windows] 0.54.1 - 2026-08-24
+
+Windows maintenance release based on upstream CodexBar **0.54.0**.
+
+### Fixed
+- Tray: Removed the extra 8 px desktop gap between the system-tray flyout and a bottom-docked Windows taskbar (#48).
+- Windows shell: Kept the existing work-area safety margins for other monitor edges and unusually short work areas while snapping the bottom taskbar edge flush (#48).
+
+### Notes
+- Packaged as a per-user NSIS installer for Windows x64.
+- Upstream provider, cost, and CLI behavior remains aligned with CodexBar 0.54.0.
+
+> Release artifacts are unsigned (SignPath onboarding pending); verify them against the attached `.sha256` sidecar files.
+
+---
+
 ## [Windows] 0.54.0 - 2026-08-22
 
 Windows port of upstream CodexBar **0.53.0 → 0.54.0**.
