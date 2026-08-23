@@ -343,7 +343,7 @@ fn fetch_context_opencode_empty_manual_remaps_to_web() {
 }
 
 #[test]
-fn fetch_context_claude_uses_oauth_without_manual_cookie() {
+fn fetch_context_claude_preserves_auto_without_manual_cookie() {
     let settings = Settings::default();
     let cookies = ManualCookies::default();
     let api_keys = ApiKeys::default();
@@ -357,8 +357,51 @@ fn fetch_context_claude_uses_oauth_without_manual_cookie() {
         &token_accounts,
     );
 
-    assert_eq!(ctx.source_mode, SourceMode::OAuth);
+    assert_eq!(ctx.source_mode, SourceMode::Auto);
     assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
+fn fetch_context_claude_cookie_off_preserves_auto_fallback() {
+    let mut settings = Settings::default();
+    settings.set_cookie_source(ProviderId::Claude, "off");
+    let cookies = ManualCookies::default();
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Claude,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Auto);
+    assert!(ctx.manual_cookie_header.is_none());
+}
+
+#[test]
+fn fetch_context_claude_auto_with_manual_cookie_keeps_fallbacks() {
+    let settings = Settings::default();
+    let mut cookies = ManualCookies::default();
+    cookies.set("claude", "sessionKey=abc123");
+    let api_keys = ApiKeys::default();
+    let token_accounts = HashMap::new();
+
+    let ctx = super::build_fetch_context(
+        ProviderId::Claude,
+        &settings,
+        &cookies,
+        &api_keys,
+        &token_accounts,
+    );
+
+    assert_eq!(ctx.source_mode, SourceMode::Auto);
+    assert_eq!(
+        ctx.manual_cookie_header.as_deref(),
+        Some("sessionKey=abc123")
+    );
 }
 
 #[test]

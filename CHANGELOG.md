@@ -1,5 +1,21 @@
 # Changelog
 
+## [Windows] 0.54.2 - 2026-08-24
+
+Windows hotfix release based on upstream CodexBar **0.54.0**.
+
+### Fixed
+- Claude: Preserved the selected `Auto` usage source when browser cookies are disabled or no manual cookie is stored, allowing the documented CLI fallback instead of stopping at the OAuth consent error.
+- Windows shell: Kept explicit Claude OAuth, Web, CLI, and token-account selections intact while passing available cookies through to the provider's own fallback chain.
+
+### Notes
+- Claude Code credential reading remains opt-in; this fix does not enable or read OAuth credentials without consent.
+- Upstream provider, cost, and CLI behavior remains aligned with CodexBar 0.54.0.
+
+> Release artifacts are unsigned (SignPath onboarding pending); verify them against the attached `.sha256` sidecar files.
+
+---
+
 ## [Windows] 0.54.1 - 2026-08-24
 
 Windows maintenance release based on upstream CodexBar **0.54.0**.

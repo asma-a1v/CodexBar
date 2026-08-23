@@ -48,9 +48,13 @@ pub(crate) fn build_fetch_context(
     } else {
         match cookie_source {
             _ if active_token_env.is_some() => (SourceMode::OAuth, None),
-            "off" if id == ProviderId::Claude && usage_source != SourceMode::Cli => {
-                (SourceMode::OAuth, None)
+            _ if id == ProviderId::Claude && active_token_cookie.is_some() => {
+                (SourceMode::Web, active_token_cookie)
             }
+            // Claude's Auto mode owns the OAuth -> CLI fallback chain. Keep the
+            // selected usage source even when cookies are disabled so the shell
+            // does not turn Auto into an OAuth-only request.
+            "off" if id == ProviderId::Claude => (usage_source, None),
             "off" if has_kimi_code_api_key && usage_source == SourceMode::Auto => {
                 (SourceMode::Auto, None)
             }
@@ -67,10 +71,12 @@ pub(crate) fn build_fetch_context(
                     && usage_source == SourceMode::Auto
                 {
                     SourceMode::Auto
+                } else if id == ProviderId::Claude {
+                    // Pass any manual cookie through, but let Claude's provider
+                    // honor Auto/OAuth/Web/CLI and perform its own fallbacks.
+                    usage_source
                 } else if cookie_header.is_some() {
                     SourceMode::Web
-                } else if id == ProviderId::Claude && usage_source != SourceMode::Cli {
-                    SourceMode::OAuth
                 } else {
                     SourceMode::Cli
                 };
