@@ -83,6 +83,7 @@ pub fn clamp_position_to_work_area(
 ///
 /// Placement rules:
 /// - Horizontally centered on the icon, clamped to the monitor work area.
+/// - Bottom taskbars align the panel frame flush with the work-area bottom.
 /// - Left/right taskbars bottom-align the panel to the work area.
 /// - If the icon is in the bottom half of the monitor (bottom taskbar), the
 ///   panel opens *above* the icon. Otherwise it opens *below*.
@@ -95,6 +96,8 @@ pub fn calculate_panel_position(
 ) -> (i32, i32) {
     let my = work_area.y;
     let mh = work_area.height as i32;
+    let work_bottom = work_area.y + work_area.height as i32;
+    let bounds_bottom = monitor_bounds.y + monitor_bounds.height as i32;
 
     let icon_cy = icon_rect.y + (icon_rect.height as i32) / 2;
     let monitor_cy = my + mh / 2;
@@ -117,12 +120,16 @@ pub fn calculate_panel_position(
     let bounds_right = monitor_bounds.x + monitor_bounds.width as i32;
     let work_right = work_area.x + work_area.width as i32;
 
-    if work_area.x > monitor_bounds.x || work_right < bounds_right {
-        let (_, ph) = physical_panel_size(panel_size, scale_factor);
-        (
-            position.0,
-            work_area.y + work_area.height as i32 - ph - MARGIN,
-        )
+    let (_, ph) = physical_panel_size(panel_size, scale_factor);
+    if work_bottom < bounds_bottom {
+        // A bottom-docked taskbar already separates the flyout from the
+        // monitor edge. Snap the window frame to the work-area boundary so
+        // there is no extra strip of desktop between its shadow and the
+        // taskbar. Keep the normal top safety margin for unusually short
+        // work areas where the panel cannot fit at its requested height.
+        (position.0, (work_bottom - ph).max(work_area.y + MARGIN))
+    } else if work_area.x > monitor_bounds.x || work_right < bounds_right {
+        (position.0, work_bottom - ph - MARGIN)
     } else {
         position
     }
@@ -239,6 +246,30 @@ mod tests {
         let monitor = hd_monitor();
         let (_, y) = calculate_panel_position(&icon, &monitor, &monitor, &panel(), 1.0);
         assert!(y < icon.y, "panel should sit above the icon");
+    }
+
+    #[test]
+    fn bottom_taskbar_panel_frame_is_flush_with_work_area_bottom() {
+        let monitor = hd_monitor();
+        let work_area = Rect {
+            x: 0,
+            y: 0,
+            width: 1920,
+            height: 1040,
+        };
+        let icon = Rect {
+            x: 1800,
+            y: 1048,
+            width: 24,
+            height: 24,
+        };
+
+        let (_, y) = calculate_panel_position(&icon, &monitor, &work_area, &panel(), 1.0);
+
+        assert_eq!(
+            y + panel().height as i32,
+            work_area.y + work_area.height as i32
+        );
     }
 
     #[test]
