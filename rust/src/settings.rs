@@ -154,6 +154,10 @@ pub struct Settings {
     #[serde(default)]
     pub predictive_pace_warning_enabled: bool,
 
+    /// Show pace visualizations and forecast text in provider menu cards.
+    #[serde(default = "default_true")]
+    pub show_pace: bool,
+
     /// Menu bar display mode: "minimal", "compact", or "detailed"
     pub menu_bar_display_mode: String,
 
@@ -495,6 +499,7 @@ impl Default for Settings {
             reset_time_relative: true, // Show relative times by default
             show_reset_when_exhausted: false,
             predictive_pace_warning_enabled: false,
+            show_pace: true,
             menu_bar_display_mode: "detailed".to_string(), // Detailed mode by default
             show_all_token_accounts_in_menu: false,
             provider_configs: HashMap::new(),
@@ -892,6 +897,21 @@ impl Settings {
 
     pub fn set_api_token(&mut self, id: ProviderId, token: impl Into<String>) {
         self.provider_config_mut(id).api_token = Some(token.into());
+    }
+
+    pub fn management_api_token(&self, id: ProviderId) -> Option<&str> {
+        self.provider_configs
+            .get(&id)
+            .and_then(|config| config.management_api_token.as_deref())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+    }
+
+    pub fn set_management_api_token(&mut self, id: ProviderId, token: Option<String>) {
+        let token = token
+            .map(|value| value.trim().to_string())
+            .filter(|value| !value.is_empty());
+        self.provider_config_mut(id).management_api_token = token;
     }
 
     /// Workspace ID override for `id`, or `""` if unset.

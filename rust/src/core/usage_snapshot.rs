@@ -44,6 +44,14 @@ pub struct NamedRateWindow {
     pub id: String,
     pub title: String,
     pub window: RateWindow,
+    /// Whether the provider explicitly reported usage for this lane.
+    /// In-memory presentation metadata only; external snapshot JSON stays stable.
+    #[serde(default = "named_rate_window_usage_known_default", skip_serializing)]
+    pub usage_known: bool,
+}
+
+fn named_rate_window_usage_known_default() -> bool {
+    true
 }
 
 impl NamedRateWindow {
@@ -52,7 +60,13 @@ impl NamedRateWindow {
             id: id.into(),
             title: title.into(),
             window,
+            usage_known: true,
         }
+    }
+
+    pub fn with_usage_known(mut self, usage_known: bool) -> Self {
+        self.usage_known = usage_known;
+        self
     }
 }
 
@@ -205,6 +219,12 @@ impl UsageSnapshot {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct CostDailyPoint {
+    pub day: String,
+    pub amount: f64,
+}
+
 /// Cost/credits snapshot for providers that support it
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CostSnapshot {
@@ -237,6 +257,10 @@ pub struct CostSnapshot {
     /// Remaining prepaid balance (currency units), separate from used/limit spend.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub balance: Option<f64>,
+
+    /// Exact daily spend points when the provider supplies them.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub daily: Vec<CostDailyPoint>,
 }
 
 impl CostSnapshot {
@@ -251,6 +275,7 @@ impl CostSnapshot {
             resets_at: None,
             updated_at: Utc::now(),
             balance: None,
+            daily: Vec::new(),
         }
     }
 
@@ -263,6 +288,11 @@ impl CostSnapshot {
     /// Builder pattern: set remaining prepaid balance (finite, ≥ 0 only)
     pub fn with_balance(mut self, balance: f64) -> Self {
         self.balance = finite_amount(balance);
+        self
+    }
+
+    pub fn with_daily(mut self, daily: Vec<CostDailyPoint>) -> Self {
+        self.daily = daily;
         self
     }
 

@@ -45,6 +45,7 @@ export function useTrayPanelLayout({
   const resizeRunRef = useRef(0);
   const layoutTimerRef = useRef<number | undefined>(undefined);
   const lastSizeRef = useRef<{ width: number; height: number } | null>(null);
+  const programmaticInFlightRef = useRef(0);
   const sizingStateRef = useRef<TrayAutoFitState>(EMPTY_AUTOFIT_STATE);
 
   // The tray flyout is content-sized only; it has no user-resizable mode.
@@ -77,7 +78,19 @@ export function useTrayPanelLayout({
   useEffect(() => {
     const surface = document.querySelector<HTMLElement>(".menu-surface--tray");
     if (!surface || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(() => requestLayout());
+    const observer = new ResizeObserver(() => {
+      // Measuring temporarily removes the surface/body constraints, which
+      // resizes the observed surface. Do not feed that programmatic change
+      // back into another pass or the capped flyout flashes between its
+      // measured and committed layouts forever.
+      if (
+        layoutReadyRef.current &&
+        programmaticInFlightRef.current > 0
+      ) {
+        return;
+      }
+      requestLayout();
+    });
     observer.observe(surface);
     return () => observer.disconnect();
   }, [requestLayout]);
@@ -153,6 +166,10 @@ export function useTrayPanelLayout({
         }
       };
 
+      // Keep ResizeObserver callbacks caused by this measurement pass from
+      // scheduling another pass. The trailing delay absorbs callbacks that
+      // WebView2 delivers shortly after the styles and window size settle.
+      programmaticInFlightRef.current += 1;
       try {
         if (!layoutReadyRef.current) {
           sizingStateRef.current = recordAutoFitCommit(
@@ -223,6 +240,12 @@ export function useTrayPanelLayout({
           body.style.flex = previous.bodyFlex ?? "";
         }
         if (stack) stack.style.overflow = previous.stackOverflow ?? "";
+        window.setTimeout(() => {
+          programmaticInFlightRef.current = Math.max(
+            0,
+            programmaticInFlightRef.current - 1,
+          );
+        }, 200);
       }
     };
 

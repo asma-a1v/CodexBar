@@ -224,7 +224,12 @@ mod tests {
     #[test]
     fn percent_icon_draws_visible_text() {
         let (rgba, _, _) = render_percent_icon_rgba(72.0, false);
-        assert!(rgba.chunks_exact(4).any(|px| px[3] == 255));
+        assert!(
+            rgba.as_chunks::<4>()
+                .0
+                .iter()
+                .any(|px| px[3] == 255 && px[0] != 60)
+        );
     }
 
     #[test]

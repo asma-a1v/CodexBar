@@ -15,6 +15,7 @@ const settings = {
   floatBarStyle: "floating",
   floatBarShowCost: false,
   claudeDailyRoutinesUsageVisible: true,
+  claudeAllowReadingClaudeCodeCredentials: false,
   alibabaTokenPlanRegion: "cn",
   weeklyProgressWorkDays: null,
   floatBarShowResetInline: false,
